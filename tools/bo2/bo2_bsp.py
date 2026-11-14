@@ -53,12 +53,27 @@ GSC = """main()
 
 SURFACE_CELL = 1024.0       # world surfaces are cut into cells this wide in the play area,
 FAR_SURFACE_CELL = 8192.0   # and this wide in the distant backdrop
-PLAY_HALF = 4096.0
+PLAY_PAD = 2048.0           # the play area: the zones and this much around them
+PLAY_HALF = 4096.0          # without zones: this square around the origin
 
 
-def surface_cell(p):
-    if abs(p[0]) < PLAY_HALF and abs(p[1]) < PLAY_HALF:
-        return (0, math.floor(p[0] / SURFACE_CELL), math.floor(p[1] / SURFACE_CELL))
+def play_cells(zones):
+    """The SURFACE_CELL cells of the play area: the zones' boxes and PLAY_PAD around them (TranZit's zones spread over
+    26 000 x 18 000 units, far from the origin), or a square of PLAY_HALF around the origin without zones."""
+    boxes = [(z["mins"], z["maxs"]) for z in zones] or [((-PLAY_HALF,) * 2, (PLAY_HALF,) * 2)]
+    cells = set()
+    for lo, hi in boxes:
+        for cx in range(math.floor((lo[0] - PLAY_PAD) / SURFACE_CELL), math.floor((hi[0] + PLAY_PAD) / SURFACE_CELL) + 1):
+            for cy in range(math.floor((lo[1] - PLAY_PAD) / SURFACE_CELL),
+                            math.floor((hi[1] + PLAY_PAD) / SURFACE_CELL) + 1):
+                cells.add((cx, cy))
+    return cells
+
+
+def surface_cell(p, play):
+    cell = (math.floor(p[0] / SURFACE_CELL), math.floor(p[1] / SURFACE_CELL))
+    if cell in play:
+        return (0,) + cell
     return (1, math.floor(p[0] / FAR_SURFACE_CELL), math.floor(p[1] / FAR_SURFACE_CELL))
 
 
@@ -112,17 +127,28 @@ def read_collision(path):
     return materials, brushes, verts, tris
 
 
-def write_bsp_layout(layout, layout_path, out, blocker_mesh):
+def write_bsp_layout(layout, layout_path, out, blocker_mesh, props_collision=None):
     """<out>/<layout>_bsp.json: the layout for this BSP. The BSP draws and collides the world, so the layout keeps its
     gameplay edits without its collision and mesh edits. Its door and debris edits keep their meshGroup when
     blocker_mesh (a path under mods/mapkit) names bo2_mesh.py --blockers-only's file: a mesh edit of that file, with
     the world mesh edit's other keys, draws BO2's doors and furniture until the purchase; without it each blocker
-    shows MapKit's box."""
+    shows MapKit's box. props_collision (a path under mods/mapkit) adds a collision edit of the props the BSP could
+    not hold, with the world collision edit's cut boxes."""
     world_mesh = next((e for e in layout["edits"] if e["kind"] == "mesh"), None)
+    world_collision = next((e for e in layout["edits"] if e["kind"] == "collision"), None)
     edits = []
+    if props_collision:
+        edits.append({"kind": "collision", "file": props_collision,
+                      **({"cut": world_collision["cut"]} if world_collision and world_collision.get("cut") else {})})
     for e in layout["edits"]:
         if e["kind"] == "mesh" and blocker_mesh:
             edits.append(dict(e, file=blocker_mesh))
+        elif e["kind"] == "window":
+            # MapKit's boarded window is the base map's own brush models (Five's *7..*19, MkE_Window), which a BSP
+            # world does not have: their entities got the BSP's missing submodels, bounds thousands of units wide that
+            # put 3 172 of TranZit's pathnodes in solid ("Max number of disconnected paths exceeded"). Until the BSP
+            # carries board models, a window is an open entrance (MapKit's "open": no boards, no clip).
+            edits.append(dict(e, open=1))
         elif e["kind"] not in ("collision", "mesh"):
             edits.append(e)
     if not (blocker_mesh and world_mesh):
@@ -152,13 +178,18 @@ def main(argv=None):
     parser.add_argument("--blocker-mesh", help="the doors' and debris' props for the layout's mesh edit, a path "
                                                "under mods/mapkit (bo2_mesh.py --blockers-only: imports/<map>/"
                                                "<map>.blockers.mesh.bin); without it the blockers show MapKit's box")
+    parser.add_argument("--props-collision", help="with --models: the props' meshes past the BSP's 65 536 collision "
+                                                  "vertices go to this BO2COL2 file, a path under mods/mapkit "
+                                                  "(imports/<map>/<map>.props.collision.bin), written to <out>/ and "
+                                                  "loaded by a collision edit of the BSP layout; without it they are "
+                                                  "boxes")
     parser.add_argument("--layout-only", action="store_true", help="write <out>/<layout>_bsp.json only (--layout)")
     args = parser.parse_args(argv)
     if args.layout_only:
         if not args.layout:
             sys.exit("--layout-only needs --layout")
         with open(args.layout, encoding="utf-8") as f:
-            name = write_bsp_layout(json.load(f), args.layout, args.out, args.blocker_mesh)
+            name = write_bsp_layout(json.load(f), args.layout, args.out, args.blocker_mesh, args.props_collision)
         print(f"{os.path.join(args.out, name)} written")
         return 0
     if not args.templates:
@@ -179,6 +210,9 @@ def main(argv=None):
             templates[flag] = json.load(f)
 
     bsp = d3dbsp.Bsp()
+    col_path = args.collision or base + ".collision.bin"
+    zones = zone_edits(read_entities(base + ".ents"), Collision(col_path).submodels)
+    play = play_cells(zones)
 
     # Render: one BO1 material per BO2 material that has a colour map
     colour = read_mtl(base + ".mtl", images)
@@ -232,7 +266,7 @@ def main(argv=None):
             if world_light and lmap in world_light.lightmaps and not flags:
                 bake_tris.append((lmap, lit_corners[face[0][0]][3],
                                   [(positions[p], lit_corners[p][:2]) for p, _ in face]))
-            cells.setdefault((surface_cell(centre), lmap), []).append(face)
+            cells.setdefault((surface_cell(centre, play), lmap), []).append(face)
         for (_, lmap), faces in cells.items():
             if lmap not in lightmap_of:
                 lightmap_of[lmap] = len(lightmap_of)
@@ -263,16 +297,13 @@ def main(argv=None):
         bsp.sun_color = bo2_bsp_light.bake_sun_colour(world_light)
         light_index = {world_light.sun_index: d3dbsp.SUN_PRIMARY_LIGHT}
         light_index.update(bo2_bsp_light.add_lamps(bsp, world_light))
-        zones = zone_edits(read_entities(base + ".ents"), Collision(args.collision or base + ".collision.bin").submodels)
         if zones:
-            grid = bo2_bsp_light.light_grid(world_light, bake_tris, [min(z["mins"][k] for z in zones) for k in range(3)],
-                                            [max(z["maxs"][k] for z in zones) for k in range(3)],
+            grid = bo2_bsp_light.light_grid(world_light, bake_tris, [(z["mins"], z["maxs"]) for z in zones],
                                             light_index, d3dbsp.NO_PRIMARY_LIGHT)
         if grid:
             bsp.set_light_grid(*grid)
 
     # Collision: the world's brushes and terrain (owner 0); submodels (doors) wait for the gameplay step
-    col_path = args.collision or base + ".collision.bin"
     cmats, brushes, verts, tris = read_collision(col_path)
     flag_material = {}
 
@@ -328,7 +359,13 @@ def main(argv=None):
     bsp.add_collision_triangles(coll_verts, coll_tris)
     prop_stats = None
     if args.models:
-        prop_stats = prop_collision(bsp, args.dump, base, col_material(PROP_CONTENTS, 0), len(coll_verts))
+        overflow = [] if args.props_collision else None
+        prop_stats = prop_collision(bsp, args.dump, base, col_material(PROP_CONTENTS, 0), len(coll_verts), overflow)
+        if overflow is not None:
+            # a BO2COL2 file of brushes only: no materials, the brushes, no terrain (cm_mapkit_import.cpp)
+            path = os.path.join(args.out, os.path.basename(args.props_collision))
+            with open(path, "wb") as f:
+                f.write(b"BO2COL2\0" + struct.pack("<II", 0, len(overflow)) + b"".join(overflow) + struct.pack("<II", 0, 0))
 
     # Entities: the worldspawn (its sun) and the player start; the gameplay step adds the rest
     ents = read_entities(base + ".ents")
@@ -354,7 +391,7 @@ def main(argv=None):
     bsp.write(bsp_path)
 
     if layout:
-        write_bsp_layout(layout, args.layout, args.out, args.blocker_mesh)
+        write_bsp_layout(layout, args.layout, args.out, args.blocker_mesh, args.props_collision)
 
     with open(os.path.join(raw, "maps", args.name + ".gsc"), "w", encoding="latin-1", newline="\n") as f:
         f.write(GSC)
@@ -375,10 +412,12 @@ def main(argv=None):
     print(f"lightmaps: {len(lightmap_of)} ({len(baked)} baked from BO2's, reference "
           f"{', '.join(f'{r:.2f}' for r in world_light.reference) if world_light else '-'})")
     if grid:
-        g_mins, g_maxs, g_entries, g_colours = grid
-        print(f"light grid: {g_maxs[0] - g_mins[0] + 1} x {g_maxs[1] - g_mins[1] + 1} x {g_maxs[2] - g_mins[2] + 1} "
-              f"points, {len(g_colours)} colours, {sum(1 for e in g_entries if e[1] == d3dbsp.SUN_PRIMARY_LIGHT)} "
-              f"in the sun, {sum(1 for e in g_entries if e[1] > d3dbsp.SUN_PRIMARY_LIGHT)} under a lamp ({len(bsp.lights)} "
+        g_mins, g_maxs, g_rows, g_colours = grid
+        g_entries = [e for row in g_rows.values() for block in row for e in block[4]]
+        print(f"light grid: {len(g_entries)} points in {len(g_rows)} rows, bounds {g_maxs[0] - g_mins[0] + 1} x "
+              f"{g_maxs[1] - g_mins[1] + 1} x {g_maxs[2] - g_mins[2] + 1}, {len(g_colours)} colours, "
+              f"{sum(1 for e in g_entries if e[1] == d3dbsp.SUN_PRIMARY_LIGHT)} in the sun, "
+              f"{sum(1 for e in g_entries if e[1] > d3dbsp.SUN_PRIMARY_LIGHT)} under a lamp ({len(bsp.lights)} "
               f"lamps); sun colour {', '.join(f'{c:.2f}' for c in bsp.sun_color)}")
     print(f"{bsp_path}: {len(zone_materials)} materials, {tri_total} triangles in {len(bsp.soups)} surfaces "
           f"({skipped_names} materials left out, {len(no_map)} without a colour map, {len(bad_image)} with an image "
@@ -387,12 +426,14 @@ def main(argv=None):
           f"{no_contents} contentless triangles); "
           f"tree {nodes} nodes, {leafs} leaves, {leafbrushes} leaf brushes, {aabbs} leaf partitions")
     if props:
-        boxes, piles, rocks, tri_props, tri_count, fallback = prop_stats
+        boxes, piles, rocks, tri_props, tri_count, fallback, spilled = prop_stats
         print(f"props: {placed[0]} placements as static models ({placed[1]} left out), "
               f"{sum(1 for m in props.models.values() if m)} xmodels, "
               f"{sum(1 for m in props.materials.values() if m)} materials; collision: {boxes} boxes, "
               f"{piles} piles as {rocks} rocks, {tri_props} meshes as {tri_count} triangles, {fallback} meshes as boxes "
-              f"(no collision vertices left)")
+              f"(no collision vertices left)" + (f", {spilled} meshes as {len(overflow)} prisms in "
+                                                 f"{os.path.basename(args.props_collision)}" if overflow is not None
+                                                 else ""))
         for note in props.notes[:20]:
             print("  " + note)
     if no_map:

@@ -21,7 +21,7 @@ import shutil
 from bo2_layout import Collision, read_entities, zone_edits
 from bo2_mesh import FLAG_ALPHA_TEST, FLAG_BLEND, FLAG_DECAL, blend_flags, dds_to_iwi, image_name, material_colour, \
     skipped
-from bo2_props_collision import BOX_MAX, LIGHTS, MIN_HALF, PLAY_PAD, box_like, collision_lod
+from bo2_props_collision import BOX_MAX, LIGHTS, MIN_HALF, PLAY_PAD, PROP_CONTENTS, box_like, collision_lod, prism_brush
 
 MODEL_TEMPLATES = {0: "mtl_dest_glo_paper_01", FLAG_ALPHA_TEST: "mtl_filament", FLAG_DECAL: "mtl_theater_paper_scrawl",
                    FLAG_BLEND: "mtl_theater_paper_scrawl"}
@@ -271,9 +271,11 @@ def rock_brushes(points, tris):
     return out
 
 
-def prop_collision(bsp, dump, base, material, verts_used):
-    """The props' collision (module docstring). Returns (boxes, piles, rock brushes, triangle props, triangles,
-    fallback boxes)."""
+def prop_collision(bsp, dump, base, material, verts_used, overflow=None):
+    """The props' collision (module docstring). A mesh past the BSP's 16-bit collision vertices becomes a box, or,
+    with overflow (a list), BO2COL2 prism brushes appended to it, for a MapKit collision edit: TranZit's meshes want
+    far more vertices than its terrain leaves. Returns (boxes, piles, rock brushes, triangle props, triangles,
+    fallback boxes, overflow meshes)."""
     placements = {}
     with open(base + ".smodels.csv", encoding="latin-1") as f:
         for row in csv.DictReader(f):
@@ -331,15 +333,24 @@ def prop_collision(bsp, dump, base, material, verts_used):
             rock_count += 1
     # Triangles while the 16-bit collision vertices last, smallest meshes first; the rest as boxes.
     meshes.sort(key=lambda e: len(e[3]))
-    tri_props = tri_count = fallback = 0
+    tri_props = tri_count = fallback = spilled = 0
     for origin, axes, scale, tris, bounds in meshes:
         local = {}
         for tri in tris:
             for p in tri:
                 local.setdefault(tuple(p), len(local))
         if verts_used + len(local) > COLLISION_VERTS:
-            add_box(origin, axes, scale, bounds)
-            fallback += 1
+            if overflow is None:
+                add_box(origin, axes, scale, bounds)
+                fallback += 1
+                continue
+            # as bo2_props_collision.py writes them for MapKit: model_tris' winding, a prism behind each face
+            for tri in tris:
+                brush = prism_brush([[origin[k] + scale * sum(p[j] * axes[j][k] for j in range(3)) for k in range(3)]
+                                     for p in tri], PROP_CONTENTS)
+                if brush is not None:
+                    overflow.append(brush)
+            spilled += 1
             continue
         world = [None] * len(local)
         for p, i in local.items():
@@ -351,5 +362,5 @@ def prop_collision(bsp, dump, base, material, verts_used):
         verts_used += len(local)
         tri_props += 1
         tri_count += len(out)
-    return len(boxes), len(piles), rock_count, tri_props, tri_count, fallback
+    return len(boxes), len(piles), rock_count, tri_props, tri_count, fallback, spilled
 

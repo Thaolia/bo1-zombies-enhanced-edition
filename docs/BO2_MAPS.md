@@ -279,8 +279,76 @@ Pack-a-Punch. It now runs on the BSP world instead of its own mesh and collision
   the lightmaps hold their light already), so a lamp keeps BO2's own colour. The same door: 80, 71, 60 (the warm
   lamp beside it); the hedges keep their texture's red/green ratio (1.13, 1.11 on the MapKit mesh, which draws them
   unlit).
-- The hunk is 96 MB with `bo1_bspworld`: 45.9 MB for the world with its props, plus 37.7 MB of temporary memory while
-  the lightmaps load (one merged 2 048 x 2 048 group).
+- The hunk is 112 MB with `bo1_bspworld` (96 MB until TranZit): 45.9 MB for the world with its props, plus 37.7 MB of
+  temporary memory while the lightmaps load (one merged 2 048 x 2 048 group). The `bspworld: hunk` line gives the
+  use after the render world, the most in use at once (temporary memory included) and the size: 36.5, 58.1 and 112
+  MB on Nuketown since the light grid is sparse.
+
+### TranZit's world as a native map (2026-11-14, started)
+
+`zm_transit` goes through the same tools as Nuketown, as `zombie_bo2transit`, with the MapKit layout
+`bo2_zm_transit_bsp` (the classic gameplay of `bo2_zm_transit`: zones, doors, perks, power, box, bus) on its world.
+TranZit is three times Nuketown: 380 024 world triangles in 6 532 surfaces, 20 597 brushes, 69 680 terrain
+triangles, 10 835 placed props of 509 models, 140 lamps, 26 000 x 18 000 units. What it needed:
+
+- **The light grid is sparse.** Over TranZit's zones the dense grid was 857 x 611 x 51 points: 20 million, and its
+  primary-light vote (one array per lamp, 143 of them) went past 10 GB, so `bo2_bsp.py` was killed. The grid is now
+  written as the compiler writes them (`d3dbsp.set_light_grid`, `R_GetLightGridSampleEntryQuad`): per row, blocks of
+  8 columns, each from its lowest floor to 192 units over its highest, a block without a floor holding no point
+  (the engine extrapolates there, as on a retail map); a row without a point is 0xFFFF in the header. It is built in
+  slabs of 32 rows. TranZit: 1 934 076 points, 68 s and 1 GB for the whole world. `tests/bo2/test_d3dbsp_lightgrid.py`
+  looks every point up as the engine does. Nuketown's grid went from 611 925 points to 141 485: 141 152 of them
+  give the same entry as before, 333 differ by at most 0.08 (columns at the edge of the zones), the 470 440 others
+  were points far over every floor.
+- **Surfaces are cut into 1 024-unit cells over the zones** (and 2 048 units around them), not in a square around the
+  origin: TranZit's play area runs to 13 000 units from it. Nuketown: 2 133 surfaces instead of 2 130.
+- **The props' collision does not fit in the BSP.** Collision vertices are 16-bit (`cm.triIndices`) and TranZit's
+  terrain takes 46 333 of the 65 536, all of them inside the zones. Its boxes (2 133) and rocks (851 brushes) stay
+  brushes, its meshes take the vertices left (714 meshes, 25 160 triangles), and with `--props-collision
+  imports/zm_transit/zm_transit.props.collision.bin` the 1 028 meshes past them go to a BO2COL2 file of prism
+  brushes (434 168, as MapKit's import makes them), which the BSP layout loads with a `collision` edit: MapKit's
+  import joins every trace and the physics on a BSP world too. Without it they were boxes.
+- **The bridge and the bus.** BO2's brush models are not in the BSP: `bo2_mesh.py --blockers-only` now keeps the
+  standing brush models (the two bridge sections) and the `--mover` models (the bus) with the blockers.
+- **Models from the gump zones.** The xmodels are dumped as GLTF from `zm_transit.ff` and its eleven
+  `zm_transit_gump_*` zones (tunnel included: its pipes, cones and debris), merged as for MapKit.
+- **The image streamer's tables.** With `bo1_mod_zones` the material pool holds 6 144 entries and the xmodel pool
+  2 000, but `r_stream.cpp` kept 4 096 and 1 000: TranZit's materials past 4 095 asserted ("materialIndex <
+  MAX_MATERIAL_POOL_SIZE"), and an xmodel past 999 wrote its distance past `modelDistance` without a check. The
+  tables now have the mod pools' sizes (`R_STREAM_MATERIAL_COUNT`, `R_STREAM_XMODEL_COUNT`, a `static_assert` in
+  `db_registry.cpp` ties them), and `DB_GetXModelAtIndex` asserts against the pool, not 1 000.
+- **The static model cache.** Some of TranZit's props are xmodels BO1's own zones hold (`p_glo_cinder_block`,
+  `p_glo_electrical_pipes_short`), whose lods carry the cache indices Treyarch's linker gave them; a world read from
+  a BSP assigns its own (`R_AssignSModelCacheResources`) and asserted on them (`smcIndexPlusOne == 0`). It now clears
+  the indices of the lods it assigns.
+- **Windows are open entrances for now.** MapKit's boarded window is the base map's own brush models (Five's
+  `*7`..`*19`: boards, clip, repair boards), which a BSP world does not have. Their entities got the BSP's missing
+  submodels, bounds thousands of units wide, which put 3 172 of the 5 350 pathnodes in solid and ended the load:
+  "Max number of disconnected paths exceeded". `write_bsp_layout` makes each window `"open"` (no boards, no clip:
+  zombies climb through, players can step out) until the BSP carries board models: 56 nodes in solid then (115 on
+  MapKit's own TranZit).
+- **The hunk** (above): 97.8 MB after the render world, at most 99.8 MB at once.
+
+Checked on win64-msvc (D3D9, `headless.ps1 -Client`): the player spawns in the depot, which is drawn with its props
+(chairs, the route map, Quick Revive, the bus behind the glass), the round starts, and the view over the depot's yard
+shows the road, the cabin, the river and the rocks; the run quits cleanly. Nuketown's five drops land where they did
+(-43, -66, -54, 33, -60). Still to do: board models for the windows, a band of red and cyan along the river's edge
+(a decal blend), the self-test, the Linux and Switch builds, ZmClient, the Switch menu and `make_dist.sh`.
+
+Build it (the procedure of Nuketown's world with these differences):
+
+    $U --include-assets xmodel,material --model-format GLTF -o $D/transitgltf/?zone? zm_transit.ff   # and each
+    # zm_transit_gump_*.ff, then rsync -a --ignore-existing zm_transit_gump_*/ zm_transit/ in $D/transitgltf
+    tools/bo2/bo2_mesh.py $D/zm_transit zm_transit --out $OUT/imports --blockers-only --mover veh_t6_civ_bus_zombie
+    tools/bo2/bo2_bsp.py $D/zm_transit zm_transit --name zombie_bo2transit --templates <wc> --models \
+        $D/transitgltf/zm_transit --layout <layouts/bo2_zm_transit.json> \
+        --blocker-mesh imports/zm_transit/zm_transit.blockers.mesh.bin \
+        --props-collision imports/zm_transit/zm_transit.props.collision.bin --out $OUT
+    # Linker as for Nuketown; ffconv --verify; then main/maps, main/images, usermaps/zombie_bo2transit, and in
+    # mods/mapkit: layouts/bo2_zm_transit_bsp.json, imports/zm_transit/ (blockers mesh, images, props collision, links)
+
+    +set fs_game mods/mapkit +set fs_mods mapkit +set bo1_mod_mapkit bo2_zm_transit_bsp \
+    +set bo1_mod_zones zombie_bo2transit +set bo1_bspworld maps/zombie_bo2transit.d3dbsp +devmap zombie_pentagon
 
 ## What comes out of `zm_nuked`
 

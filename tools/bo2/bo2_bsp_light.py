@@ -108,6 +108,8 @@ FLOOR_REACH = 24.0                 # a floor counts for a point this far above i
 FLOOR_NORMAL_Z = 0.5               # a triangle this flat is a floor
 COLOUR_STEP = 1.0 / 64.0           # light grid colours are quantised to this
 SMOOTH_RADIUS = 2                  # columns on each side a point's light is averaged over (64 units)
+GRID_BLOCK = 8                     # columns along y that share a height range in the grid's rows
+GRID_SLAB = 32                     # rows smoothed at a time (memory)
 AMBIENT_MIN = 0.12                 # the darkest ambient light, as the lightmaps' LIGHT_FLOOR: BO2 lifts its shade
 # The share of its colour a grid point keeps around its luminance. The floors' light without the sun is mostly light
 # bounced off Nuketown's orange ground, and dividing it by the reference (the sunlit ground: BO2's blue sun) turned
@@ -124,16 +126,50 @@ def desaturate(colours):
     return luma + AMBIENT_SATURATION * (colours - luma)
 
 
-def light_grid(world_light, triangles, play_mins, play_maxs, light_index, none_index):
-    """BO1's light grid over the play area (play_mins / play_maxs, world units) from BO2's light. Each point takes
-    the light of the floor under it, BO2's lightmap there without its primary light: its first slice plus half its
-    second (the second is directional light, which a model takes from every side), divided by world_light.reference
-    as the lightmaps are; and the floor's primary light (the sun or a lamp, light_index maps BO2's index to the BSP's)
-    where it reaches that floor (none_index elsewhere): BO1 adds that light to the model as it draws it. Each point
-    then takes at least the mean of the floors around it, and AMBIENT_MIN, and the primary light most of them have; a
-    point with no floor below takes that mean (colour 0, the median, without one).
-    triangles: as bake's. Returns (mins, maxs, entries, colours) for D3dBsp.set_light_grid."""
+def weighted_median(values, weights):
+    """np.median(axis=0) of values (n, 3) with each row counted weights[i] times."""
+    out = np.empty(values.shape[1], np.float32)
+    total = float(weights.sum())
+    for k in range(values.shape[1]):
+        order = np.argsort(values[:, k], kind="stable")
+        cumulative = np.cumsum(weights[order])
+        lo = order[np.searchsorted(cumulative, (total - 1) // 2, side="right")]
+        hi = order[np.searchsorted(cumulative, total // 2, side="right")]
+        out[k] = (values[lo, k] + values[hi, k]) / 2.0
+    return out
+
+
+def grid_columns(boxes):
+    """The light grid columns (gx, gy) over boxes [(mins, maxs)] (the zones), GRID_PAD around each."""
+    keep = set()
+    for lo, hi in boxes:
+        x0 = int((lo[0] - GRID_PAD - GRID_ORIGIN) // GRID_XY)
+        x1 = int((hi[0] + GRID_PAD - GRID_ORIGIN) // GRID_XY) + 1
+        y0 = int((lo[1] - GRID_PAD - GRID_ORIGIN) // GRID_XY)
+        y1 = int((hi[1] + GRID_PAD - GRID_ORIGIN) // GRID_XY) + 1
+        keep.update((gx, gy) for gx in range(x0, x1 + 1) for gy in range(y0, y1 + 1))
+    return keep
+
+
+def light_grid(world_light, triangles, boxes, light_index, none_index):
+    """BO1's light grid over the play area (boxes: the zones' [(mins, maxs)], GRID_PAD around each) from BO2's light.
+    Each point takes the light of the floor under it, BO2's lightmap there without its primary light: its first slice
+    plus half its second (the second is directional light, which a model takes from every side), divided by
+    world_light.reference as the lightmaps are; and the floor's primary light (the sun or a lamp, light_index maps
+    BO2's index to the BSP's) where it reaches that floor (none_index elsewhere): BO1 adds that light to the model as
+    it draws it. Each point then takes at least the mean of the floors around it, and AMBIENT_MIN, and the primary
+    light most of them have; a point with no floor below takes that mean (the median of all points without one).
+    The grid is sparse, as the compiler's: each block of GRID_BLOCK columns spans its floors' heights (from the lowest
+    floor to GRID_ABOVE over the highest), a block without a floor holds no point and the engine extrapolates there.
+    TranZit's dense grid (26 000 x 18 000 units, 20 million points) did not fit in memory.
+    triangles: as bake's. Returns (mins, maxs, rows, colours) for D3dBsp.set_light_grid, or None."""
     ref = world_light.reference
+    keep = grid_columns(boxes)
+    if not keep:
+        return None
+    # a point on a cell's corner takes the triangles of the four cells around it
+    keep_cells = keep | {(gx - 1, gy) for gx, gy in keep} | {(gx, gy - 1) for gx, gy in keep} \
+        | {(gx - 1, gy - 1) for gx, gy in keep}
     cells = {}
     for index, primary, corners in triangles:
         lightmap = world_light.lightmaps.get(index)
@@ -142,12 +178,10 @@ def light_grid(world_light, triangles, play_mins, play_maxs, light_index, none_i
             continue
         xs = [c[0][0] for c in corners]
         ys = [c[0][1] for c in corners]
-        if max(xs) < play_mins[0] - GRID_PAD or min(xs) > play_maxs[0] + GRID_PAD \
-                or max(ys) < play_mins[1] - GRID_PAD or min(ys) > play_maxs[1] + GRID_PAD:
-            continue
         for gx in range(int((min(xs) - GRID_ORIGIN) // GRID_XY), int((max(xs) - GRID_ORIGIN) // GRID_XY) + 1):
             for gy in range(int((min(ys) - GRID_ORIGIN) // GRID_XY), int((max(ys) - GRID_ORIGIN) // GRID_XY) + 1):
-                cells.setdefault((gx, gy), []).append((lightmap, primary, corners))
+                if (gx, gy) in keep_cells:
+                    cells.setdefault((gx, gy), []).append((lightmap, primary, corners))
     if not cells:
         return None
 
@@ -175,84 +209,161 @@ def light_grid(world_light, triangles, play_mins, play_maxs, light_index, none_i
         colour = [(s0[k] * a0 + 0.5 * s1[k] * a1) / ref[k] for k in range(3)]
         return colour, light_index[primary] if primary in light_index and s2[3] >= 0.5 else none_index
 
-    mins = [int((play_mins[k] - GRID_PAD - GRID_ORIGIN) // GRID_XY) for k in range(2)]
-    maxs = [int((play_maxs[k] + GRID_PAD - GRID_ORIGIN) // GRID_XY) + 1 for k in range(2)]
+    # Pass 1: each column with a floor, from its lowest floor to GRID_ABOVE over its highest: its points' light (NaN
+    # under the lowest floor's reach) and primary light (-1 there)
     columns = {}
-    low, high = None, None
-    for gx in range(mins[0], maxs[0] + 1):
-        for gy in range(mins[1], maxs[1] + 1):
-            x, y = GRID_ORIGIN + gx * GRID_XY, GRID_ORIGIN + gy * GRID_XY
-            # a point on a cell's corner: the triangles of the four cells around it
-            floors = floors_at(x, y, [t for c in ((gx, gy), (gx - 1, gy), (gx, gy - 1), (gx - 1, gy - 1))
-                                      for t in cells.get(c, ())])
-            if floors:
-                columns[(gx, gy)] = floors
-                low = floors[0][0] if low is None else min(low, floors[0][0])
-                high = floors[-1][0] if high is None else max(high, floors[-1][0])
-    if low is None:
-        return None
-    zmin = int((low - GRID_ORIGIN) // GRID_Z)
-    zmax = min(int((high + GRID_ABOVE - GRID_ORIGIN) // GRID_Z) + 1, zmin + 254)
-    shape = (maxs[0] - mins[0] + 1, maxs[1] - mins[1] + 1, zmax - zmin + 1)
-    light = np.full(shape + (3,), np.nan, np.float32)
-    prim = np.full(shape, -1, np.int32)
-    cache = {}
-    for (gx, gy), floors in columns.items():
-        if not (mins[0] <= gx <= maxs[0] and mins[1] <= gy <= maxs[1]):
+    for gx, gy in keep:
+        x, y = GRID_ORIGIN + gx * GRID_XY, GRID_ORIGIN + gy * GRID_XY
+        floors = floors_at(x, y, [t for c in ((gx, gy), (gx - 1, gy), (gx, gy - 1), (gx - 1, gy - 1))
+                                  for t in cells.get(c, ())])
+        if not floors:
             continue
-        for gz in range(zmin, zmax + 1):
+        z0 = int((floors[0][0] - GRID_ORIGIN) // GRID_Z)
+        z1 = min(int((floors[-1][0] + GRID_ABOVE - GRID_ORIGIN) // GRID_Z) + 1, z0 + 254)
+        light = np.full((z1 - z0 + 1, 3), np.nan, np.float32)
+        prim = np.full(z1 - z0 + 1, -1, np.int32)
+        cache = {}
+        for gz in range(z0, z1 + 1):
             z = GRID_ORIGIN + gz * GRID_Z
             below = [f for f in floors if f[0] <= z + FLOOR_REACH]
             if not below:
                 continue
             f = below[-1]
-            key = (gx, gy, f[0])
-            if key not in cache:
-                cache[key] = floor_light(f[1], f[2], f[3], f[4])
-            colour, primary = cache[key]
-            light[gx - mins[0], gy - mins[1], gz - zmin] = colour
-            prim[gx - mins[0], gy - mins[1], gz - zmin] = primary
-    # A model's lighting origin often lies over the floor its own shadow darkens (a bus, a truck, a rock): each point
-    # takes at least the mean of the floors around it (SMOOTH_RADIUS columns), and the primary light most of them have.
-    # Points without a floor of their own take that mean too, so the edges of the area are not black.
-    have = ~np.isnan(light[..., 0])
-    filled = np.where(have[..., None], light, 0.0)
-    total = np.zeros_like(filled)
-    count = np.zeros(shape, np.float32)
-    r = SMOOTH_RADIUS
-    padded = np.pad(filled, ((r, r), (r, r), (0, 0), (0, 0)))
-    padded_have = np.pad(have.astype(np.float32), ((r, r), (r, r), (0, 0)))
-    padded_prim = np.pad(prim, ((r, r), (r, r), (0, 0)), constant_values=-1)
+            if f[0] not in cache:
+                cache[f[0]] = floor_light(f[1], f[2], f[3], f[4])
+            light[gz - z0], prim[gz - z0] = cache[f[0]]
+        columns[(gx, gy)] = (z0, light, prim)
+    if not columns:
+        return None
+    # Over its highest floor a column keeps that floor's light up to the grid's top (the dense grid did so, and a point
+    # high over the street then takes its neighbours' light, not the default): z_top is that top, and the default
+    # light the median of every such point, each column's top light counted once per level up to z_top.
+    z_low = min(c[0] for c in columns.values())
+    z_top = min(max(c[0] + len(c[1]) for c in columns.values()), z_low + 255)
+    values, weights = [], []
+    for z0, light, _ in columns.values():
+        have = ~np.isnan(light[:, 0])
+        values.append(light[have])
+        w = np.ones(int(have.sum()), np.float32)
+        if len(w):
+            w[-1] += max(z_top - (z0 + len(light)), 0)
+        weights.append(w)
+    values, weights = np.concatenate(values), np.concatenate(weights)
+    default = weighted_median(values, weights) if len(values) else np.full(3, 0.5, np.float32)
     candidates = sorted(set(light_index.values()) | {none_index})
-    votes = np.zeros((len(candidates),) + shape, np.int32)
-    for dx in range(2 * r + 1):
-        for dy in range(2 * r + 1):
-            total += padded[dx:dx + shape[0], dy:dy + shape[1]]
-            count += padded_have[dx:dx + shape[0], dy:dy + shape[1]]
-            window = padded_prim[dx:dx + shape[0], dy:dy + shape[1]]
-            for i, c in enumerate(candidates):
-                votes[i] += window == c
-    mean = total / np.maximum(count, 1.0)[..., None]
-    default = np.median(light[have], axis=0) if have.any() else np.full(3, 0.5, np.float32)
-    out = np.where(have[..., None], np.maximum(light, mean), np.where(count[..., None] > 0, mean, default))
-    out = desaturate(out)
-    out = np.clip(np.maximum(out, AMBIENT_MIN), 0.0, 31.0)
-    out = np.round(out / COLOUR_STEP) * COLOUR_STEP
     sun = light_index.get(world_light.sun_index, none_index)
-    chosen = np.where(count > 0, np.asarray(candidates)[np.argmax(votes, axis=0)], sun)
 
-    default = np.maximum(desaturate(default), AMBIENT_MIN)
-    default = tuple(float(c) for c in np.round(default / COLOUR_STEP) * COLOUR_STEP)
-    colours, colour_index, entries = [default], {default: 0}, []
-    for gx in range(shape[0]):
-        for gy in range(shape[1]):
-            for gz in range(shape[2]):
-                colour = tuple(float(c) for c in out[gx, gy, gz])
-                if colour not in colour_index:
-                    colour_index[colour] = len(colours)
-                    colours.append(colour)
-                entries.append((colour_index[colour], int(chosen[gx, gy, gz])))
-    return (mins[0], mins[1], zmin), (maxs[0], maxs[1], zmax), entries, colours
+    # The blocks: GRID_BLOCK columns along y, each spanning its floored columns' heights
+    xs_all = sorted({gx for gx, _ in keep})
+    ys = {}
+    for gx, gy in keep:
+        ys.setdefault(gx, []).append(gy)
+    blocks_of = {}
+    for gx in xs_all:
+        lo, hi = min(ys[gx]), max(ys[gx])
+        row = []
+        for y0 in range(lo, hi + 1, GRID_BLOCK):
+            n = min(GRID_BLOCK, hi + 1 - y0)
+            spans = [(columns[(gx, gy)][0], columns[(gx, gy)][0] + len(columns[(gx, gy)][1]))
+                     for gy in range(y0, y0 + n) if (gx, gy) in columns]
+            if spans:
+                z0 = min(a for a, _ in spans)
+                row.append([y0, n, z0, min(max(b for _, b in spans) - z0, 255)])
+            else:
+                row.append([y0, n, 0, 0])
+        while row and not row[-1][3]:
+            row.pop()
+        while row and not row[0][3]:
+            row.pop(0)
+        if row:
+            blocks_of[gx] = row
+
+    # Pass 2, in slabs of rows: each point takes at least the mean of the floors around it (SMOOTH_RADIUS columns:
+    # a model's lighting origin often lies over the floor its own shadow darkens, a bus, a truck, a rock) and the
+    # primary light most of them have; points without a floor of their own take that mean too, so the edges are not
+    # black.
+    r = SMOOTH_RADIUS
+    colours, colour_index, rows = [], {}, {}
+
+    def colour_of(c):
+        key = tuple(float(v) for v in c)
+        if key not in colour_index:
+            colour_index[key] = len(colours)
+            colours.append(key)
+        return colour_index[key]
+
+    default_q = np.maximum(desaturate(default), AMBIENT_MIN)
+    colour_of(np.round(default_q / COLOUR_STEP) * COLOUR_STEP)
+    row_xs = sorted(blocks_of)
+    for s in range(0, len(row_xs), GRID_SLAB):
+        slab = row_xs[s:s + GRID_SLAB]
+        x0, x1 = slab[0] - r, slab[-1] + r
+        near = [(gx, gy) for gx in range(x0, x1 + 1) for gy in ys.get(gx, ()) if (gx, gy) in columns]
+        y0 = min(min(b[0] for b in blocks_of[gx]) for gx in slab) - r
+        y1 = max(max(b[0] + b[1] for b in blocks_of[gx]) for gx in slab) + r
+        zs = [columns[c][0] for c in near] + [b[2] for gx in slab for b in blocks_of[gx] if b[3]]
+        ze = [columns[c][0] + len(columns[c][1]) for c in near] + [b[2] + b[3] for gx in slab for b in blocks_of[gx]]
+        z0, z1 = min(zs), max(ze)
+        shape = (x1 - x0 + 1, y1 - y0 + 1, z1 - z0)
+        light = np.full(shape + (3,), np.nan, np.float32)
+        prim = np.full(shape, -1, np.int32)
+        for gx, gy in near:
+            if y0 <= gy < y1 + 1:
+                cz, cl, cp = columns[(gx, gy)]
+                light[gx - x0, gy - y0, cz - z0:cz - z0 + len(cl)] = cl
+                prim[gx - x0, gy - y0, cz - z0:cz - z0 + len(cl)] = cp
+                # its top floor's light up to the slab's top (z_top)
+                light[gx - x0, gy - y0, cz - z0 + len(cl):] = cl[-1]
+                prim[gx - x0, gy - y0, cz - z0 + len(cl):] = cp[-1]
+        have = ~np.isnan(light[..., 0])
+        filled = np.where(have[..., None], light, 0.0)
+        inner = (shape[0] - 2 * r, shape[1] - 2 * r, shape[2])
+        total = np.zeros(inner + (3,), np.float32)
+        count = np.zeros(inner, np.float32)
+        hf = have.astype(np.float32)
+        for dx in range(2 * r + 1):
+            for dy in range(2 * r + 1):
+                total += filled[dx:dx + inner[0], dy:dy + inner[1]]
+                count += hf[dx:dx + inner[0], dy:dy + inner[1]]
+        best = np.full(inner, sun, np.int32)
+        best_count = np.zeros(inner, np.int32)
+        present = sorted(set(np.unique(prim).tolist()) - {-1})
+        for c in candidates:
+            if c not in present:
+                continue
+            votes = np.zeros(inner, np.int32)
+            hit = prim == c
+            for dx in range(2 * r + 1):
+                for dy in range(2 * r + 1):
+                    votes += hit[dx:dx + inner[0], dy:dy + inner[1]]
+            better = votes > best_count
+            best = np.where(better, c, best)
+            best_count = np.where(better, votes, best_count)
+        core = light[r:r + inner[0], r:r + inner[1]]
+        core_have = have[r:r + inner[0], r:r + inner[1]]
+        mean = total / np.maximum(count, 1.0)[..., None]
+        out = np.where(core_have[..., None], np.maximum(core, mean),
+                       np.where(count[..., None] > 0, mean, default))
+        out = desaturate(out)
+        out = np.clip(np.maximum(out, AMBIENT_MIN), 0.0, 31.0)
+        out = np.round(out / COLOUR_STEP) * COLOUR_STEP
+        chosen = np.where(count > 0, best, sun)
+        for gx in slab:
+            row = []
+            for by, n, bz, h in blocks_of[gx]:
+                entries = []
+                for gy in range(by, by + n):
+                    for gz in range(bz, bz + h):
+                        p = (gx - x0 - r, gy - y0 - r, gz - z0)
+                        entries.append((colour_of(out[p]), int(chosen[p])))
+                row.append((by, n, bz, h, entries))
+            rows[gx] = row
+    if len(colours) > 0xFFFF:
+        raise ValueError("light grid: %d colours" % len(colours))
+    all_blocks = [b for row in rows.values() for b in row if b[3]]
+    mins = (min(rows), min(row[0][0] for row in rows.values()), min(b[2] for b in all_blocks))
+    maxs = (max(rows), max(row[-1][0] + row[-1][1] - 1 for row in rows.values()), max(b[2] + b[3] - 1 for b in all_blocks))
+    return mins, maxs, rows, colours
 
 
 def bake_sun_colour(world_light):

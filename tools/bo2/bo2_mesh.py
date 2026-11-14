@@ -29,8 +29,8 @@ and FAR_CELL beyond it (the distant backdrop), so the view culls them and the li
   u32 groupCount, then per group: char[64] name, u32 count, count x u32 instance: the props a door or debris removes
       when bought (BO2's blockers are script models: their doors and furniture, written as instances above); a group
       is named after its triggers' target, the "meshGroup" of the layout's door or debris edit (bo2_layout.py)
---blockers-only writes <out>/<map>.blockers.mesh.bin instead, in the same format: the blockers' props and groups only
-(no chunks, no placed props, sky -1), for a native map whose BSP draws the world and the props (bo2_bsp.py
+--blockers-only writes <out>/<map>.blockers.mesh.bin instead, in the same format: the blockers' props and groups, the
+standing brush models and the --mover models only (no chunks, no placed props, sky -1), for a native map whose BSP draws the world and the props (bo2_bsp.py
 --blocker-mesh): MapKit then draws BO2's doors and furniture there too, until the purchase.
 The output is the player's own game data: keep it out of the repository. docs/BO2_MAPS.md has the procedure.
 """
@@ -679,9 +679,10 @@ def main(argv=None):
             instances.append((index, [float(v) for v in e["origin"].split()], angles_to_axes(e.get("angles", "0 0 0")),
                               float(e.get("modelscale", 1.0))))
 
-    # brush models that always stand: TranZit's bridge (two sections, walked on, never drawn before)
+    # brush models that always stand: TranZit's bridge (two sections, walked on, never drawn before); kept with
+    # --blockers-only too, since a BSP world (bo2_bsp.py) holds the world's static surfaces only
     standing = 0
-    for e in [] if args.blockers_only else ents:
+    for e in ents:
         if e.get("classname") == "script_brushmodel" and e.get("targetname") in STANDING_BMODELS:
             index = add_bmodel(e)
             if index >= 0:
