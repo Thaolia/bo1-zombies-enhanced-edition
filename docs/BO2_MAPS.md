@@ -321,29 +321,43 @@ triangles, 10 835 placed props of 509 models, 140 lamps, 26 000 x 18 000 units. 
   `p_glo_electrical_pipes_short`), whose lods carry the cache indices Treyarch's linker gave them; a world read from
   a BSP assigns its own (`R_AssignSModelCacheResources`) and asserted on them (`smcIndexPlusOne == 0`). It now clears
   the indices of the lods it assigns.
-- **Windows are open entrances for now.** MapKit's boarded window is the base map's own brush models (Five's
-  `*7`..`*19`: boards, clip, repair boards), which a BSP world does not have. Their entities got the BSP's missing
-  submodels, bounds thousands of units wide, which put 3 172 of the 5 350 pathnodes in solid and ended the load:
-  "Max number of disconnected paths exceeded". `write_bsp_layout` makes each window `"open"` (no boards, no clip:
-  zombies climb through, players can step out) until the BSP carries board models: 56 nodes in solid then (115 on
-  MapKit's own TranZit).
+- **Windows: Five's board models in the BSP.** MapKit's boarded window is the base map's own brush models (Five's
+  `*7`..`*19`: boards, clip, repair boards, `MkE_Window`), which a BSP world did not have: the window entities got
+  MapKit's own layout brush models at those indices (zone volumes), bounds thousands of units wide, which put 3 172 of
+  the 5 350 pathnodes in solid and ended the load ("Max number of disconnected paths exceeded"). `d3dbsp` writes
+  brush models now (`add_submodel`: their brushes and surfaces after the world's, outside its collision and surface
+  trees; `R_SortSurfaces` sorts model 0's surfaces only), and `bo2_bsp.py --window-models` puts Five's `*1`..`*19` at
+  the same indices, read from a JSON that `+set mapkit_dump_bmodels <file>` writes when a map loads
+  (`r_mapkit_mesh.cpp`, a developer's tool, run once on Five; the JSON is the player's game data, kept out of the
+  repository). Their surfaces take one of the map's materials (`--window-material`, a part of its name, default
+  `wood_floor_planks_rustic`): with Five's own `wc/` materials (the BSP loader adds the `wc/` itself) the boards drew
+  pure white, their specular taking the dummy reflection probe of a BSP of ours. Without `--window-models` the
+  windows are `"open"` (no boards, no clip). 56 pathnodes in solid either way (115 on MapKit's own TranZit).
+- **The props' own models.** A converted xmodel is named `bo2x_<name>`: TranZit places BO2 copies of BO1 models
+  (`t5_foliage_tree_burnt03`, `p_glo_cinder_block`), and a zone asset named as one already loaded is dropped for it.
+  BO2's vertex colours are left out of the models: they are data (a tree's wind weights, each channel over 0..1),
+  which BO1's model shaders multiplied in: the burnt trees drew red, blue and violet.
 - **The hunk** (above): 97.8 MB after the render world, at most 99.8 MB at once.
 
 Checked on win64-msvc (D3D9, `headless.ps1 -Client`): the player spawns in the depot, which is drawn with its props
-(chairs, the route map, Quick Revive, the bus behind the glass), the round starts, and the view over the depot's yard
-shows the road, the cabin, the river and the rocks; the run quits cleanly. Nuketown's five drops land where they did
-(-43, -66, -54, 33, -60). Still to do: board models for the windows, a band of red and cyan along the river's edge
-(a decal blend), the self-test, the Linux and Switch builds, ZmClient, the Switch menu and `make_dist.sh`.
+(chairs, the route map, Quick Revive, the bus behind the glass), the round starts, the bank vault's hole is boarded
+with planks, the burnt trees, bushes and corn by the bank draw in their own colours, and the view over the depot's
+yard shows the road, the cabin, the river and the rocks; the run quits cleanly (hunk 97.9 MB, at most 100.0). Nuketown's
+five drops land where they did (-43, -66, -54, 33, -60). Still to do: a band of red and cyan along the river's edge
+(a decal blend), a flat orange quad near the bank, the self-test, the Linux and Switch builds, ZmClient, the Switch
+menu and `make_dist.sh`.
 
 Build it (the procedure of Nuketown's world with these differences):
 
     $U --include-assets xmodel,material --model-format GLTF -o $D/transitgltf/?zone? zm_transit.ff   # and each
     # zm_transit_gump_*.ff, then rsync -a --ignore-existing zm_transit_gump_*/ zm_transit/ in $D/transitgltf
     tools/bo2/bo2_mesh.py $D/zm_transit zm_transit --out $OUT/imports --blockers-only --mover veh_t6_civ_bus_zombie
+    # Five's brush models, once: a headless client on Five with +set mapkit_dump_bmodels five_bmodels.json
     tools/bo2/bo2_bsp.py $D/zm_transit zm_transit --name zombie_bo2transit --templates <wc> --models \
         $D/transitgltf/zm_transit --layout <layouts/bo2_zm_transit.json> \
         --blocker-mesh imports/zm_transit/zm_transit.blockers.mesh.bin \
-        --props-collision imports/zm_transit/zm_transit.props.collision.bin --out $OUT
+        --props-collision imports/zm_transit/zm_transit.props.collision.bin --window-models $D/five_bmodels.json \
+        --out $OUT
     # Linker as for Nuketown; ffconv --verify; then main/maps, main/images, usermaps/zombie_bo2transit, and in
     # mods/mapkit: layouts/bo2_zm_transit_bsp.json, imports/zm_transit/ (blockers mesh, images, props collision, links)
 

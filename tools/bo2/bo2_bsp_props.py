@@ -60,8 +60,10 @@ def colour_dds(dump, material, images):
 
 
 def model_name(bo2):
-    """A BO1 asset name for a BO2 xmodel ("mlv/x" -> "mlv_x")."""
-    return bo2.replace("/", "_")
+    """A BO1 asset name for a BO2 xmodel ("mlv/x" -> "bo2x_mlv_x"). The prefix keeps it apart from BO1's own assets:
+    TranZit places BO2 copies of BO1 models (t5_foliage_tree_burnt02, p_glo_cinder_block), and a zone asset named as
+    one already loaded is dropped for it: the map drew BO1's model instead of its own conversion."""
+    return "bo2x_" + bo2.replace("/", "_")
 
 
 def axes_to_angles(ax, ay, az):
@@ -170,6 +172,10 @@ class PropModels:
             names = [self.material(m.get("name", "")) for m in gltf.get("materials", [])]
             for mesh in gltf.get("meshes", []):
                 mesh["primitives"] = [p for p in mesh["primitives"] if names[p["material"]]]
+                # BO2's vertex colours are data, not a tint (a tree's are its wind weights, each channel over 0..1):
+                # BO1's model shaders multiplied them in, and TranZit's burnt trees drew red, blue and violet
+                for p in mesh["primitives"]:
+                    p["attributes"].pop("COLOR_0", None)
                 drawn |= bool(mesh["primitives"])
             for node in gltf.get("nodes", []):
                 if "mesh" in node and not gltf["meshes"][node["mesh"]]["primitives"]:

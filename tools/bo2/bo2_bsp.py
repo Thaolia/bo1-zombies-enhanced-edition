@@ -127,7 +127,35 @@ def read_collision(path):
     return materials, brushes, verts, tris
 
 
-def write_bsp_layout(layout, layout_path, out, blocker_mesh, props_collision=None):
+def add_window_models(bsp, path, col_material, white_lightmap, material):
+    """The brush models *1..*19 of mapkit_dump_bmodels' JSON (r_mapkit_mesh.cpp, run on Five): MapKit's boarded window
+    is Five's *7..*19 (boards, clip, repair boards, MkE_Window), so a BSP world carries them at the same indices. Their
+    surfaces take material (one of the map's own wc/bo2w_ materials) and the white lightmap: with Five's own world
+    materials the boards drew pure white (their specular takes the light of the BSP's dummy reflection probe).
+    Returns the count."""
+    with open(path, encoding="utf-8") as f:
+        models = json.load(f)["models"]
+    if [m["index"] for m in models] != list(range(1, len(models) + 1)) or len(models) < 19:
+        sys.exit(f"{path}: brush models *1..*19 expected (mapkit_dump_bmodels on Five)")
+    for m in models:
+        brushes = []
+        for b in m["brushes"]:
+            surface = next((sf for _, sf in b["axial"] if sf), 0)
+            brushes.append((b["mins"], b["maxs"], col_material(b["contents"], surface),
+                            [col_material(cf, sf) for cf, sf in b["axial"]],
+                            [((nx, ny, nz), d, col_material(cf, sf)) for nx, ny, nz, d, cf, sf in b["sides"]]))
+        meshes = []
+        for surf in m["surfaces"]:
+            verts = surf["verts"]
+            meshes.append(dict(material=material, positions=[v[0:3] for v in verts],
+                               indices=surf["indices"], uvs=[v[3:5] for v in verts], normals=[v[5:8] for v in verts],
+                               colors=[tuple((v[8] >> (8 * k)) & 0xFF for k in range(4)) for v in verts],
+                               lightmap=white_lightmap, lmap_uvs=[(0.5, 0.5)] * len(verts)))
+        bsp.add_submodel(m["mins"], m["maxs"], brushes, meshes)
+    return len(models)
+
+
+def write_bsp_layout(layout, layout_path, out, blocker_mesh, props_collision=None, boarded_windows=False):
     """<out>/<layout>_bsp.json: the layout for this BSP. The BSP draws and collides the world, so the layout keeps its
     gameplay edits without its collision and mesh edits. Its door and debris edits keep their meshGroup when
     blocker_mesh (a path under mods/mapkit) names bo2_mesh.py --blockers-only's file: a mesh edit of that file, with
@@ -143,11 +171,12 @@ def write_bsp_layout(layout, layout_path, out, blocker_mesh, props_collision=Non
     for e in layout["edits"]:
         if e["kind"] == "mesh" and blocker_mesh:
             edits.append(dict(e, file=blocker_mesh))
-        elif e["kind"] == "window":
+        elif e["kind"] == "window" and not boarded_windows:
             # MapKit's boarded window is the base map's own brush models (Five's *7..*19, MkE_Window), which a BSP
             # world does not have: their entities got the BSP's missing submodels, bounds thousands of units wide that
             # put 3 172 of TranZit's pathnodes in solid ("Max number of disconnected paths exceeded"). Until the BSP
-            # carries board models, a window is an open entrance (MapKit's "open": no boards, no clip).
+            # carries board models (--window-models), a window is an open entrance (MapKit's "open": no boards, no
+            # clip).
             edits.append(dict(e, open=1))
         elif e["kind"] not in ("collision", "mesh"):
             edits.append(e)
@@ -183,13 +212,20 @@ def main(argv=None):
                                                   "(imports/<map>/<map>.props.collision.bin), written to <out>/ and "
                                                   "loaded by a collision edit of the BSP layout; without it they are "
                                                   "boxes")
+    parser.add_argument("--window-models", help="mapkit_dump_bmodels' JSON of Five's brush models *1..*19 "
+                                                "(r_mapkit_mesh.cpp): the BSP carries them, and the layout's windows "
+                                                "keep their boards; without it they are open entrances")
+    parser.add_argument("--window-material", default="wood_floor_planks_rustic",
+                        help="with --window-models: part of the name of the map's material the boards take (the "
+                             "shortest match)")
     parser.add_argument("--layout-only", action="store_true", help="write <out>/<layout>_bsp.json only (--layout)")
     args = parser.parse_args(argv)
     if args.layout_only:
         if not args.layout:
             sys.exit("--layout-only needs --layout")
         with open(args.layout, encoding="utf-8") as f:
-            name = write_bsp_layout(json.load(f), args.layout, args.out, args.blocker_mesh, args.props_collision)
+            name = write_bsp_layout(json.load(f), args.layout, args.out, args.blocker_mesh, args.props_collision,
+                                    bool(args.window_models))
         print(f"{os.path.join(args.out, name)} written")
         return 0
     if not args.templates:
@@ -285,6 +321,8 @@ def main(argv=None):
             tri_total += len(idx) // 3
             bsp.add_mesh(index, pos, idx, uvs=uv, lightmap=lightmap_of[lmap], lmap_uvs=luv)
 
+    if args.window_models and NO_LIGHTMAP not in lightmap_of:
+        lightmap_of[NO_LIGHTMAP] = len(lightmap_of)  # the white lightmap of Five's window models
     # The lightmaps, in the order the surfaces named them: BO2's baked again (bo2_bsp_light.py), white for the rest
     baked = bo2_bsp_light.bake(world_light, bake_tris) if world_light else {}
     for lmap, _ in sorted(lightmap_of.items(), key=lambda kv: kv[1]):
@@ -313,6 +351,14 @@ def main(argv=None):
             flag_material[key] = bsp.add_material(f"bo2col_{cflags & 0xFFFFFFFF:08x}_{sflags & 0xFFFFFFFF:08x}",
                                                    sflags, cflags)
         return flag_material[key]
+
+    window_models = 0
+    if args.window_models:
+        wood = sorted((n for n in zone_materials if args.window_material in n), key=len)
+        if not wood:
+            sys.exit(f"--window-material {args.window_material}: no material of the map has it in its name")
+        window_models = add_window_models(bsp, args.window_models, col_material, lightmap_of[NO_LIGHTMAP],
+                                          bsp.add_material(wood[0], 0, 0))
 
     layout, cuts = None, []
     if args.layout:
@@ -391,7 +437,8 @@ def main(argv=None):
     bsp.write(bsp_path)
 
     if layout:
-        write_bsp_layout(layout, args.layout, args.out, args.blocker_mesh, args.props_collision)
+        write_bsp_layout(layout, args.layout, args.out, args.blocker_mesh, args.props_collision,
+                         bool(args.window_models))
 
     with open(os.path.join(raw, "maps", args.name + ".gsc"), "w", encoding="latin-1", newline="\n") as f:
         f.write(GSC)
@@ -424,7 +471,8 @@ def main(argv=None):
           f"the engine cannot take); {world_brushes} brushes, {len(coll_tris)} terrain triangles in {partitions} "
           f"partitions ({submodel_brushes} submodel brushes left for later, {cut_brushes} in the layout's cut boxes, "
           f"{no_contents} contentless triangles); "
-          f"tree {nodes} nodes, {leafs} leaves, {leafbrushes} leaf brushes, {aabbs} leaf partitions")
+          f"tree {nodes} nodes, {leafs} leaves, {leafbrushes} leaf brushes, {aabbs} leaf partitions"
+          + (f"; brush models *1..*{window_models} from {os.path.basename(args.window_models)}" if window_models else ""))
     if props:
         boxes, piles, rocks, tri_props, tri_count, fallback, spilled = prop_stats
         print(f"props: {placed[0]} placements as static models ({placed[1]} left out), "

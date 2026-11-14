@@ -85,6 +85,7 @@ class Bsp:
         self.soups = []              # [material, verts, indices]: verts are packed DiskGfxVertex
         self.coll_verts = []         # collision triangles' vertices
         self.coll_tris = []          # (a, b, c, material)
+        self.submodels = []          # add_submodel: (mins, maxs, brushes, soups), models *1, *2...
         self.lightmaps = []          # the LIGHTBYTES record of each lightmap (9 MB: R_LoadLightmaps)
         self.entities = []           # list of dicts, worldspawn first
         self.sun_color = (0.875, 0.875, 0.875)
@@ -129,6 +130,27 @@ class Bsp:
             raise ValueError("six axial side materials")
         self.brushes.append((tuple(map(float, mins)), tuple(map(float, maxs)), material, list(axial_materials),
                              [(tuple(map(float, n)), float(d), m) for n, d, m in sides]))
+
+    # A brush model (*1, *2... in add order), in its own space around the entity's origin: its brushes (as
+    # add_collision_brush's arguments) and meshes (as add_mesh's keyword arguments). They come after the world's in
+    # the BSP, outside its collision tree and its surfaces' tree (R_SortSurfaces sorts model 0's surfaces only), and
+    # an entity draws and collides with them ("model" "*N"). Returns N.
+    def add_submodel(self, mins, maxs, brushes, meshes):
+        world_soups, self.soups = self.soups, []
+        try:
+            for mesh in meshes:
+                self.add_mesh(**mesh)
+            soups = self.soups
+        finally:
+            self.soups = world_soups
+        checked = []
+        for bmin, bmax, material, axial, sides in brushes:
+            if any(a >= b for a, b in zip(bmin, bmax)) or len(axial) != 6:
+                raise ValueError("bad submodel brush %r %r" % (bmin, bmax))
+            checked.append((tuple(map(float, bmin)), tuple(map(float, bmax)), material, list(axial),
+                            [(tuple(map(float, n)), float(d), m) for n, d, m in sides]))
+        self.submodels.append((tuple(map(float, mins)), tuple(map(float, maxs)), checked, soups))
+        return len(self.submodels)
 
     # Collision triangles (terrain): one-sided, their front (c - a) x (b - a) facing what they stop; the engine traces
     # capsules against their faces, edges and corners. Vertex indices are 16-bit.
@@ -327,7 +349,8 @@ class Bsp:
             lumps[LUMP_UINDS] = struct.pack("<%dH" % len(uinds), *uinds)
             lumps[LUMP_COLLISIONAABBS] = b"".join(aabbs)
         sides, brushes, bverts, bvcounts = [], [], [], []
-        for bmin, bmax, mat, axial, extra in self.brushes:
+        all_brushes = self.brushes + [b for sub in self.submodels for b in sub[2]]
+        for bmin, bmax, mat, axial, extra in all_brushes:
             for axis in range(3):
                 sides.append(struct.pack("<fi", bmin[axis], axial[2 * axis]))
                 sides.append(struct.pack("<fi", bmax[axis], axial[2 * axis + 1]))
@@ -341,7 +364,7 @@ class Bsp:
                 corners = corners[:255]
             bvcounts.append(len(corners))
             bverts.extend(struct.pack("<3f", *c) for c in corners)
-        if len(self.brushes) > 0xFFFF:
+        if len(all_brushes) > 0xFFFF:
             raise ValueError("more than 65535 brushes")
         lumps[LUMP_PLANES] = b"".join(struct.pack("<4f", *p) for p in planes)
         lumps[LUMP_BRUSHSIDES] = b"".join(sides)
@@ -357,6 +380,10 @@ class Bsp:
         # Surfaces in the order of their AABB tree's leaves (each node covers a contiguous range), by material within
         # a leaf.
         soups, aabb_nodes = _surface_tree(self.soups)
+        world_soups = len(soups)
+        soups = soups + [soup for sub in self.submodels for soup in sub[3]]
+        if len(soups) > 0xFFFF:
+            raise ValueError("more than 65535 surfaces")
         tris, verts, indices = [], [], []
         for mat, sv, si, lmap in soups:
             sky = self.materials[mat][1] & 0x4
@@ -376,7 +403,14 @@ class Bsp:
         lumps[LUMP_AABBTREES] = b"".join(struct.pack("<3I", *n) for n in aabb_nodes)
         cell = struct.pack("<3f3fHxxiiiiB", *mins, *maxs, 0, 0, 0, 0, 0, 0)
         lumps[LUMP_CELLS] = cell + bytes(0x70 - len(cell))
-        lumps[LUMP_MODELS] = struct.pack("<3f3fHHiiii", *mins, *maxs, 0, len(soups), 0, 0, 0, len(self.brushes))
+        models = [struct.pack("<3f3fHHiiii", *mins, *maxs, 0, world_soups, 0, 0, 0, len(self.brushes))]
+        first_soup, first_brush = world_soups, len(self.brushes)
+        for smins, smaxs, sbrushes, ssoups in self.submodels:
+            models.append(struct.pack("<3f3fHHiiii", *smins, *smaxs, first_soup, len(ssoups), 0, 0, first_brush,
+                                      len(sbrushes)))
+            first_soup += len(ssoups)
+            first_brush += len(sbrushes)
+        lumps[LUMP_MODELS] = b"".join(models)
 
         lumps[LUMP_ENTITIES] = _entity_string(self.entities)
 
