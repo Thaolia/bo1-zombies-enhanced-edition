@@ -97,7 +97,7 @@ class PropModels:
         if bo2 in self.materials:
             return self.materials[bo2]
         result = None
-        dds = None if skipped(bo2) else colour_dds(self.dump, bo2, self.images)
+        dds = None if skipped(bo2, self.dump) else colour_dds(self.dump, bo2, self.images)
         if dds:
             flags, multiply = blend_flags(self.dump, bo2)
             if self.is_sky(bo2):

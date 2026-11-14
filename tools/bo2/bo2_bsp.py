@@ -268,7 +268,7 @@ def main(argv=None):
     zone_materials, skipped_names, no_map, bad_image = [], 0, [], []
     tri_total = 0
     for material in sorted(groups):
-        if skipped(material):
+        if skipped(material, args.dump):
             skipped_names += 1
             continue
         dds = colour.get(material)

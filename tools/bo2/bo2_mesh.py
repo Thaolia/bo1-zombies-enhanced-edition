@@ -207,7 +207,32 @@ def read_mtl(path, images):
             dds = material_colour(os.path.dirname(images), name, images)
             if dds:
                 maps[name] = dds
+        else:
+            maps[name] = colour_not_effect(os.path.dirname(images), name, images, maps[name])
     return maps
+
+
+COLOUR_SAMPLERS = ("colorMap", "Diffuse_Map", "Color_Map", "radiantDiffuseMap")
+
+
+def colour_not_effect(dump, material, images, dds):
+    """dds, unless the material's JSON puts that image in a sampler that is no colour map (TranZit's molten lava: the
+    .mtl names its Heat_Map3, warp3, a distortion map drawn as red and cyan noise): then its colour map, or its
+    Emissive_Map (the lava's look) when it has none."""
+    try:
+        with open(os.path.join(dump, "materials", material + ".json"), encoding="latin-1") as f:
+            textures = {t.get("name"): t.get("image") for t in json.load(f).get("textures", [])}
+    except (OSError, ValueError, AttributeError):
+        return dds
+    stem = os.path.splitext(os.path.basename(dds))[0]
+    sampler = next((n for n, image in textures.items() if image == stem), None)
+    if sampler is None or sampler in COLOUR_SAMPLERS:
+        return dds
+    for name in COLOUR_SAMPLERS + ("Emissive_Map",):
+        image = textures.get(name)
+        if image and os.path.exists(os.path.join(images, image + ".dds")):
+            return os.path.join(images, image + ".dds")
+    return dds
 
 
 def material_colour(dump, material, images):
@@ -218,7 +243,7 @@ def material_colour(dump, material, images):
             textures = {t.get("name"): t.get("image") for t in json.load(f).get("textures", [])}
     except (OSError, ValueError, AttributeError):
         return None
-    for sampler in ("colorMap", "Diffuse_Map", "Color_Map", "radiantDiffuseMap"):
+    for sampler in COLOUR_SAMPLERS:
         image = textures.get(sampler)
         if image and os.path.exists(os.path.join(images, image + ".dds")):
             return os.path.join(images, image + ".dds")
@@ -497,8 +522,31 @@ def blend_flags(dump, material):
         return FLAG_BLEND, False
     return FLAG_ALPHA_TEST, False
 
-def skipped(material):
-    return not material.startswith("*") and SKIP.search(material) is not None
+def skipped(material, dump=None):
+    """Left out: caulk, shadow casters and nodraw by name, and with dump the additive materials (BO2's glow and light
+    shaft cards: src one, dst one), which our BO1 templates cannot draw: TranZit's atmos_glow_fire drew as a flat
+    orange quad."""
+    if material.startswith("*"):
+        return False
+    return SKIP.search(material) is not None or (dump is not None and additive(dump, material))
+
+
+_additive = {}
+
+
+def additive(dump, material):
+    key = (dump, material)
+    if key not in _additive:
+        try:
+            with open(os.path.join(dump, "materials", material + ".json"), encoding="latin-1") as f:
+                data = json.load(f)
+            entries, states = data.get("stateBitsEntry", []), data.get("stateBits", [])
+            lit = next((entries[t] for t in (3, 4, 2) if t < len(entries) and 0 <= entries[t] < len(states)), None)
+            bits = states[lit] if lit is not None else {}
+            _additive[key] = bits.get("srcBlendRgb") == "one" and bits.get("dstBlendRgb") == "one"
+        except (OSError, ValueError, AttributeError, TypeError):
+            _additive[key] = False
+    return _additive[key]
 
 
 def cell_of(p):
@@ -600,7 +648,7 @@ def main(argv=None):
         """The index of an xmodel in models, read on first use; -1 when it has nothing to draw."""
         if name not in model_index:
             # a LOD whose materials are all left out (decals) has nothing to draw: the engine wants surfaces
-            lods = [(dist, {m: t for m, t in lod.items() if not skipped(m)}, index)
+            lods = [(dist, {m: t for m, t in lod.items() if not skipped(m, args.dump)}, index)
                     for dist, lod, index in read_lods(args.dump, name, with_index=True)]
             lods = [lod for lod in lods if lod[1]]
             if not lods:
@@ -630,7 +678,7 @@ def main(argv=None):
             return -1
         name = "bmodel" + model[1:]
         if name not in model_index:
-            tris = {m: t for m, t in bmodels.get(int(model[1:]), {}).items() if not skipped(m)}
+            tris = {m: t for m, t in bmodels.get(int(model[1:]), {}).items() if not skipped(m, args.dump)}
             if not tris:
                 model_index[name] = -1
                 return -1
@@ -746,7 +794,7 @@ def main(argv=None):
 
     # the movers: models with no placement (after the lit copies' clean-up, which drops unplaced models)
     for mover in args.mover:
-        lods = [(dist, cut_holes({m: t for m, t in lod.items() if not skipped(m)}, MOVER_HOLES.get(mover, [])))
+        lods = [(dist, cut_holes({m: t for m, t in lod.items() if not skipped(m, args.dump)}, MOVER_HOLES.get(mover, [])))
                 for dist, lod in read_lods(args.dump, mover)]
         lods = [lod for lod in lods if lod[1]]
         if not lods:
@@ -759,8 +807,8 @@ def main(argv=None):
         models.append((mover, lods))
 
     os.makedirs(os.path.join(args.out, "images"), exist_ok=True)
-    names = sorted(m for m in groups if not skipped(m))
-    left_out = sorted(m for m in groups if skipped(m))
+    names = sorted(m for m in groups if not skipped(m, args.dump))
+    left_out = sorted(m for m in groups if skipped(m, args.dump))
     materials, records, converted, failed = {}, [], {}, []
     for name in names:
         dds = colour.get(name)

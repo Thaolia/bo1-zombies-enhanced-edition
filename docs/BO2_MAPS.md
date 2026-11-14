@@ -342,10 +342,14 @@ triangles, 10 835 placed props of 509 models, 140 lamps, 26 000 x 18 000 units. 
 Checked on win64-msvc (D3D9, `headless.ps1 -Client`): the player spawns in the depot, which is drawn with its props
 (chairs, the route map, Quick Revive, the bus behind the glass), the round starts, the bank vault's hole is boarded
 with planks, the burnt trees, bushes and corn by the bank draw in their own colours, and the view over the depot's
-yard shows the road, the cabin, the river and the rocks; the run quits cleanly (hunk 97.9 MB, at most 100.0). Nuketown's
-five drops land where they did (-43, -66, -54, 33, -60). Still to do: a band of red and cyan along the river's edge
-(a decal blend), a flat orange quad near the bank, the self-test, the Linux and Switch builds, ZmClient, the Switch
-menu and `make_dist.sh`.
+yard shows the road, the cabin, the river, the lava and the rocks; the run quits cleanly (hunk 97.9 MB, at most
+100.0). Nuketown's five drops land where they did (-43, -66, -54, 33, -60).
+- **The lava and the glow cards** (the MapKit mesh too, `bo2_mesh.py`). OAT's `.mtl` gives a material the first of
+  its images, which for the molten lava is `Heat_Map3` (`warp3`, a distortion map): a band of red and cyan noise along
+  the lava pools. An image the material's JSON puts in a sampler that is no colour map gives way to its colour map,
+  else its `Emissive_Map` (`rock_lava_cooling_c`: dark rock, orange veins); one material on TranZit, none on
+  Nuketown. BO2's additive cards (`src one, dst one`: `atmos_glow_fire`, `atmos_glow_fire_02`) are left out with the
+  caulk: our BO1 templates draw them opaque, a flat orange quad by the bank.
 
 Build it (the procedure of Nuketown's world with these differences):
 
