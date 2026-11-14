@@ -1684,7 +1684,7 @@ void R_StreamUpdateTouchedModels()
     XAssetPoolEntry<XModel> *model; // [esp+0h] [ebp-8h]
     signed int modelIndex; // [esp+4h] [ebp-4h]
 
-    for (modelIndex = 0; (unsigned int)modelIndex < 0x3E8; ++modelIndex)
+    for (modelIndex = 0; (unsigned int)modelIndex < R_STREAM_XMODEL_COUNT; ++modelIndex) // mod: 0x3E8
     {
         if ((streamFrontendGlob.modelTouchBits[modelIndex >> 5] & (1 << (modelIndex & 0x1F))) != 0)
         {
@@ -2421,7 +2421,7 @@ void R_StreamUpdate_CombineImportance()
     {
         PROF_SCOPED("R_Stream combine xmodels");
 
-        for (modelIndex = 0; modelIndex < 1000; ++modelIndex)
+        for (modelIndex = 0; modelIndex < R_STREAM_XMODEL_COUNT; ++modelIndex) // mod: 1000
         {
             mask = 1 << (modelIndex & 0x1F);
             staticBit = mask & streamFrontendGlob.modelDistanceBits[modelIndex >> 5];
@@ -2466,7 +2466,7 @@ void R_StreamUpdate_CombineImportance()
     {
         PROF_SCOPED("R_Stream combine materials");
 
-        for (materialIndex = 0; materialIndex < 0x1000; ++materialIndex)
+        for (materialIndex = 0; materialIndex < R_STREAM_MATERIAL_COUNT; ++materialIndex) // mod: 0x1000
         {
             if (streamFrontendGlob.materialImportance[materialIndex] != 0.0
                 && (streamFrontendGlob.materialPreventBits[materialIndex >> 5] & (1 << (materialIndex & 0x1F))) == 0)
@@ -2523,7 +2523,7 @@ void __cdecl R_StreamUpdateForXModel(const XModel *remoteModel, float distSq)
                 {
                     __debugbreak();
                 }
-                if (materialIndex >= 4096
+                if (materialIndex >= R_STREAM_MATERIAL_COUNT // mod: 4096
                     && !Assert_MyHandler(
                         "C:\\projects_pc\\cod\\codsrc\\src\\gfx_d3d\\r_stream.cpp",
                         3532,

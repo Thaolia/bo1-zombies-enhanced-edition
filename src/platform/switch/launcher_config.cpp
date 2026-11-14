@@ -6,19 +6,21 @@
 // The labels of tools/mod-launcher.hta's MAPS, Kino first: it is the default and the map every console test used.
 // Dead Ops Arcade is not in the .hta's list.
 const LauncherMap kLauncherMaps[] = {
-    {"zombie_theater", "Kino der Toten", nullptr, nullptr},
-    {"zombie_pentagon", "Five", nullptr, nullptr},
-    {"zombie_cosmodrome", "Ascension", nullptr, nullptr},
-    {"zombie_coast", "Call of the Dead", nullptr, nullptr},
-    {"zombie_temple", "Shangri-La", nullptr, nullptr},
-    {"zombie_moon", "Moon", nullptr, nullptr},
-    {"zombie_cod5_prototype", "Nacht der Untoten", nullptr, nullptr},
-    {"zombie_cod5_asylum", "Verruckt", nullptr, nullptr},
-    {"zombie_cod5_sumpf", "Shi No Numa", nullptr, nullptr},
-    {"zombie_cod5_factory", "Der Riese", nullptr, nullptr},
-    {"zombietron", "Dead Ops Arcade", nullptr, nullptr},
+    {"zombie_theater", "Kino der Toten", nullptr, nullptr, nullptr},
+    {"zombie_pentagon", "Five", nullptr, nullptr, nullptr},
+    {"zombie_cosmodrome", "Ascension", nullptr, nullptr, nullptr},
+    {"zombie_coast", "Call of the Dead", nullptr, nullptr, nullptr},
+    {"zombie_temple", "Shangri-La", nullptr, nullptr, nullptr},
+    {"zombie_moon", "Moon", nullptr, nullptr, nullptr},
+    {"zombie_cod5_prototype", "Nacht der Untoten", nullptr, nullptr, nullptr},
+    {"zombie_cod5_asylum", "Verruckt", nullptr, nullptr, nullptr},
+    {"zombie_cod5_sumpf", "Shi No Numa", nullptr, nullptr, nullptr},
+    {"zombie_cod5_factory", "Der Riese", nullptr, nullptr, nullptr},
+    {"zombietron", "Dead Ops Arcade", nullptr, nullptr, nullptr},
     // ZmClient's "Mapkit : Nuketown native": MapKit's Nuketown on the world of its own BSP (tools/bo2/bo2_bsp.py)
-    {"zombie_pentagon", "Nuketown (BO2, natif)", "bo2_zm_nuked_bsp", "zombie_bo2nuked"},
+    {"zombie_pentagon", "Nuketown (BO2, natif)", "bo2_zm_nuked_bsp", "zombie_bo2nuked", nullptr},
+    // ZmClient's "TranZit native", with Ascension's zone for the Stamin-Up machine (_mapkit.gsc mapkit_marathon_perk)
+    {"zombie_pentagon", "TranZit (BO2, natif)", "bo2_zm_transit_bsp", "zombie_bo2transit", "zombie_cosmodrome"},
 };
 const int kLauncherMapCount = int(sizeof(kLauncherMaps) / sizeof(kLauncherMaps[0]));
 
@@ -335,7 +337,9 @@ std::string Launcher_BuildLaunchLine(const LauncherSettings &s, const std::strin
         line += std::string(" +set fs_mods") + (mapkit ? " mapkit" : "") + (s.tabInfo ? " zinfo" : "") +
                 (kit ? " admin" : "");
     if (mapkit && map.zone)
-        line += std::string(" +set bo1_mod_zones ") + map.zone + " +set bo1_bspworld maps/" + map.zone + ".d3dbsp";
+        // `set` takes the rest of its line as the value (ZmClient passes the zones the same way)
+        line += std::string(" +set bo1_mod_zones ") + map.zone + (map.extraZone ? std::string(" ") + map.extraZone : "") +
+                " +set bo1_bspworld maps/" + map.zone + ".d3dbsp";
     if (kit && s.startPower)
         line += " +set zm_startpower 1";
     if (kit && s.startPap)

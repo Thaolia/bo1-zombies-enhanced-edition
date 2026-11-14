@@ -85,10 +85,11 @@ class Bsp:
         self.soups = []              # [material, verts, indices]: verts are packed DiskGfxVertex
         self.coll_verts = []         # collision triangles' vertices
         self.coll_tris = []          # (a, b, c, material)
+        self.submodels = []          # add_submodel: (mins, maxs, brushes, soups), models *1, *2...
         self.lightmaps = []          # the LIGHTBYTES record of each lightmap (9 MB: R_LoadLightmaps)
         self.entities = []           # list of dicts, worldspawn first
         self.sun_color = (0.875, 0.875, 0.875)
-        self.light_grid = None       # set_light_grid: (mins, maxs, entries, colours)
+        self.light_grid = None       # set_light_grid: (mins, maxs, rows, colours)
         self.lights = []             # add_primary_light: the primary lights after "none" and the sun
 
     def add_material(self, name, surface_flags=SURF_DEFAULT, content_flags=CONTENTS_SOLID):
@@ -130,6 +131,27 @@ class Bsp:
         self.brushes.append((tuple(map(float, mins)), tuple(map(float, maxs)), material, list(axial_materials),
                              [(tuple(map(float, n)), float(d), m) for n, d, m in sides]))
 
+    # A brush model (*1, *2... in add order), in its own space around the entity's origin: its brushes (as
+    # add_collision_brush's arguments) and meshes (as add_mesh's keyword arguments). They come after the world's in
+    # the BSP, outside its collision tree and its surfaces' tree (R_SortSurfaces sorts model 0's surfaces only), and
+    # an entity draws and collides with them ("model" "*N"). Returns N.
+    def add_submodel(self, mins, maxs, brushes, meshes):
+        world_soups, self.soups = self.soups, []
+        try:
+            for mesh in meshes:
+                self.add_mesh(**mesh)
+            soups = self.soups
+        finally:
+            self.soups = world_soups
+        checked = []
+        for bmin, bmax, material, axial, sides in brushes:
+            if any(a >= b for a, b in zip(bmin, bmax)) or len(axial) != 6:
+                raise ValueError("bad submodel brush %r %r" % (bmin, bmax))
+            checked.append((tuple(map(float, bmin)), tuple(map(float, bmax)), material, list(axial),
+                            [(tuple(map(float, n)), float(d), m) for n, d, m in sides]))
+        self.submodels.append((tuple(map(float, mins)), tuple(map(float, maxs)), checked, soups))
+        return len(self.submodels)
+
     # Collision triangles (terrain): one-sided, their front (c - a) x (b - a) facing what they stop; the engine traces
     # capsules against their faces, edges and corners. Vertex indices are 16-bit.
     def add_collision_triangles(self, verts, tris):
@@ -159,13 +181,29 @@ class Bsp:
     # The light grid models are lit from (R_GetLightingAtPoint): points every 32 units across, 64 up, from -131072.
     # mins / maxs are grid coordinates (inclusive); entries one (colour index, primary light index) per point, x-major
     # then y then z; colours (r, g, b) linear light, the same in the 56 directions the engine samples.
-    def set_light_grid(self, mins, maxs, entries, colours):
-        count = [maxs[k] - mins[k] + 1 for k in range(3)]
-        if len(entries) != count[0] * count[1] * count[2]:
-            raise ValueError("%d light grid entries for a %r grid" % (len(entries), count))
-        if count[2] > 0xFF or len(colours) > 0xFFFF or not colours:
-            raise ValueError("light grid too tall or too many colours")
-        self.light_grid = (tuple(mins), tuple(maxs), list(entries), list(colours))
+    # A sparse light grid, as the compiler writes them: mins / maxs in grid units (32 across, 64 up, from -131072),
+    # rows {x: [(first y, column count, base z, height, entries)]}, each row's blocks contiguous along y, a block's
+    # entries (colour index, primary light) column by column, bottom to top; a block of height 0 holds no point (the
+    # engine extrapolates there). colours: (r, g, b) light.
+    def set_light_grid(self, mins, maxs, rows, colours):
+        if not colours or len(colours) > 0xFFFF:
+            raise ValueError("a light grid needs 1 to 65535 colours")
+        if maxs[0] - mins[0] + 1 > 0x2000:
+            raise ValueError("more light grid rows than the engine takes (8192)")
+        for x, blocks in rows.items():
+            if not mins[0] <= x <= maxs[0] or not blocks:
+                raise ValueError("light grid row %d outside the bounds or empty" % x)
+            y = blocks[0][0]
+            for y0, count, z0, height, entries in blocks:
+                if y0 != y or not 0 < count <= 0xFF or len(entries) != count * height or height > 0xFF:
+                    raise ValueError("light grid row %d: bad block at y %d" % (x, y0))
+                if any(not 0 <= c < len(colours) for c, _ in entries):
+                    raise ValueError("light grid row %d: colour index out of range" % x)
+                y += count
+            # an empty block last would make the engine read past the row (its next block's base z)
+            if not blocks[0][3] or not blocks[-1][3]:
+                raise ValueError("light grid row %d starts or ends with an empty block" % x)
+        self.light_grid = (tuple(mins), tuple(maxs), {x: list(b) for x, b in rows.items()}, list(colours))
 
     def add_lightmap(self, data):
         if len(data) != LIGHTMAP_BYTES:
@@ -311,7 +349,8 @@ class Bsp:
             lumps[LUMP_UINDS] = struct.pack("<%dH" % len(uinds), *uinds)
             lumps[LUMP_COLLISIONAABBS] = b"".join(aabbs)
         sides, brushes, bverts, bvcounts = [], [], [], []
-        for bmin, bmax, mat, axial, extra in self.brushes:
+        all_brushes = self.brushes + [b for sub in self.submodels for b in sub[2]]
+        for bmin, bmax, mat, axial, extra in all_brushes:
             for axis in range(3):
                 sides.append(struct.pack("<fi", bmin[axis], axial[2 * axis]))
                 sides.append(struct.pack("<fi", bmax[axis], axial[2 * axis + 1]))
@@ -325,7 +364,7 @@ class Bsp:
                 corners = corners[:255]
             bvcounts.append(len(corners))
             bverts.extend(struct.pack("<3f", *c) for c in corners)
-        if len(self.brushes) > 0xFFFF:
+        if len(all_brushes) > 0xFFFF:
             raise ValueError("more than 65535 brushes")
         lumps[LUMP_PLANES] = b"".join(struct.pack("<4f", *p) for p in planes)
         lumps[LUMP_BRUSHSIDES] = b"".join(sides)
@@ -341,6 +380,10 @@ class Bsp:
         # Surfaces in the order of their AABB tree's leaves (each node covers a contiguous range), by material within
         # a leaf.
         soups, aabb_nodes = _surface_tree(self.soups)
+        world_soups = len(soups)
+        soups = soups + [soup for sub in self.submodels for soup in sub[3]]
+        if len(soups) > 0xFFFF:
+            raise ValueError("more than 65535 surfaces")
         tris, verts, indices = [], [], []
         for mat, sv, si, lmap in soups:
             sky = self.materials[mat][1] & 0x4
@@ -360,7 +403,14 @@ class Bsp:
         lumps[LUMP_AABBTREES] = b"".join(struct.pack("<3I", *n) for n in aabb_nodes)
         cell = struct.pack("<3f3fHxxiiiiB", *mins, *maxs, 0, 0, 0, 0, 0, 0)
         lumps[LUMP_CELLS] = cell + bytes(0x70 - len(cell))
-        lumps[LUMP_MODELS] = struct.pack("<3f3fHHiiii", *mins, *maxs, 0, len(soups), 0, 0, 0, len(self.brushes))
+        models = [struct.pack("<3f3fHHiiii", *mins, *maxs, 0, world_soups, 0, 0, 0, len(self.brushes))]
+        first_soup, first_brush = world_soups, len(self.brushes)
+        for smins, smaxs, sbrushes, ssoups in self.submodels:
+            models.append(struct.pack("<3f3fHHiiii", *smins, *smaxs, first_soup, len(ssoups), 0, 0, first_brush,
+                                      len(sbrushes)))
+            first_soup += len(ssoups)
+            first_brush += len(sbrushes)
+        lumps[LUMP_MODELS] = b"".join(models)
 
         lumps[LUMP_ENTITIES] = _entity_string(self.entities)
 
@@ -446,28 +496,39 @@ TREE_DEPTH = 28
 SPLIT_KEEP = 0.8
 
 
-def _write_light_grid(lumps, mins, maxs, entries, colours):
+def _write_light_grid(lumps, mins, maxs, rows, colours):
     """The four light grid lumps as the version 43 loader reads them (R_LoadLightGridHeader, R_LoadLightGridRowData,
-    R_LoadLightGridEntries, R_LoadLightGridColors) and R_GetLightGridSampleEntryQuad looks them up: one row per x, each
-    a 12-byte GfxLightGridRow (colStart, colCount, zStart, zCount, firstEntry) then blocks of (columns <= 255, height,
-    zBase) whose entries run column by column, bottom to top, padded to 4 bytes; the header holds the bounds, the
-    row and column axes (x, y) and each row's offset in 4-byte units. Every row covers the whole y and z range."""
-    cols, height = maxs[1] - mins[1] + 1, maxs[2] - mins[2] + 1
-    rows, starts, first = bytearray(), [], 0
-    for _ in range(maxs[0] - mins[0] + 1):
-        if len(rows) // 4 > 0xFFFE:
+    R_LoadLightGridEntries, R_LoadLightGridColors) and R_GetLightGridSampleEntryQuad looks them up: per row (x) a
+    12-byte GfxLightGridRow (colStart, colCount, zStart, zCount, firstEntry), then its blocks (columns, height, base z
+    over zStart, one byte, two when zCount is above 255; a block of height 0 is (columns, 0) alone), padded to 4 bytes;
+    the header holds the bounds, the row and column axes (x, y) and each row's offset in 4-byte units, 0xFFFF for a
+    row without points. Rows: set_light_grid's."""
+    data, starts, entries = bytearray(), [], []
+    for x in range(mins[0], maxs[0] + 1):
+        blocks = rows.get(x)
+        if not blocks:
+            starts.append(0xFFFF)
+            continue
+        if len(data) // 4 >= 0xFFFF:
             raise ValueError("light grid row data past 16-bit offsets")
-        starts.append(len(rows) // 4)
-        rows += struct.pack("<4HI", mins[1], cols, mins[2], height, first)
-        left = cols
-        while left:
-            run = min(left, 0xFF)
-            rows += bytes((run, height, 0))
-            left -= run
-        rows += bytes(-len(rows) % 4)
-        first += cols * height
+        starts.append(len(data) // 4)
+        z_start = min(z0 for _, _, z0, h, _ in blocks if h)
+        z_count = max(z0 + h for _, _, z0, h, _ in blocks if h) - z_start
+        wide = z_count > 0xFF
+        if z_count > 0xFFFF:
+            raise ValueError("light grid row %d too tall" % x)
+        col_count = sum(n for _, n, _, _, _ in blocks)
+        data += struct.pack("<4HI", blocks[0][0], col_count, z_start, z_count, len(entries))
+        for _, count, z0, height, block_entries in blocks:
+            if not height:
+                data += bytes((count, 0))
+                continue
+            base = z0 - z_start
+            data += bytes((count, height, base & 0xFF)) + (bytes((base >> 8,)) if wide else b"")
+            entries.extend(block_entries)
+        data += bytes(-len(data) % 4)
     lumps[LUMP_LIGHTGRIDHEADER] = struct.pack("<6HII", *mins, *maxs, 0, 1) + struct.pack("<%dH" % len(starts), *starts)
-    lumps[LUMP_LIGHTGRIDROWS] = bytes(rows)
+    lumps[LUMP_LIGHTGRIDROWS] = bytes(data)
     lumps[LUMP_LIGHTGRIDENTRIES] = b"".join(struct.pack("<HBB", c, p, 0) for c, p in entries)
     lumps[LUMP_LIGHTGRIDCOLORS] = b"".join(
         struct.pack("<168H", *([min(max(int(round(v * 1024.0)), 0), 0xFFFF) for v in colour] * 56)) for colour in colours)

@@ -69,6 +69,8 @@ void __cdecl Hunk_ClearDataFor(fileData_s **pFileData, unsigned __int8 *low, uns
 void __cdecl Hunk_ClearToMarkLow(int mark);
 void Hunk_Clear();
 int __cdecl Hunk_Used();
+int Hunk_Peak(); // mod: the most of the hunk in use at once since Hunk_Clear, temporary memory included
+int Hunk_Total(); // mod: the hunk's size
 unsigned __int8 *__cdecl Hunk_Alloc(unsigned int size, const char *name, int type);
 unsigned __int8 *__cdecl Hunk_AllocAlign(unsigned int size, int alignment, const char *name, int type);
 uintptr_t __cdecl Hunk_AllocateTempMemoryHigh(int size, const char *name);

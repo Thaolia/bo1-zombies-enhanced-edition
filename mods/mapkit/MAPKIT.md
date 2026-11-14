@@ -37,6 +37,7 @@ that geometry, visual quality, or arbitrary entity behavior has been validated. 
 | `ent` | Supported raw entity / empty only | `{"kind":"ent","keys":{"classname":"script_model","model":"t5_weapon_m14_world","origin":[-990,2510,60]}}` (`"bmodel":{"mins":[...],"maxs":[...]}`: the entity gets an undrawn layout brush model of that box, origin at its centre: a `script_brushmodel` that collides and can move, as the `bus` edit's) | `ent editN SKIP (no runtime check for this kind yet)`; inspect model and console |
 | `zone` | Retail zone manager / marker only on overlay | `{"kind":"zone","name":"reception_zone","mins":[-1000,2300,16],"maxs":[-596,2720,176]}` | Empty: `zone reception_zone PASS enabled, test client inside 0` (or 1). Overlay custom zone FAILs without an info_volume; `join` does not implement wiring |
 | `spawner` | Retail round spawner / empty only | `{"kind":"spawner","origin":[-880,2100,16],"yaw":90,"zone":"reception_zone"}` | Indirect: source-attributed window reach and `round PASS round A -> B ...` |
+| `farrespawn` | Far-zombie replacement / empty or overlay | `{"kind":"farrespawn","distance":2500}` | `mapkit: far respawn 2500 (layout)` at load, then `far respawn: N zombies farther than 2500 replaced, at ...`; off while `zm_farrespawn` (mods/admin) is set |
 | `window` | Generated Five prefab / existing retail entrance | `{"kind":"window","name":"intake","room":"hall","origin":[-880,2296,16],"yaw":90}` | `window intake PASS a zombie from it reached the player`; empty also `window intake boards PASS N/6 torn by zombies` |
 | `window` `"open": true` | Open entrance (unboardable window/gap: retail window traverse, no boards, no rebuild) / empty only | `{"kind":"window","name":"gap1","room":"room","origin":[-720,2296,16],"yaw":90,"open":true}` + a `spawner` behind it | `window gap1 PASS a zombie from it reached the player`; the boards line is replaced by `window gap1 is an open entrance (no boards, no rebuild)` |
 | `riser` | Retail ground riser (Five's climb-out anim and dirt fx, then straight at the player) / empty only | `{"kind":"riser","name":"pit1","origin":[-560,2640,16],"yaw":180,"zone":"room_zone"}` (origin = floor spot inside `zone`) | `riser pit1 PASS a zombie climbed out of it and reached the player` |
@@ -64,7 +65,7 @@ units in front of it; on an imported map (a `collision` edit), whose risers can 
 instead on the pathnode of the riser's zone nearest the riser that `FindPath` reaches from it, and moves to another
 node if, once put down, it is no longer in the zone (`docs/BO2_MAPS.md`). Each check logs where the client stands and,
 on a FAIL, where that riser's zombies are (and the traversal they are in); `+set mapkit_test_risers "riser7,riser10"`
-checks only the risers named.
+checks only the risers named, `+set mapkit_test_windows "church_baricade1"` only the windows named.
 
 Room `mins/maxs` enclose the usable interior; walls extend outward by `wall` (default 8). `open` accepts `+x,-x,+y,-y`.
 `gaps` cut openings: `{"side":"-y","along":[-930,-830],"z":[52,120]}`. `along` uses world Y for X walls and world X
@@ -106,8 +107,13 @@ are 6 units deep. A node-lookup PASS alone does not prove all paths are traversa
 For an empty-base window, `origin` is the wall centre at floor height; `yaw` points INTO the play room. Leave an
 80–100-unit-wide gap, Z=floor+36..floor+104, and an exterior floor/duct with nodes. The kit supplies the clip, six panels,
 repair boards, goal and traverse node pair. Add a `spawner` outside each entrance, with the play room's `zone`.
-The goal's zone is inferred from origin + forward*48 + Z32, before retail struct indexing. Spawners are associated with
-the nearest window in their zone; put each beside its intended exterior approach. Source identity stays attached to
+The goal's zone is inferred from origin + forward*48 + Z32 (the smallest zone box holding that point when boxes
+overlap), before retail struct indexing. Spawners are associated with the nearest window in their zone; put each beside
+its intended exterior approach. A spawner's `"window": "<name>"` ties it to that window instead: its zombies go to that
+window's goal (retail `zombie_think` with a spawner target) rather than one of the three closest goals at random, which
+on a map whose outside ground is cut into pockets (BO2's TranZit) sent them to goals they could not reach. Give such a
+spawner the window's own zone, or it only wakes when the player stands elsewhere. `"chaser": 1` makes a spawner's
+zombies go straight for the player, no window (retail `zombie_chaser`). Source identity stays attached to
 the spawned zombie as its AI goals change. `room` names the interior room used by reach validation.
 An empty-base layout with no `window` at all (an arena) still works: its spawners become retail `zombie_chaser`
 spawners that go straight for the player (the load prints `mapkit: no window edits: spawners are zombie_chaser`).

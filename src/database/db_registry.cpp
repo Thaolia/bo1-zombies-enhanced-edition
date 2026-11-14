@@ -53,8 +53,10 @@
 #define POOLSIZE_XANIM_MOD 8000 // mod: capacity for bo1_mod_zones; in use only with it on the command line (DB_InitXAssets)
 #define POOLSIZE_XMODEL           1000
 #define POOLSIZE_XMODEL_MOD 2000 // mod: capacity for bo1_mod_zones; in use only with it on the command line (DB_InitXAssets)
+static_assert(POOLSIZE_XMODEL_MOD <= R_STREAM_XMODEL_COUNT, "the image streamer keeps one entry per xmodel");
 #define POOLSIZE_MATERIAL         4096
 #define POOLSIZE_MATERIAL_MOD 6144 // mod: capacity for bo1_mod_zones; in use only with it on the command line (DB_InitXAssets)
+static_assert(POOLSIZE_MATERIAL_MOD <= R_STREAM_MATERIAL_COUNT, "the image streamer keeps one entry per material");
 #define POOLSIZE_TECHSET          2048
 #define POOLSIZE_TECHSET_MOD 3072 // mod: capacity for bo1_mod_zones; in use only with it on the command line (DB_InitXAssets)
 //#define POOLSIZE_IMAGE             4224
@@ -5351,17 +5353,7 @@ int __cdecl DB_GetXModelIndex(const XModel *model)
 
 XAssetPoolEntry<XModel> *__cdecl DB_GetXModelAtIndex(unsigned int index)
 {
-    if ( index >= 0x3E8
-        && !Assert_MyHandler(
-                    "C:\\projects_pc\\cod\\codsrc\\src\\database\\db_registry.cpp",
-                    5997,
-                    0,
-                    "index doesn't index ARRAY_COUNT( g_XModelPool.entries )\n\t%i not in [0, %i)",
-                    index,
-                    1000) )
-    {
-        __debugbreak();
-    }
+    bcassert(index, ARRAY_COUNT(g_XModelPool.entries)); // mod: 1000 (0x3E8) before, the retail pool's size
     return &g_XModelPool.entries[index];
 }
 

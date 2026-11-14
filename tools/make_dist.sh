@@ -387,8 +387,8 @@ bo2_data() { # <dest>
 
 # The Switch's share of the player's Black Ops II extraction: the weapons (mod.ff and images, as on PC), and of the maps
 # the native ones only (the start menu offers those, not the MapKit meshes): each <layout>_bsp.json with its zone, BSP
-# and colour maps, and of its imports/<map>/ the node links, the blockers' props and their images, without the MapKit
-# mesh and collision it does not use.
+# and colour maps, and of its imports/<map>/ the node links, the blockers' props and their images, and the props
+# collision a native layout's collision edit names (TranZit's), without the MapKit mesh and collision it does not use.
 bo2_switch_data() { # <dest>
     [ -n "$BO2" ] || return 0
     # the weapons, for a join to a server that has them (the start menu loads them by default, "Armes BO2")
@@ -406,7 +406,9 @@ bo2_switch_data() { # <dest>
         map="$(basename "$layout" _bsp.json)"
         map="${map#bo2_}"
         [ -d "$BO2/mods/mapkit/imports/$map" ] || continue
-        rsync -a --include='*.blockers.mesh.bin' --exclude='*.mesh.bin' --exclude='*.collision.bin' \
+        # a native map's props collision (TranZit's layout names it in its collision edit) comes too
+        rsync -a --include='*.blockers.mesh.bin' --include='*.props.collision.bin' --exclude='*.mesh.bin' \
+            --exclude='*.collision.bin' \
             "$BO2/mods/mapkit/imports/$map/" "$1/mods/mapkit/imports/$map/"
     done
     rsync -a "$BO2/usermaps/" "$1/usermaps/"
@@ -419,8 +421,14 @@ bo2_note() {
     [ -n "$BO2" ] || return 0
     if [ $BO2_MAPS = 1 ]; then
         echo "NUKETOWN    zmclient, vue Solo : « Mapkit : Nuketown (Black Ops II) », tirée de votre propre Black Ops II."
-        if ls "$BO2"/main/maps/*.d3dbsp > /dev/null 2>&1; then
+        if [ -f "$BO2/main/maps/zombie_bo2nuked.d3dbsp" ]; then
             echo "            « Mapkit : Nuketown native (Black Ops II, monde BSP) » : la même, sur son propre monde BO1."
+        fi
+        if [ -f "$BO2/mods/mapkit/layouts/bo2_zm_transit.json" ]; then
+            echo "TRANZIT     zmclient, vue Solo : « Mapkit : TranZit (Black Ops II) », de votre propre Black Ops II."
+        fi
+        if [ -f "$BO2/main/maps/zombie_bo2transit.d3dbsp" ]; then
+            echo "            « Mapkit : TranZit native (Black Ops II, monde BSP) » : la même, sur son propre monde BO1."
         fi
     fi
     if [ $BO2_WEAPONS = 1 ]; then

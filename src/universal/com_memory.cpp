@@ -22,6 +22,25 @@ unsigned __int8 *s_hunkData;
 int s_hunkTotal;
 hunkUsed_t hunk_high;
 unsigned __int8 *s_origHunkData;
+// mod: the most of the hunk in use at once since Hunk_Clear, temporary memory included, to size a BSP world's hunk
+static int s_hunkPeak;
+
+static void Hunk_NotePeak()
+{
+    const int used = hunk_low.temp + hunk_high.temp;
+    if (used > s_hunkPeak)
+        s_hunkPeak = used;
+}
+
+int Hunk_Peak()
+{
+    return s_hunkPeak;
+}
+
+int Hunk_Total()
+{
+    return s_hunkTotal;
+}
 fileData_s *com_fileDataHashTable[1024];
 fileData_s *com_hunkData;
 
@@ -171,8 +190,9 @@ void Com_InitHunkMemory()
     if (IsFastFileLoad() && Com_BspWorldRequested())
     {
         // mod (bspworld): a world read from a BSP lives in the hunk: Nuketown with its props takes 45.8 MB, and loading
-        // its four lightmaps 37.7 MB more of temporary memory (R_LoadLightmaps, one merged 2048 x 2048 group)
-        s_hunkTotal = 0x6000000;
+        // its four lightmaps 37.7 MB more of temporary memory (R_LoadLightmaps, one merged 2048 x 2048 group); TranZit
+        // 97.8 MB, at most 99.8 MB at once (the "bspworld: hunk" line). On the Switch the hunk is real memory.
+        s_hunkTotal = 0x7000000;
     }
     else if (IsFastFileLoad())
     {
@@ -694,6 +714,7 @@ void Hunk_Clear()
     hunk_low.temp = 0;
     hunk_high.permanent = 0;
     hunk_high.temp = 0;
+    s_hunkPeak = 0; // mod
     Hunk_ClearData();
     Z_VirtualDecommit((char *)s_hunkData, s_hunkTotal, 11);
     track_hunk_ClearToMarkLow(0);
@@ -783,6 +804,7 @@ unsigned __int8 *__cdecl Hunk_AllocAlign(unsigned int size, int alignment, const
     hunk_high.permanent += size;
     hunk_high.permanent = ~alignmenta & (alignmenta + hunk_high.permanent);
     hunk_high.temp = hunk_high.permanent;
+    Hunk_NotePeak(); // mod
     if ( hunk_high.permanent + hunk_low.temp > s_hunkTotal )
     {
         track_PrintAllInfo();
@@ -829,6 +851,7 @@ uintptr_t __cdecl Hunk_AllocateTempMemoryHigh(int size, const char *name)
     endBuf = (unsigned __int8 *)((uintptr_t)&s_hunkData[s_hunkTotal - hunk_high.temp] & ~(uintptr_t)4095);
     hunk_high.temp += size;
     hunk_high.temp = (hunk_high.temp + 15) & 0xFFFFFFF0;
+    Hunk_NotePeak(); // mod
     if ( hunk_high.temp + hunk_low.temp > s_hunkTotal )
     {
         track_PrintAllInfo();
@@ -950,6 +973,7 @@ unsigned __int8 *__cdecl Hunk_AllocLowAlign(unsigned int size, int alignment, co
     }
     hunk_low.permanent += size;
     hunk_low.temp = hunk_low.permanent;
+    Hunk_NotePeak(); // mod
     if ( hunk_high.temp + hunk_low.permanent > s_hunkTotal )
     {
         track_PrintAllInfo();
@@ -992,6 +1016,7 @@ unsigned int *__cdecl Hunk_AllocateTempMemory(int size, const char *name)
     hunk_low.temp = (hunk_low.temp + 15) & 0xFFFFFFF0;
     buf = &s_hunkData[hunk_low.temp];
     hunk_low.temp += sizea;
+    Hunk_NotePeak(); // mod
     if ( hunk_high.temp + hunk_low.temp > s_hunkTotal )
     {
         track_PrintAllInfo();

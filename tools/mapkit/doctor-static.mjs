@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import zlib from 'node:zlib';
 
-export const kinds = ['room', 'box', 'stairs', 'spawn', 'zone', 'window', 'spawner', 'perk', 'wallbuy', 'node', 'door', 'debris', 'mysterybox', 'ent', 'powerswitch', 'pap', 'light', 'riser'];
+export const kinds = ['room', 'box', 'stairs', 'spawn', 'zone', 'window', 'spawner', 'perk', 'wallbuy', 'node', 'door', 'debris', 'mysterybox', 'ent', 'powerswitch', 'pap', 'light', 'riser', 'farrespawn'];
 // mapkit-fix-3 mood lighting presets (cm_mapkit.cpp s_lightPresets); tint = color * intensity, 1 = the kit's flat grey
 export const lightPresets = { 'dim bunker': { color: [1, 0.82, 0.62], intensity: 0.55 }, 'red alarm': { color: [1, 0.2, 0.14], intensity: 1 }, 'cold lab': { color: [0.72, 0.88, 1], intensity: 1.15 } };
 export const lightTint = e => { const p = lightPresets[e.preset] || { color: [1, 1, 1], intensity: 1 }; const c = e.color || p.color, k = e.intensity ?? p.intensity; return c.map(v => Math.min(2, Math.max(0, v * k))); };
@@ -63,6 +63,7 @@ export function validateSchema(layout) {
       if (e.intensity !== undefined && (!Number.isFinite(e.intensity) || e.intensity < 0 || e.intensity > 2)) bad(`${p}.intensity`, 'expected a number 0..2 (1 = the flat grey)');
       if (e.room === undefined && (e.mins === undefined || e.maxs === undefined)) bad(`${p}.mins`, 'a light needs mins/maxs or room (the name of a room, zone or box edit)');
     }
+    if (e.kind === 'farrespawn' && !(Number.isFinite(e.distance) && e.distance > 0)) bad(`${p}.distance`, 'expected a positive distance in units');
     if (e.power !== undefined && typeof e.power !== 'boolean') bad(`${p}.power`, 'expected a boolean');
     if (e.contents !== undefined && !['solid', 'none'].includes(e.contents)) bad(`${p}.contents`, 'supported contents are solid and none (other names become solid in the engine)');
     // mapkit-fix-4c: window "open": true = unboardable entrance; risers are retail zone spawners (both empty base only)

@@ -1307,8 +1307,28 @@ namespace
         // nodes[0] of an empty level.exterior_goals (spawner.gsc:506-512, "undefined is not a field object",
         // stress_arena live doctor: 84 script errors). Retail's own way to skip the barrier is the spawner's
         // script_string "zombie_chaser" (should_skip_teardown, spawner.gsc:398-411 -> find_flesh directly).
-        if (!s_mkWindowEdits)
+        // "chaser": the spawner's zombies go for the players at once, no window (BO2's spawn_location "find_flesh":
+        // TranZit's tunnel, bridge and roadside ones)
+        if (!s_mkWindowEdits || MkJ_Num(c, "chaser", 0.0f) != 0.0f)
             MkE_Key("script_string", "zombie_chaser");
+        // "window": the window this spawner's zombies come in by. Retail zombie_think otherwise picks one of the three
+        // exterior goals closest to the spawner at random: on TranZit two of them were often in another pocket of the
+        // node graph, out of reach (bad_path), and those zombies never came in.
+        const char *window = MkJ_Str(c, "window", "");
+        if (*window)
+        {
+            int w = 0, found = -1;
+            for (int wc = s_json[s_editsNode].first; wc >= 0 && found < 0; wc = s_json[wc].next, ++w)
+                if (!strcmp(MkJ_Str(wc, "kind", ""), "window") && !strcmp(MkJ_Str(wc, "name", ""), window))
+                    found = w;
+            if (found >= 0)
+            {
+                Com_sprintf(buf, sizeof(buf), "mkwin%d_goal", found);
+                MkE_Key("target", buf);
+            }
+            else
+                Com_PrintWarning(1, "mapkit: spawner edit %d: no window named %s\n", e, window);
+        }
         Com_sprintf(buf, sizeof(buf), "%s_spawners", MkJ_Str(c, "zone", "mapkit_zone"));
         MkE_Key("targetname", buf);
         MkE_Add("}\n");
@@ -1423,13 +1443,16 @@ namespace
         // Retail struct_class_init indexes script_noteworthy once. Adding it later in start_zones
         // let deactivate_initial_barrier_goals lower this goal by 10000, but enable_zone could not
         // find it in GetStructArray(<zone>_barriers, script_noteworthy) to restore its origin.
-        // Match mapkit_window_zone's point 48 units into the room, 32 above the floor.
+        // Match mapkit_window_zone: the smallest zone holding the point 48 units into the room, 32 above the floor
+        // (TranZit's farmhouse box lies inside the farm's).
         float inside[3];
         if (MkJ_Vec3(MkJ_Child(c, "origin"), inside))
         {
             inside[0] += cosf(yaw * 0.017453292f) * 48.0f;
             inside[1] += sinf(yaw * 0.017453292f) * 48.0f;
             inside[2] += 32.0f;
+            int best = -1;
+            float bestSize = 0.0f;
             for (int zc = s_json[s_editsNode].first; zc >= 0; zc = s_json[zc].next)
             {
                 float lo[3], hi[3];
@@ -1439,16 +1462,31 @@ namespace
                 if (inside[0] >= lo[0] && inside[0] <= hi[0] && inside[1] >= lo[1] && inside[1] <= hi[1]
                     && inside[2] >= lo[2] && inside[2] <= hi[2])
                 {
-                    char zoneLabel[128];
-                    Com_sprintf(zoneLabel, sizeof(zoneLabel), "%s_barriers", MkJ_Str(zc, "name", "mapkit_zone"));
-                    MkE_Key("script_noteworthy", zoneLabel);
-                    break;
+                    const float size = (hi[0] - lo[0]) * (hi[1] - lo[1]) * (hi[2] - lo[2]);
+                    if (best < 0 || size < bestSize)
+                    {
+                        best = zc;
+                        bestSize = size;
+                    }
                 }
+            }
+            if (best >= 0)
+            {
+                char zoneLabel[128];
+                Com_sprintf(zoneLabel, sizeof(zoneLabel), "%s_barriers", MkJ_Str(best, "name", "mapkit_zone"));
+                MkE_Key("script_noteworthy", zoneLabel);
             }
         }
         MkE_WindowXf(c, goal, p);
         MkE_KeyVec("origin", p);
         MkE_KeyVec("angles", angles);
+        MkE_Add("}\n");
+        // the spot a spawner's "window" names (MkE_Spawner): retail zombie_think sends a spawner with a target to the
+        // exterior_goal closest to it, this one, instead of one of the three closest goals at random
+        MkE_Add("{\n\"classname\" \"script_struct\"\n");
+        Com_sprintf(buf, sizeof(buf), "%s_goal", name);
+        MkE_Key("targetname", buf);
+        MkE_KeyVec("origin", p);
         MkE_Add("}\n");
     }
 }

@@ -35,6 +35,11 @@ void __cdecl R_AssignSModelCacheResources(GfxWorld *world)
     //    (int)(16 * v7) >> 4,
     //    (bool (__cdecl *)(GfxSModelSurfStats *, GfxSModelSurfStats *))R_CompareSModelStats_Score);
     std::sort(stats, stats + v7, R_CompareSModelStats_Score);
+    // mod (bspworld): the static models of a world read from a BSP are often xmodels a loaded zone holds too (TranZit's
+    // cinder blocks and pipes are in BO1's own zones), whose lods carry the cache indices Treyarch's linker gave them
+    // for that zone's world: XModelSetSModelCacheForLod asserts on an index already set. This world assigns its own.
+    for ( i = 0; i < v7; ++i )
+        stats[i].model->lodInfo[stats[i].lod].smcIndexPlusOne = 0;
     for ( i = 0; i < v7; ++i )
     {
         model = stats[i].model;

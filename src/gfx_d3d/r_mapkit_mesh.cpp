@@ -15,6 +15,7 @@
 #include "r_xsurface_optimize.h"
 #include "rb_resource.h"
 #include <database/db_registry.h>
+#include <qcommon/cm_load.h>
 #include <qcommon/cm_mapkit.h>
 #include <qcommon/common.h>
 #include <qcommon/threads.h>
@@ -536,6 +537,106 @@ namespace
     }
 }
 
+// mapkit_dump_bmodels <file> (a developer's tool): the loaded map's brush models *1..*19, collision brushes and render
+// surfaces, as JSON for tools/bo2/bo2_bsp.py --window-models. MapKit's windows are Five's *7..*19 (MkE_Window), which
+// a world read from a BSP has to carry itself; run it once with Five loaded from its zone.
+static void Mesh_DumpBrushModels()
+{
+    const dvar_s *path = Dvar_FindVar("mapkit_dump_bmodels");
+    if (!path || !path->current.string || !*path->current.string || !rgp.world)
+        return;
+    FILE *f = fopen(path->current.string, "w");
+    if (!f)
+    {
+        Com_PrintWarning(8, "mapkit_dump_bmodels: cannot write %s\n", path->current.string);
+        return;
+    }
+    const GfxWorld *world = rgp.world;
+    fprintf(f, "{\"map\": \"%s\", \"models\": [\n", world->name);
+    unsigned int dumped = 0;
+    for (unsigned int m = 1; m < 20 && m < cm.numSubModels && m < world->modelCount; ++m, ++dumped)
+    {
+        const cmodel_t *cmod = &cm.cmodels[m];
+        // its brushes: the leaf brush node tree (CM_TestInLeafBrushNode_r's walk)
+        unsigned short brushes[256];
+        int brushCount = 0;
+        int stack[64], depth = 0;
+        stack[depth++] = cmod->leaf.leafBrushNode;
+        while (depth)
+        {
+            const int index = stack[--depth];
+            const cLeafBrushNode_s *node = &cm.leafbrushNodes[index];
+            if (node->leafBrushCount > 0)
+            {
+                for (int k = 0; k < node->leafBrushCount; ++k)
+                {
+                    bool seen = false;
+                    for (int j = 0; j < brushCount && !seen; ++j)
+                        seen = brushes[j] == node->data.leaf.brushes[k];
+                    if (!seen && brushCount < 256)
+                        brushes[brushCount++] = node->data.leaf.brushes[k];
+                }
+                continue;
+            }
+            if (node->leafBrushCount < 0 && depth < 64)
+                stack[depth++] = index + 1;
+            for (int c = 0; c < 2 && depth < 64; ++c)
+                if (node->data.children.childOffset[c])
+                    stack[depth++] = index + node->data.children.childOffset[c];
+        }
+        const GfxBrushModel *gm = &world->models[m];
+        fprintf(f, "%s{\"index\": %u, \"mins\": [%.3f, %.3f, %.3f], \"maxs\": [%.3f, %.3f, %.3f], \"collAabbs\": %d, "
+                   "\"bounds\": [[%.3f, %.3f, %.3f], [%.3f, %.3f, %.3f]],\n \"brushes\": [",
+                m == 1 ? "" : ",\n", m, cmod->mins[0], cmod->mins[1], cmod->mins[2], cmod->maxs[0], cmod->maxs[1],
+                cmod->maxs[2], cmod->leaf.collAabbCount, gm->bounds[0][0], gm->bounds[0][1], gm->bounds[0][2],
+                gm->bounds[1][0], gm->bounds[1][1], gm->bounds[1][2]);
+        for (int b = 0; b < brushCount; ++b)
+        {
+            const cbrush_t *brush = &cm.brushes[brushes[b]];
+            fprintf(f, "%s{\"mins\": [%.4f, %.4f, %.4f], \"maxs\": [%.4f, %.4f, %.4f], \"contents\": %d, \"axial\": [",
+                    b ? ", " : "", brush->mins[0], brush->mins[1], brush->mins[2], brush->maxs[0], brush->maxs[1],
+                    brush->maxs[2], brush->contents);
+            for (int axis = 0; axis < 3; ++axis)
+                for (int side = 0; side < 2; ++side)
+                    fprintf(f, "%s[%d, %d]", axis || side ? ", " : "", brush->axial_cflags[side][axis],
+                            brush->axial_sflags[side][axis]);
+            fprintf(f, "], \"sides\": [");
+            for (unsigned int k = 0; k < brush->numsides; ++k)
+            {
+                const cbrushside_t *side = &brush->sides[k];
+                fprintf(f, "%s[%.6f, %.6f, %.6f, %.4f, %d, %d]", k ? ", " : "", side->plane->normal[0],
+                        side->plane->normal[1], side->plane->normal[2], side->plane->dist, side->cflags, side->sflags);
+            }
+            fprintf(f, "]}");
+        }
+        fprintf(f, "],\n \"surfaces\": [");
+        for (unsigned int k = 0; k < gm->surfaceCount; ++k)
+        {
+            const GfxSurface *surface = &world->dpvs.surfaces[gm->startSurfIndex + k];
+            fprintf(f, "%s{\"material\": \"%s\", \"verts\": [", k ? ",\n  " : "\n  ",
+                    surface->material ? surface->material->info.name : "");
+            for (int v = 0; v < surface->tris.vertexCount; ++v)
+            {
+                const GfxWorldVertex *vert = &world->draw.vd.vertices[surface->tris.firstVertex + v];
+                float normal[3];
+                Vec3UnpackUnitVec(vert->normal, normal);
+                fprintf(f, "%s[%.4f, %.4f, %.4f, %.6f, %.6f, %.4f, %.4f, %.4f, %u]", v ? ", " : "", vert->xyz[0],
+                        vert->xyz[1], vert->xyz[2], vert->texCoord[0], vert->texCoord[1], normal[0], normal[1],
+                        normal[2], (unsigned int)vert->color.packed);
+            }
+            fprintf(f, "], \"indices\": [");
+            for (int i = 0; i < 3 * surface->tris.triCount; ++i)
+                fprintf(f, "%s%u", i ? ", " : "", (unsigned int)world->draw.indices[surface->tris.baseIndex + i]);
+            fprintf(f, "]}");
+        }
+        fprintf(f, "]}");
+    }
+    fprintf(f, "\n]}\n");
+    fclose(f);
+    Com_Printf(8, "mapkit_dump_bmodels: %u brush models of %s written to %s\n", dumped, world->name,
+               path->current.string);
+}
+
 void __cdecl R_Mapkit_LoadMesh()
 {
     const unsigned int start = Sys_Milliseconds();
@@ -551,6 +652,7 @@ void __cdecl R_Mapkit_LoadMesh()
     R_Mapkit_FreeMesh();
     if (!r_loadForRenderer->current.enabled)
         return;
+    Mesh_DumpBrushModels();
     const char *file = 0, *imageDir = 0;
     float unused[3];
     int edit = -1;

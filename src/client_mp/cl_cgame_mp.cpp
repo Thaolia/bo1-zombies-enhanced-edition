@@ -1010,7 +1010,8 @@ int __cdecl LoadWorld(char *mapname)
     }
     R_LoadWorld(mapname, &checksum, 0, IsMenuLevel);
     if ( bspWorld )
-        Com_Printf(16, "bspworld: hunk %.1f MB used after the render world\n", Hunk_Used() / (1024.0 * 1024.0));
+        Com_Printf(16, "bspworld: hunk %.1f MB used after the render world, at most %.1f MB at once, of %.1f MB\n",
+                   Hunk_Used() / (1024.0 * 1024.0), Hunk_Peak() / (1024.0 * 1024.0), Hunk_Total() / (1024.0 * 1024.0));
     if ( !useFastFile->current.enabled || bspWorld )
         Com_UnloadBsp();
     return checksum;

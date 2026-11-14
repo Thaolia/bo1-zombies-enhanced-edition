@@ -39,6 +39,13 @@ struct distance_data // sizeof=0x8
                                         // R_StreamUpdateForBModel+E8/w ...
 };
 
+// mod: the material pool's size with bo1_mod_zones (POOLSIZE_MATERIAL_MOD, db_registry.cpp), 4096 in retail. A mod
+// zone's materials past index 4095 (native TranZit's) overran materialImportance into the bit arrays after it.
+#define R_STREAM_MATERIAL_COUNT 6144
+// mod: likewise the xmodel pool with bo1_mod_zones (POOLSIZE_XMODEL_MOD), 1000 in retail
+#define R_STREAM_XMODEL_COUNT 2000
+#define R_STREAM_XMODEL_WORDS ((R_STREAM_XMODEL_COUNT + 31) / 32)
+
 struct StreamFrontendGlob
 {
     void *mainBuffer;
@@ -47,17 +54,17 @@ struct StreamFrontendGlob
     int extraBufferSize;
     unsigned int frame;
     _BYTE gap14[108];
-    float materialImportance[4096];
-    unsigned int materialImportanceBits[128];
-    unsigned int materialTouchBits[128];
-    unsigned int materialPreventBits[128];
-    float modelDistance[1000];
+    float materialImportance[R_STREAM_MATERIAL_COUNT];
+    unsigned int materialImportanceBits[R_STREAM_MATERIAL_COUNT / 32];
+    unsigned int materialTouchBits[R_STREAM_MATERIAL_COUNT / 32];
+    unsigned int materialPreventBits[R_STREAM_MATERIAL_COUNT / 32];
+    float modelDistance[R_STREAM_XMODEL_COUNT];
     _BYTE gap5620[96];
-    unsigned int modelDistanceBits[32];
-    float dynamicModelDistance[1000];
+    unsigned int modelDistanceBits[R_STREAM_XMODEL_WORDS];
+    float dynamicModelDistance[R_STREAM_XMODEL_COUNT];
     _BYTE gap66A0[96];
-    unsigned int dynamicModelDistanceBits[32];
-    unsigned int modelTouchBits[32];
+    unsigned int dynamicModelDistanceBits[R_STREAM_XMODEL_WORDS];
+    unsigned int modelTouchBits[R_STREAM_XMODEL_WORDS];
     unsigned int imageInSortedListBits[128];
     float imageImportance[4096];
     unsigned int imageImportanceBits[128];

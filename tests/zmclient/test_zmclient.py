@@ -224,6 +224,19 @@ class CommandLine(unittest.TestCase):
             self.assertIn("+set bo1_mod_mapkit bo2_zm_nuked_bsp ", line)
             self.assertIn("+set bo1_mod_zones zombie_bo2nuked +set bo1_bspworld maps/zombie_bo2nuked.d3dbsp ", line)
             self.assertTrue(line.endswith("+devmap zombie_pentagon"), line)
+            # the native TranZit: its zone, then Ascension's for Stamin-Up, in the self-tests' order
+            with open(os.path.join(layouts, "bo2_zm_transit_bsp.json"), "w") as f:
+                json.dump({"name": "bo2_zm_transit_bsp", "base": "zombie_pentagon", "edits": []}, f)
+            os.makedirs(os.path.join(tmp, "usermaps", "zombie_bo2transit"))
+            open(os.path.join(tmp, "usermaps", "zombie_bo2transit", "zombie_bo2transit.ff"), "w").close()
+            open(os.path.join(tmp, "main", "maps", "zombie_bo2transit.d3dbsp"), "w").close()
+            P.mapkit_layouts.cache_clear()
+            self.assertIn("Mapkit : TranZit native (Black Ops II, monde BSP)",
+                          [m[1] for m in P.solo_maps(tmp) if m[3] == "bo2_zm_transit_bsp"])
+            p["map"] = "mapkit:bo2_zm_transit_bsp"
+            line = " ".join(P.build_command(p, "x", tmp))
+            self.assertIn("+set bo1_mod_zones zombie_bo2transit zombie_cosmodrome"
+                          " +set bo1_bspworld maps/zombie_bo2transit.d3dbsp ", line)
 
     def test_bo2_weapons(self):
         with tempfile.TemporaryDirectory() as tmp:
