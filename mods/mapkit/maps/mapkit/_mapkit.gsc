@@ -1388,7 +1388,16 @@ mapkit_check()
 				zombies = GetAiSpeciesArray( "axis", "all" );
 				for ( z = 0; z < zombies.size; z++ )
 				{
-					if ( IsDefined( zombies[z].mapkit_source_window ) && zombies[z].mapkit_source_window != i )
+					// a zombie that took another entrance through the retail entrance logic (first_node, no source
+					// window) chased the teleported client from window to window for 20 minutes on native TranZit:
+					// the round never ended and the windows checked meanwhile saw no spawn
+					other = IsDefined( zombies[z].mapkit_source_window ) && zombies[z].mapkit_source_window != i;
+					if ( !IsDefined( zombies[z].mapkit_source_window ) && IsDefined( zombies[z].first_node )
+						&& IsDefined( zombies[z].first_node.target ) && zombies[z].first_node.target != "mkwin" + i )
+					{
+						other = true;
+					}
+					if ( other )
 					{
 						mapkit_test_kill( zombies[z], player, "other_window" );
 					}

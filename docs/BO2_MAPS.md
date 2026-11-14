@@ -344,6 +344,17 @@ Checked on win64-msvc (D3D9, `headless.ps1 -Client`): the player spawns in the d
 with planks, the burnt trees, bushes and corn by the bank draw in their own colours, and the view over the depot's
 yard shows the road, the cabin, the river, the lava and the rocks; the run quits cleanly (hunk 97.9 MB, at most
 100.0). Nuketown's five drops land where they did (-43, -66, -54, 33, -60).
+- **Self-test** (Linux headless, the commands of the MapKit maps with `bo1_bspworld` and the BSP layouts; TranZit with
+  `bo1_mod_zones "zombie_bo2transit zombie_cosmodrome"` and `mapkit_test_risers riser1,riser9`). Nuketown native:
+  `pass 105 fail 1` (riser4: its zombie was still on its way at 90 s; `pass 71 fail 0` when rerun with riser4 alone,
+  which passes). TranZit native: `pass 179 fail 18`, then `166 / 31`: a round hung 11 and 22 minutes, and every window
+  checked meanwhile saw no spawn. A zombie that took another entrance through the retail entrance logic (its
+  `first_node` names that window, but it has no `mapkit_source_window`) was never culled by the window check and
+  chased the teleported client from window to window across the map (the farm, the town, the depot, the forest)
+  for the whole round. The window check now culls those too, as the unlock check did: `pass 187 fail 10`, rounds
+  every one to three minutes, against `185 / 12` for MapKit's own TranZit. The ten: five unlock_window checks
+  (farmhouse, farm, power station, barber) and four windows that fail on MapKit's TranZit as well, plus one window
+  whose zombie came in without tearing a board (MapKit's run had one such window too, another one).
 - **The lava and the glow cards** (the MapKit mesh too, `bo2_mesh.py`). OAT's `.mtl` gives a material the first of
   its images, which for the molten lava is `Heat_Map3` (`warp3`, a distortion map): a band of red and cyan noise along
   the lava pools. An image the material's JSON puts in a sampler that is no colour map gives way to its colour map,
