@@ -374,6 +374,7 @@ main_end()
 	}
 	level thread mapkit_round_log();
 	level thread mapkit_show_wallbuys();
+	level thread mapkit_far_respawn();
 	// asset catalog (node tools/mapkit/catalog.mjs --refresh): +set mapkit_catalog 1 prints every loaded weapon/xmodel/material
 	if ( GetDvar( "mapkit_catalog" ) == "1" )
 	{
@@ -1349,7 +1350,7 @@ mapkit_check()
 		kind = bo1_mapkit_get( i, "kind" );
 		if ( kind != "window" && kind != "perk" && kind != "room" && kind != "box" && kind != "stairs" && kind != "node" && kind != "zone"
 			&& kind != "wallbuy" && kind != "spawner" && kind != "spawn" && kind != "door" && kind != "debris" && kind != "mysterybox"
-			&& kind != "pap" && kind != "powerswitch" && kind != "light" && kind != "riser" && kind != "bus" )
+			&& kind != "pap" && kind != "powerswitch" && kind != "light" && kind != "riser" && kind != "bus" && kind != "farrespawn" )
 		{
 			LogPrint( "mapkit: check " + kind + " " + mapkit_name( i ) + " SKIP (no runtime check for this kind yet)\n" );
 		}
@@ -1361,6 +1362,11 @@ mapkit_check()
 			continue;
 		}
 		name = mapkit_name( i );
+		// test aid: mapkit_test_windows <name,name,...> checks only those windows
+		if ( GetDvar( "mapkit_test_windows" ) != "" && !IsSubStr( "," + GetDvar( "mapkit_test_windows" ) + ",", "," + name + "," ) )
+		{
+			continue;
+		}
 		// Visit each empty-base entrance's room; the retail zone manager activates its spawners by occupancy.
 		wo = bo1_mapkit_get( i, "origin" );
 		if ( IsDefined( wo ) )
@@ -1373,6 +1379,19 @@ mapkit_check()
 					yaw = 90;
 				}
 				stand = wo + AnglesToForward( ( 0, yaw, 0 ) ) * 160;
+				// on the window's floor, where a player fits: 160 in, TranZit's depot_baricade4 put the client on a
+				// raised prop and labs_baricade4 inside a counter's clip, and the zombies that came in stopped 70-120
+				// units short (FAIL "spawned outside only" with 6/6 boards). The fit test is mapkit_test_place's.
+				for ( d = 160; d >= 48 && mapkit_imported(); d -= 16 )
+				{
+					spot = mapkit_test_floor( wo + AnglesToForward( ( 0, yaw, 0 ) ) * d );
+					if ( IsDefined( spot ) && abs( spot[2] - wo[2] ) <= 18
+						&& Distance( PlayerPhysicsTrace( spot + ( 0, 0, 40 ), spot + ( 0, 0, 1 ) ), spot + ( 0, 0, 1 ) ) < 0.5 )
+					{
+						stand = wo + AnglesToForward( ( 0, yaw, 0 ) ) * d;
+						break;
+					}
+				}
 				mapkit_test_visit( stand, wo + ( 0, 0, 48 ) );
 				SetDvar( "bo1_testclient_press", "" );
 			}
@@ -1404,7 +1423,9 @@ mapkit_check()
 					// mapkit-fix-4e: riser zombies (retail script_string "riser") have no source window and were never
 					// culled: two filter_bed risers stood on the god player for the whole 90 s (sluice_works: check window
 					// pump_south and control_north FAIL "spawned outside only"). The risers are checked after the windows.
-					else if ( !IsDefined( zombies[z].mapkit_source_window ) && IsDefined( zombies[z].script_string ) && zombies[z].script_string == "riser" )
+					// chasers (BO2's find_flesh spawn_locations, TranZit) take no window either
+					else if ( !IsDefined( zombies[z].mapkit_source_window ) && IsDefined( zombies[z].script_string )
+						&& ( zombies[z].script_string == "riser" || zombies[z].script_string == "zombie_chaser" ) )
 					{
 						mapkit_test_kill( zombies[z], player, "riser_during_window" );
 					}
@@ -1424,6 +1445,38 @@ mapkit_check()
 				got = "zombies got " + level.mapkit_window_state[ name ] + " only";
 			}
 			LogPrint( "mapkit: check window " + name + " FAIL within 90 s: " + got + "\n" );
+			// where the client stands and which zones the zone manager sees it in (none: the manager wakes its first
+			// zone instead, and the round's zombies come from there)
+			occupied = "";
+			zkeys = GetArrayKeys( level.zones );
+			for ( k = 0; k < zkeys.size; k++ )
+			{
+				if ( level.zones[ zkeys[k] ].is_occupied )
+				{
+					occupied = occupied + " " + zkeys[k];
+				}
+			}
+			LogPrint( "mapkit: window " + name + " client at " + player.origin + " in zones:" + occupied + "\n" );
+			// where this window's zombies stand at the end, and the entrance each one walks to
+			zombies = GetAiSpeciesArray( "axis", "all" );
+			for ( z = 0; z < zombies.size; z++ )
+			{
+				if ( !IsDefined( zombies[z].mapkit_source_window ) || zombies[z].mapkit_source_window != i )
+				{
+					continue;
+				}
+				goal = "none";
+				if ( IsDefined( zombies[z].first_node ) )
+				{
+					goal = "" + zombies[z].first_node.origin;
+				}
+				got = "undefined";
+				if ( IsDefined( zombies[z].got_to_entrance ) )
+				{
+					got = "" + zombies[z].got_to_entrance;
+				}
+				LogPrint( "mapkit: window " + name + " actor " + zombies[z] GetEntityNumber() + " still at " + zombies[z].origin + " entrance " + goal + " got " + got + "\n" );
+			}
 		}
 		if ( IsDefined( level.mapkit_empty ) && mapkit_window_open( i ) )
 		{
@@ -1654,13 +1707,24 @@ mapkit_label_spawners()
 		spawners = GetEntArray( mapkit_name( e ) + "_spawners", "targetname" );
 		for ( s = 0; s < spawners.size; s++ )
 		{
-			if ( IsDefined( spawners[s].script_string ) && spawners[s].script_string == "riser" )
+			// risers and chasers ("chaser": 1, BO2's find_flesh) come in through no window: labelled with the nearest
+			// one, a TranZit chaser's zombies counted for power_baricade3 and stood where they spawned
+			if ( IsDefined( spawners[s].script_string ) && ( spawners[s].script_string == "riser" || spawners[s].script_string == "zombie_chaser" ) )
 			{
 				continue;
 			}
 			nearest = undefined;
 			best = 999999999;
 			for ( w = 0; w < bo1_mapkit_editcount(); w++ )
+			{
+				// a spawner edit's "window" (target mkwin<edit>_goal): its zombies come in there
+				if ( IsDefined( spawners[s].target ) && spawners[s].target == "mkwin" + w + "_goal" )
+				{
+					nearest = w;
+					break;
+				}
+			}
+			for ( w = 0; w < bo1_mapkit_editcount() && !IsDefined( nearest ); w++ )
 			{
 				if ( bo1_mapkit_get( w, "kind" ) != "window" || mapkit_window_zone( w ) != mapkit_name( e ) )
 				{
@@ -2234,6 +2298,101 @@ mapkit_perktest()
 	}
 }
 
+// a layout's "farrespawn" edit ({"kind":"farrespawn","distance":2500}): the far-zombie replacement of mods/admin's
+// zm_farrespawn (retail Moon's distance tracking) on by default for that map. A map as wide as BO2's TranZit, which
+// has its own distance tracking, otherwise kept a round alive for 24 minutes on zombies stuck or walking far from the
+// player, and no other zombie spawned meanwhile. Off while zm_farrespawn is set (the admin mod's loop runs then).
+mapkit_far_respawn()
+{
+	how_far = 0;
+	for ( i = 0; i < bo1_mapkit_editcount(); i++ )
+	{
+		if ( bo1_mapkit_get( i, "kind" ) == "farrespawn" && IsDefined( bo1_mapkit_get( i, "distance" ) ) )
+		{
+			how_far = Int( bo1_mapkit_get( i, "distance" ) );
+		}
+	}
+	if ( how_far <= 0 )
+	{
+		return;
+	}
+	LogPrint( "mapkit: far respawn " + how_far + " (layout)\n" );
+	flag_wait( "all_players_connected" );
+	while ( true )
+	{
+		wait( 5 );
+		if ( GetDvarInt( #"zm_farrespawn" ) > 0 )
+		{
+			continue;
+		}
+		zombies = GetAIArray( "axis" );
+		replaced = 0;
+		where = "";
+		for ( i = 0; i < zombies.size; i++ )
+		{
+			if ( IsDefined( zombies[i] ) && zombies[i] mapkit_far_and_unseen( how_far ) )
+			{
+				if ( replaced < 4 )
+				{
+					where = where + " " + zombies[i].origin;
+				}
+				level.zombie_total++;
+				zombies[i] maps\_zombiemode_spawner::reset_attack_spot();
+				zombies[i] notify( "zombie_delete" );
+				zombies[i] Delete();
+				replaced++;
+			}
+		}
+		if ( replaced > 0 )
+		{
+			LogPrint( "mapkit: far respawn: " + replaced + " zombies farther than " + how_far + " replaced, at" + where + "\n" );
+		}
+	}
+}
+
+// the same test as mods/admin's admin_far_and_unseen (retail Moon's): zombies only, not electrified, hurt or rising
+mapkit_far_and_unseen( how_far )
+{
+	if ( !IsAlive( self ) || !IsDefined( self.animname ) || self.animname != "zombie" )
+	{
+		return false;
+	}
+	if ( is_true( self.electrified ) || is_true( self.in_the_ground ) || is_true( self.ignore_distance_tracking ) )
+	{
+		return false;
+	}
+	if ( self.health != level.zombie_health )
+	{
+		return false;
+	}
+	players = get_players();
+	playing = 0;
+	for ( i = 0; i < players.size; i++ )
+	{
+		if ( players[i].sessionstate == "spectator" )
+		{
+			continue;
+		}
+		playing++;
+		if ( Distance( self.origin, players[i].origin ) <= how_far )
+		{
+			return false;
+		}
+		forward = VectorNormalize( AnglesToForward( players[i] GetPlayerAngles() ) );
+		to_me = VectorNormalize( self.origin - players[i] GetOrigin() );
+		buffer = GetDvarFloat( #"g_banzai_player_fov_buffer" );
+		if ( buffer <= 0 )
+		{
+			buffer = 0.2;
+		}
+		if ( ACos( VectorDot( forward, to_me ) ) <= GetDvarFloat( #"cg_fov" ) * 0.5 * ( 1 - buffer ) )
+		{
+			return false;
+		}
+	}
+	return playing > 0;
+}
+
 // empty base (maps\mapkit\mapkit_main): start the zone manager on the layout's zones that have a volume in the
 // entity string (info_volume, targetname = the zone name); _zombiemode::main has already reset level.zones
 start_zones()
@@ -2440,6 +2599,14 @@ mapkit_test_place( stand, retry )
 // the floor under a spot (within 64 above and 256 below), undefined when there is none
 mapkit_test_floor( spot )
 {
+	// what a player stands on first: a bullet passes through player clip, and TranZit's power station landing
+	// (power_baricade3) is a clip plate over a pit, where the client fell to -2480 and woke no zone
+	stood = PlayerPhysicsTrace( spot + ( 0, 0, 64 ), spot - ( 0, 0, 256 ) );
+	// (a box that did not move started in solid: the bullet trace below decides then)
+	if ( stood[2] > spot[2] - 255 && stood[2] < spot[2] + 63 )
+	{
+		return stood;
+	}
 	floor_trace = BulletTrace( spot + ( 0, 0, 64 ), spot - ( 0, 0, 256 ), false, undefined );
 	if ( floor_trace["fraction"] < 1 )
 	{
@@ -2494,20 +2661,39 @@ mapkit_window_zone( i )
 		yaw = 90;
 	}
 	o += AnglesToForward( ( 0, yaw, 0 ) ) * 48 + ( 0, 0, 32 );
-	for ( z = 0; z < bo1_mapkit_editcount(); z++ )
+	// the smallest zone holding it: TranZit's farmhouse box lies inside the farm's (tools/bo2/bo2_layout.py puts the
+	// window's spawner in the same one)
+	// over the zone edits only, listed once: every edit for each window, 38 windows in one frame on TranZit (5 750
+	// edits), tripped the VM's infinite loop guard and killed the self-test
+	if ( !IsDefined( level.mapkit_zone_edits ) )
 	{
-		if ( bo1_mapkit_get( z, "kind" ) != "zone" )
+		level.mapkit_zone_edits = [];
+		for ( z = 0; z < bo1_mapkit_editcount(); z++ )
 		{
-			continue;
+			if ( bo1_mapkit_get( z, "kind" ) == "zone" )
+			{
+				level.mapkit_zone_edits[ level.mapkit_zone_edits.size ] = z;
+			}
 		}
+	}
+	best = "";
+	bestSize = 0;
+	for ( k = 0; k < level.mapkit_zone_edits.size; k++ )
+	{
+		z = level.mapkit_zone_edits[k];
 		lo = bo1_mapkit_get( z, "mins" );
 		hi = bo1_mapkit_get( z, "maxs" );
 		if ( o[0] >= lo[0] && o[0] <= hi[0] && o[1] >= lo[1] && o[1] <= hi[1] && o[2] >= lo[2] && o[2] <= hi[2] )
 		{
-			return mapkit_name( z );
+			size = ( hi[0] - lo[0] ) * ( hi[1] - lo[1] ) * ( hi[2] - lo[2] );
+			if ( best == "" || size < bestSize )
+			{
+				best = mapkit_name( z );
+				bestSize = size;
+			}
 		}
 	}
-	return "";
+	return best;
 }
 
 // Exercise actual use-button purchases, then require the retail zone manager and new-window spawning.
@@ -2605,6 +2791,14 @@ mapkit_check_progression( player )
 				{
 					if ( !IsDefined( zombies[z].first_node ) )
 					{
+						// risers and chasers take no entrance: on native TranZit (103 risers, 14 chasers) they filled
+						// the round's population while the client stood at a new window, and in 90 s one zombie came
+						// (barber_baricade3 FAIL "no spawn within 90 s")
+						if ( GetTime() - start > 10000 && !found && IsDefined( zombies[z].script_string )
+							&& ( zombies[z].script_string == "riser" || zombies[z].script_string == "zombie_chaser" ) )
+						{
+							mapkit_test_kill( zombies[z], player, "unlock_no_entrance" );
+						}
 						continue;
 					}
 					// mapkit-fix-4e: an open entrance's exterior_goal has no target (sluice_works sluice_gate: 33 script

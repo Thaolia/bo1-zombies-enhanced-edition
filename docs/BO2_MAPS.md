@@ -352,9 +352,30 @@ yard shows the road, the cabin, the river, the lava and the rocks; the run quits
   `first_node` names that window, but it has no `mapkit_source_window`) was never culled by the window check and
   chased the teleported client from window to window across the map (the farm, the town, the depot, the forest)
   for the whole round. The window check now culls those too, as the unlock check did: `pass 187 fail 10`, rounds
-  every one to three minutes, against `185 / 12` for MapKit's own TranZit. The ten: five unlock_window checks
-  (farmhouse, farm, power station, barber) and four windows that fail on MapKit's TranZit as well, plus one window
-  whose zombie came in without tearing a board (MapKit's run had one such window too, another one).
+  every one to three minutes, against `185 / 12` for MapKit's own TranZit. The last ten, then `pass 195 fail 0`:
+  - Retail `zombie_think` sends a zombie to one of the three exterior goals closest to its spawner, at random; on
+    TranZit the ground outside each barricade is a pocket of the node graph, so two of the three were often out of
+    reach (bad paths, unfed windows). BO2's `spawn_location` names its barricade (`script_string`): `bo2_layout.py`
+    writes it as the spawner's `"window"` and MapKit gives the spawner that window's goal as its target. The
+    `find_flesh` ones become `"chaser": 1` (straight for the player).
+  - BO2 hangs some of those spawners on a neighbouring zone (church_baricade1's on `zone_town_church`, 800 units
+    away) and wakes them through its own zone adjacency, which MapKit does not import (its zones are adjacent only
+    through doors). The spawner now belongs to the zone the window guards: the smallest zone box holding the point
+    just inside it (the farmhouse's box lies inside the farm's), the same zone in `bo2_layout.py`, MapKit's window
+    goal label and the self-test.
+  - BO2's TranZit replaces the zombies far from every player. Without that, a round waited 24 minutes on zombies
+    walking across the map or stuck there, and none spawned meanwhile. A layout whose zones span more than 10 000
+    units gets a `"farrespawn"` edit (2 500 units): mods/admin's `zm_farrespawn` on by default, off while that dvar
+    is set. Nuketown (4 600) gets none.
+  - The self-test: the window and unlock checks cull risers and chasers too; chasers are no window's spawners; the
+    client stands at the window's floor level (160 units in put it on a raised prop at the depot) and on what a
+    player stands on (`PlayerPhysicsTrace`: a bullet passes through the power station's clip landing, the client
+    fell into the pit under it and the zone manager woke its first zone, the bank, instead).
+    `mapkit_test_windows <names>` checks only those windows.
+  Nuketown native stays `106 / 0`. MapKit's TranZit (the same layout on its mesh) goes from `185 / 12` to `193 / 2`
+  and `194 / 1`: each time one or two windows whose zombies came late (a spawn 80 s into the check; 21 zombies that
+  tore bank_baricade3's boards and waited outside until the client left), a different one each run and each passing
+  in the other runs.
 - **The lava and the glow cards** (the MapKit mesh too, `bo2_mesh.py`). OAT's `.mtl` gives a material the first of
   its images, which for the molten lava is `Heat_Map3` (`warp3`, a distortion map): a band of red and cyan noise along
   the lava pools. An image the material's JSON puts in a sampler that is no colour map gives way to its colour map,

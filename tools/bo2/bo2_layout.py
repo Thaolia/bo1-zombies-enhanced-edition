@@ -56,20 +56,33 @@ WEAPONS = {
 # (zombie_pentagon.ff, common_zombie.ff). BO1 zombies have no jump up below 222 units: the jump-ups take MapKit's
 # mapkit_jump_up (mods/mapkit/animscripts/traverse), the 222 one brought down to the end node's height. The mantles
 # take mapkit_mantle, Five's wall hop carried on to the end node (BO2's obstacles are deeper than a window sill). BO1
-# has no crawl under a garage door: that flat pair takes the mantle too.
+# has no crawl under a garage door: that flat pair takes the mantle too. Without TranZit's jumps of 48, 190 and 222 units
+# and its car vaults, the ground behind some barricades and some find_flesh spawners were pockets of the node graph
+# their zombies could not leave (bad_path, self-test window checks, hung rounds).
 TRAVERSES = {
     "zm_mantle_over_40": "mapkit_mantle",
     "zm_traverse_garage_door": "mapkit_mantle",
+    # over a wrecked car (TranZit's town and bank): the mantle carried on to the end node
+    "zm_traverse_car": "mapkit_mantle",
+    "zm_traverse_car_reverse": "mapkit_mantle",
     "zm_jump_down_fast_40": "zombie_jump_down_40",
+    "zm_jump_down_48": "zombie_jump_down_40",
     "zm_jump_down_72": "zombie_jump_down_72",
     "zm_jump_down_96": "zombie_jump_down_72",
     "zm_jump_down_127": "zombie_jump_down_127",
     "zm_jump_down_176": "zombie_jump_down_184",
+    "zm_jump_down_190": "zombie_jump_down_184",
+    "zm_jump_down_222": "zombie_jump_down_184",
     "zm_jump_up_72": "mapkit_jump_up",
     "zm_jump_up_96": "mapkit_jump_up",
     "zm_jump_up_127": "mapkit_jump_up",
     "zm_jump_up_154": "mapkit_jump_up",
+    "zm_jump_up_222": "mapkit_jump_up",
 }
+# BO1's jump downs by height: BO2's animscript names do not give the drop (TranZit's "zm_jump_down_48" off a roof falls
+# 102 units), so a jump down takes the BO1 one nearest the pair's own drop
+JUMP_DOWNS = {40: "zombie_jump_down_40", 72: "zombie_jump_down_72", 127: "zombie_jump_down_127",
+              184: "zombie_jump_down_184"}
 PERKS = ["specialty_armorvest", "specialty_quickrevive", "specialty_fastreload", "specialty_rof"]
 # machines MapKit also places when their assets are loaded (Stamin-Up: with bo1_mod_zones zombie_cosmodrome)
 EXTRA_PERKS = ["specialty_longersprint"]
@@ -113,6 +126,11 @@ NODE_REACH = 8.0  # a node may sit this far under the surface it belongs to
 WINDOW_MANTLE = 64.0  # a mantle whose middle lies this close to a boarded window is that window's traversal
 WINDOW_WALL_REACH = 80  # a zbarrier's wall lies within this many units in front of it
 WINDOW_SPAWNER = 128.0  # a spawner added for a window stands this far outside it
+# BO2's TranZit replaces zombies far from every player (its distance tracking); a map whose zones span more than
+# FAR_MAP gets MapKit's far respawn at FAR_RESPAWN ("farrespawn" edit), or a round could wait for minutes on zombies
+# walking across it or stuck there while no other zombie spawned (native TranZit self-test: 24 minutes on round 2)
+FAR_MAP = 10000.0
+FAR_RESPAWN = 2500
 SPAWN_AGREE = 0.9       # start points whose yaws' mean resultant length reaches this face one way (within ~25 deg)
 CELL = 256.0
 
@@ -580,6 +598,11 @@ def build(ents, col, name, collision, links_file=None):
     zones = zone_edits(ents, submodels)
     edits += zones
     zone_names = {z["name"] for z in zones}
+    if zones:
+        lo = [min(z["mins"][k] for z in zones) for k in range(2)]
+        hi = [max(z["maxs"][k] for z in zones) for k in range(2)]
+        if math.dist(lo, hi) > FAR_MAP:
+            edits.append({"kind": "farrespawn", "distance": FAR_RESPAWN})
 
     def zone_of(point):
         for z in zones:
@@ -626,8 +649,13 @@ def build(ents, col, name, collision, links_file=None):
                 continue
             p = vec(e["origin"])
             ground = col.floor([p[0], p[1], p[2] + NODE_REACH])
-            edits.append({"kind": "spawner", "origin": [p[0], p[1], round(ground, 2) if ground is not None else p[2]],
-                          "yaw": yaw(e), "zone": zone})
+            spawner = {"kind": "spawner", "origin": [p[0], p[1], round(ground, 2) if ground is not None else p[2]],
+                       "yaw": yaw(e), "zone": zone}
+            if e.get("script_string") == "find_flesh":
+                spawner["chaser"] = 1  # its zombies go for the players at once, no barricade (MkE_Spawner)
+            elif e.get("script_string"):
+                spawner["window"] = e["script_string"]  # kept below only when that window exists
+            edits.append(spawner)
 
     # BO2's compiler drops the pathnodes into its own path data (gameworldmp); the entities keep them where they were
     # placed, up to 150 units above the floor. BO1 links nodes on the floor (Path_CanLinkNodes ends within 18 units of
@@ -654,6 +682,10 @@ def build(ents, col, name, collision, links_file=None):
             p = vec(node["origin"])
             ground = col.floor([p[0], p[1], p[2] + NODE_REACH])
             pair.append([p[0], p[1], round(ground, 2)] if ground is not None else p)
+        drop = pair[0][2] - pair[1][2]
+        # a begin dropped onto the ground under it (no collision at a roof's edge: 0 units of drop) keeps the name's
+        if anim.startswith("zombie_jump_down_") and drop >= 20:
+            anim = JUMP_DOWNS[min(JUMP_DOWNS, key=lambda h: abs(h - drop))]
         edits.append({"kind": "traverse", "begin": pair[0], "end": pair[1], "yaw": yaw(e), "anim": anim})
 
     # BO2's boarded windows (zbarrier_zmcore_BasicWoodBarrier: TranZit's 38) become MapKit windows: Five's prefab, six
@@ -699,17 +731,33 @@ def build(ents, col, name, collision, links_file=None):
         for w in windows))]
     mantles -= len(edits)
     edits += windows
-    # MapKit sends a spawner's zombies to the nearest window of its zone (the zone 48 units in from the window, 32
-    # up): a window no BO2 spawner feeds gets one of its own, outside on the floor in front of it, so that every
-    # barricade sees zombies as in BO2
+    # A BO2 spawn_location names its barricade (script_string): the spawner's "window", so that its zombies come in
+    # there (MkE_Spawner). Without it retail zombie_think picks one of the three exterior goals closest to the spawner
+    # at random, and on TranZit two of the three were often in another pocket of the node graph (the ground outside
+    # each barricade is a pocket of its own): those zombies stood outside on a bad path, the window they were meant
+    # for saw none (self-test window checks) and a round could hang. A window no spawner names gets one of its own,
+    # outside on the floor in front of it, so that every barricade sees zombies as in BO2.
+    #
+    # The zone a window guards is the smallest one holding the point just inside it: TranZit's farmhouse box lies
+    # inside the farm's (the self-test's mapkit_window_zone picks the same). A window's spawner belongs to that zone:
+    # BO2 hangs some on a neighbour (church_baricade1's on zone_town_church, 800 units away) and wakes them through
+    # its own zone adjacency, which MapKit does not import (its zones are adjacent only through doors), so the player
+    # defending such a window never woke its spawner and saw no zombie there.
     def window_zone(w):
         r = math.radians(w["yaw"])
-        return zone_of([w["origin"][0] + math.cos(r) * 48, w["origin"][1] + math.sin(r) * 48, w["origin"][2] + 32])
+        p = [w["origin"][0] + math.cos(r) * 48, w["origin"][1] + math.sin(r) * 48, w["origin"][2] + 32]
+        holding = [z for z in zones if inside(p, z)]
+        if not holding:
+            return zone_of(p)
+        return min(holding, key=lambda z: math.prod(z["maxs"][k] - z["mins"][k] for k in range(3)))["name"]
+    by_window = {w["name"]: w for w in windows}
     fed = set()
     for sp in [t for t in edits if t["kind"] == "spawner"]:
-        mine = [w for w in windows if window_zone(w) == sp["zone"]]
-        if mine:
-            fed.add(min(mine, key=lambda w: math.dist(w["origin"], sp["origin"]))["name"])
+        if sp.get("window") in by_window:
+            fed.add(sp["window"])
+            sp["zone"] = window_zone(by_window[sp["window"]])
+        else:
+            sp.pop("window", None)
     added = 0
     for w in windows:
         if w["name"] in fed:
@@ -720,7 +768,7 @@ def build(ents, col, name, collision, links_file=None):
         if ground is None:
             continue
         edits.append({"kind": "spawner", "origin": [round(out[0], 1), round(out[1], 1), round(ground, 2)],
-                      "yaw": w["yaw"], "zone": window_zone(w)})
+                      "yaw": w["yaw"], "zone": window_zone(w), "window": w["name"]})
         added += 1
     print(f"windows: {len(windows)} boarded windows, {mantles} barricade mantles they replace, {added} spawners added "
           f"for the windows no BO2 spawner feeds")
