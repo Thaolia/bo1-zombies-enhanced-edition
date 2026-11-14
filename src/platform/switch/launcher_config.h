@@ -15,6 +15,7 @@ struct LauncherMap
     const char *mapkit; // a MapKit layout (mods/mapkit/layouts/<it>.json) played on bsp, or null
     const char *zone;   // the layout's world: usermaps/<zone>/<zone>.ff and main/maps/<zone>.d3dbsp (bo1_mod_zones,
                         // bo1_bspworld), or null
+    const char *extraZone; // a retail zone loaded after it (bo1_mod_zones), or null: TranZit's Stamin-Up is Ascension's
 };
 
 extern const LauncherMap kLauncherMaps[];

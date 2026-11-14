@@ -43,9 +43,10 @@ int main()
 {
     const LauncherSettings defaults;
     Check(std::string(kLauncherMaps[defaults.map].bsp) == "zombie_theater", "the default map is Kino");
-    Check(kLauncherMapCount == 12, "the ten zombies maps, Dead Ops Arcade and the native Nuketown are listed");
+    Check(kLauncherMapCount == 13, "the ten zombies maps, Dead Ops Arcade, the native Nuketown and TranZit are listed");
     Check(std::string(kLauncherMaps[10].bsp) == "zombietron", "Dead Ops Arcade follows the ten zombies maps");
-    const int nuketown = kLauncherMapCount - 1;
+    const int nuketown = kLauncherMapCount - 2;
+    const int transit = kLauncherMapCount - 1;
     Check(Launcher_MapKey(nuketown) == "mapkit:bo2_zm_nuked_bsp" && Launcher_MapKey(1) == "zombie_pentagon",
           "the native Nuketown's menu.cfg key is not Five's, whose bsp it shares");
     Check(Launcher_MapFileCount(0) == 0 && Launcher_MapFileCount(nuketown) == 3 &&
@@ -131,6 +132,16 @@ int main()
               " +set com_maxfps 60 +set sm_enable 1 +set bo1_fpscounter 1 +set bo1_runinfo 1 +set r_texFilterAnisoMax 16"
               " +set r_texFilterMipMode 0 +devmap zombie_pentagon",
               "the native Nuketown: ZmClient's MapKit layout on Five, its zone and BSP world");
+    LauncherSettings tranzit;
+    tranzit.map = transit;
+    Check(Launcher_ParseSettings(Launcher_FormatSettings(tranzit)).map == transit &&
+              Launcher_MapKey(transit) == "mapkit:bo2_zm_transit_bsp" && Launcher_MapFileCount(transit) == 3 &&
+              Launcher_MapFile(transit, 2) == "main/maps/zombie_bo2transit.d3dbsp",
+          "menu.cfg keeps the native TranZit, which needs its layout, zone and BSP");
+    Check(Launcher_BuildLaunchLine(tranzit, "").find(" +set bo1_mod_mapkit bo2_zm_transit_bsp +set fs_mods mapkit zinfo"
+                                                     " +set bo1_mod_zones zombie_bo2transit zombie_cosmodrome"
+                                                     " +set bo1_bspworld maps/zombie_bo2transit.d3dbsp ") != std::string::npos,
+          "the native TranZit loads its zone, then Ascension's for Stamin-Up, as ZmClient does");
     nuke.tabInfo = false;
     nuke.startPoints = 5000;
     const std::string nukeKit = Launcher_BuildLaunchLine(nuke, "");

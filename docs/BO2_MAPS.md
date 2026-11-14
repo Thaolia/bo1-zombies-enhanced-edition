@@ -398,7 +398,14 @@ Build it (the procedure of Nuketown's world with these differences):
     # mods/mapkit: layouts/bo2_zm_transit_bsp.json, imports/zm_transit/ (blockers mesh, images, props collision, links)
 
     +set fs_game mods/mapkit +set fs_mods mapkit +set bo1_mod_mapkit bo2_zm_transit_bsp \
-    +set bo1_mod_zones zombie_bo2transit +set bo1_bspworld maps/zombie_bo2transit.d3dbsp +devmap zombie_pentagon
+    +set bo1_mod_zones zombie_bo2transit zombie_cosmodrome +set bo1_bspworld maps/zombie_bo2transit.d3dbsp \
+    +devmap zombie_pentagon
+
+(Ascension's zone gives the Stamin-Up machine.) ZmClient offers it as « Mapkit : TranZit native (Black Ops II, monde
+BSP) » when the package holds its zone and BSP, the Switch start menu as « TranZit (BO2, natif) »; `make_dist.sh --bo2`
+packages its zone, BSP, colour maps, layout and `imports/zm_transit/` (on the Switch: the links, the blockers mesh and
+its images, and the props collision its layout's collision edit names, 88 MB). Not yet run on the console: the
+Windows and Linux runs used 97.8 MB of the 112 MB hunk.
 
 ## What comes out of `zm_nuked`
 
