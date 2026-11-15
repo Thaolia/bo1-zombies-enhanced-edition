@@ -1,11 +1,13 @@
-# Builds the Windows, Linux and Switch programs and publishes a release with one archive per platform.
+# Builds the Windows, Linux, Switch and OpenBSD programs and publishes a release with one archive per platform.
 #
 # Started by hand only (Actions > Release > Run workflow): nothing runs on a push.
 #
 # The packages hold NO file of the game (CLAUDE.md: never upload game data). They are tools/make_dist.sh's
 # --no-game-data packages, made by the same script as on a PC: Windows and Linux are installed from the player's own
 # Black Ops with ZmClient (Installation view); the Switch one is the .nro and mods/ with the tools that complete it from
-# the player's own Black Ops (Setup-Switch.bat / setup_switch.sh: ffconv, uam, make_dksh_pack; its LISEZMOI.txt).
+# the player's own Black Ops (Setup-Switch.bat / setup_switch.sh: ffconv, uam, make_dksh_pack; its LISEZMOI.txt);
+# the OpenBSD one (a .tar.gz: OpenBSD's base system has tar, not unzip) holds a program for the release and one for
+# -current, and takes its game files from a Windows or Linux install made with ZmClient.
 #
 # The June 2010 DirectX SDK is downloaded from Microsoft: every build reads its headers, the Windows one links
 # d3dx9.lib, and the Windows package ships the two redistributable DLLs of its Redist cabinets (d3dx9_43, xinput1_3).
@@ -27,6 +29,9 @@ permissions:
 
 env:
   DXSDK_URL: https://download.microsoft.com/download/A/E/7/AE743F1F-632B-4809-87A9-AA1BB3458E31/DXSDK_Jun10.exe
+  # The OpenBSD cross toolchain (clang/lld + a sysroot of the official, signify-verified sets), pinned to a commit.
+  OPENBSD_CROSS_REPO: Thaolia/cross-compiler-openbsd
+  OPENBSD_CROSS_REF: d05c8a7dae8951da92114982d9f7f7b181bfb506
 
 jobs:
   dxsdk:
@@ -225,9 +230,82 @@ jobs:
           path: out
           retention-days: 1
 
+  openbsd:
+    name: OpenBSD ${{ matrix.flavor }} (cross-compiled, clang/lld)
+    needs: dxsdk
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        # the release and -current: -current breaks the ABI between releases, so each gets its own program
+        flavor: ["8.0", "current"]
+    env:
+      OPENBSD_CROSS: ${{ github.workspace }}/openbsd-cross
+      OPENBSD_LLVM_BIN: /usr/lib/llvm-21/bin
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: actions/checkout@v5
+        with:
+          repository: ${{ env.OPENBSD_CROSS_REPO }}
+          ref: ${{ env.OPENBSD_CROSS_REF }}
+          path: cross-src
+          persist-credentials: false
+      - uses: actions/download-artifact@v5
+        with:
+          name: dxsdk
+          path: dxsdk
+      - name: Packages
+        run: |
+          sudo apt-get update -q
+          # mingw-w64: the layout check parses the engine for the win32 and win64 references (layouts.py)
+          sudo apt-get install -y -q ninja-build cmake python3 python3-cryptography mingw-w64 curl xz-utils
+          tools/ci/install_llvm.sh 21
+          sudo apt-get install -y -q lld-21 llvm-21
+      # The release's sets never change: keep its sysroot. -current moves every day: fetched each time.
+      - name: Cache the sysroot (release only)
+        if: matrix.flavor != 'current'
+        id: sysroot
+        uses: actions/cache@v4
+        with:
+          path: openbsd-cross/sysroot/${{ matrix.flavor }}
+          key: openbsd-sysroot-${{ matrix.flavor }}-${{ env.OPENBSD_CROSS_REF }}-sdl2-v1
+      - name: Toolchain and sysroot (base, comp, xbase, sdl2)
+        run: |
+          cross-src/src/wrappers/install.sh "$OPENBSD_CROSS" "${{ matrix.flavor }}"
+          export PATH="$OPENBSD_CROSS/bin:$PATH"
+          sysroot="$OPENBSD_CROSS/sysroot/${{ matrix.flavor }}"
+          if [ ! -f "$sysroot/usr/local/lib/cmake/SDL2/sdl2-config.cmake" ]; then
+              rm -rf "$sysroot"
+              CACHE_DIR="$RUNNER_TEMP/sets" openbsd-fetch-sysroot "${{ matrix.flavor }}" "$sysroot" base comp xbase
+              openbsd-pkg-fetch --sysroot "$sysroot" sdl2
+          fi
+          x86_64-unknown-openbsd${{ matrix.flavor }}-cc --version | head -n 1
+      - name: Build BO1Zombies (OpenBSD ${{ matrix.flavor }})
+        run: |
+          sysroot="$OPENBSD_CROSS/sysroot/${{ matrix.flavor }}"
+          cmake -S . -B build/openbsd -G Ninja -DCMAKE_BUILD_TYPE=Release -DOPENBSD_FLAVOR="${{ matrix.flavor }}" \
+              -DCMAKE_TOOLCHAIN_FILE="$OPENBSD_CROSS/share/openbsd-cross/openbsd-toolchain.cmake" \
+              -DSDL2_DIR="$sysroot/usr/local/lib/cmake/SDL2" -DDXSDK_DIR="$PWD/dxsdk"
+          ninja -C build/openbsd BO1Zombies
+          readelf=$OPENBSD_LLVM_BIN/llvm-readelf
+          $readelf -hW build/openbsd/Release/BO1Zombies | grep -q 'OS/ABI:.*OpenBSD' || { echo "not an OpenBSD program"; exit 1; }
+          $readelf -dW build/openbsd/Release/BO1Zombies | grep NEEDED
+      - name: Collect
+        run: |
+          mkdir -p "out/openbsd-${{ matrix.flavor }}/Release"
+          cp build/openbsd/Release/BO1Zombies "out/openbsd-${{ matrix.flavor }}/Release/"
+          ls -lR out
+      - uses: actions/upload-artifact@v4
+        with:
+          name: openbsd-${{ matrix.flavor }}
+          path: out
+          retention-days: 1
+
   release:
     name: Packages and release
-    needs: [windows, linux, switch]
+    needs: [windows, linux, switch, openbsd]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -245,7 +323,8 @@ jobs:
           # where make_dist.sh looks for each program
           mkdir -p build/win64-msvc/Release build/zmadmin/windows build/zmclient/windows build/zmadmin/linux \
               build/zmclient/linux build/ffconv build/uam/windows build/uam/linux build/switch_setup/windows \
-              work/linux/Release work/switch/Release work/switch/romfs runtimes
+              work/linux/Release work/switch/Release work/switch/romfs work/openbsd-8.0/Release \
+              work/openbsd-current/Release runtimes
           cp $A/linux/uam/windows/* build/uam/windows/
           cp $A/linux/uam/linux/* build/uam/linux/
           cp $A/windows/switch_setup/windows/make_dksh_pack.exe build/switch_setup/windows/
@@ -259,6 +338,10 @@ jobs:
           cp $A/linux/zmclient/linux/zmclient build/zmclient/linux/
           cp $A/switch/switch/Release/BO1Zombies.nro work/switch/Release/
           cp $A/switch/switch/romfs/build.txt work/switch/romfs/
+          for f in 8.0 current; do
+              cp "$A/openbsd-$f/openbsd-$f/Release/BO1Zombies" "work/openbsd-$f/Release/"
+              chmod +x "work/openbsd-$f/Release/BO1Zombies"
+          done
           # the DirectX DLLs a fresh Windows lacks, from the SDK's redistributable cabinets
           cabextract -q -d runtimes -F d3dx9_43.dll $A/dxsdk/Redist/Jun2010_d3dx9_43_x64.cab
           cabextract -q -d runtimes -F xinput1_3.dll $A/dxsdk/Redist/APR2007_xinput_x64.cab
@@ -268,7 +351,7 @@ jobs:
           touch build/*/*/* build/ffconv/ffconv.exe
           ls -l runtimes
           WINDOWS_RUNTIMES="$PWD/runtimes" tools/make_dist.sh --no-build --no-game-data --archive none \
-              --work "$PWD/work" --out "$PWD/dist" windows linux switch
+              --work "$PWD/work" --out "$PWD/dist" windows linux switch openbsd
       - name: One archive per platform
         env:
           TAG: ${{ inputs.tag }}
@@ -278,7 +361,9 @@ jobs:
           for platform in windows linux switch; do
               zip -q -r -y "BO1Zombies_${TAG}_$platform.zip" "BO1Zombies_${platform}_nodata"
           done
-          ls -l *.zip
+          # OpenBSD's base system extracts tar archives (unzip is a package); tar keeps the programs executable
+          tar -czf "BO1Zombies_${TAG}_openbsd.tar.gz" BO1Zombies_openbsd_nodata
+          ls -l *.zip *.tar.gz
       - name: Release
         uses: softprops/action-gh-release@v2
         with:
@@ -290,8 +375,9 @@ jobs:
             dist/BO1Zombies_${{ inputs.tag }}_windows.zip
             dist/BO1Zombies_${{ inputs.tag }}_linux.zip
             dist/BO1Zombies_${{ inputs.tag }}_switch.zip
+            dist/BO1Zombies_${{ inputs.tag }}_openbsd.tar.gz
           body: |
-            Windows, Linux and Switch builds of the port, from ${{ github.sha }}.
+            Windows, Linux, Switch and OpenBSD builds of the port, from ${{ github.sha }}.
 
             **No file of the game is included.** You need your own copy of Call of Duty: Black Ops.
             - Windows and Linux: run `zmclient`, Installation view (F7): it copies the game files from your install
@@ -299,3 +385,7 @@ jobs:
             - Switch: the `.nro`, `mods/` and the tools that complete the SD card folder from your install:
               `Setup-Switch.bat` on Windows, `./setup_switch.sh <install>` on Linux (wine for ffconv, python3);
               then copy `switch/` to the SD card's root. See `BO1Zombies_switch_nodata/LISEZMOI.txt`.
+            - OpenBSD/amd64 (`.tar.gz`): `BO1Zombies-8.0` for the release, `BO1Zombies-current` for -current;
+              `./play.sh` picks the running system's. It needs `pkg_add sdl2`, and the game files of a Windows or
+              Linux install made with zmclient (there is no zmclient or ffconv for OpenBSD). Not yet tried on a
+              real OpenBSD machine. See `BO1Zombies_openbsd_nodata/LISEZMOI.txt`.
