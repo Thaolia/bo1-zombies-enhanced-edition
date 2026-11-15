@@ -48,6 +48,12 @@
 #define BO1_DECLSPEC_novtable
 #endif
 
+#if defined(__OpenBSD__) && defined(__cplusplus)
+// The engine's placement news rely on <new>, which libstdc++ pulls in through other headers and OpenBSD's libc++
+// does not.
+#include <new>
+#endif
+
 #if !defined(_WIN32)
 #include "posix/msvc_intrinsics.h"
 // com_math.h's double random() would collide with the C library's long random() (stdlib.h, already included above).

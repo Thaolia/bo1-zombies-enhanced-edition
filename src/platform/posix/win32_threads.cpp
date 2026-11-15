@@ -38,7 +38,10 @@ std::map<DWORD, Bo1Thread *> &Threads()
 // SuspendThread interrupts the target with this signal; the handler records the context and waits for ResumeThread.
 // newlib (Switch) has no real-time signals or SA_SIGINFO sigaction, so the signal-based suspend is desktop-only; a
 // real console suspend (svcSetThreadActivity / svcGetThreadContext3) is a boot-milestone task (docs/PORTING.md).
-#if !defined(__SWITCH__)
+#if defined(__OpenBSD__)
+// OpenBSD has no real-time signals; nothing else in the engine or its libraries uses SIGUSR2.
+const int BO1_SUSPEND_SIGNAL = SIGUSR2;
+#elif !defined(__SWITCH__)
 const int BO1_SUSPEND_SIGNAL = SIGRTMIN + 1;
 #endif
 std::once_flag s_suspendHandlerOnce;
@@ -49,6 +52,8 @@ DWORD CurrentKernelThreadId()
     // No kernel gettid on the console (and no /proc to match it to); a per-thread-unique value is all the engine
     // needs for GetCurrentThreadId.
     return (DWORD)(uintptr_t)pthread_self();
+#elif defined(__OpenBSD__)
+    return (DWORD)getthrid();
 #else
     return (DWORD)syscall(SYS_gettid);
 #endif
@@ -125,7 +130,27 @@ Bo1Thread *ThreadFromHandle(HANDLE handle)
 void Bo1_CaptureContext(CONTEXT *context, const ucontext_t *uc)
 {
     memset(context, 0, sizeof(*context));
-#if defined(__x86_64__)
+#if defined(__OpenBSD__) && defined(__x86_64__)
+    context->ContextFlags = CONTEXT_CONTROL | CONTEXT_INTEGER;
+    context->Rax = uc->sc_rax;
+    context->Rbx = uc->sc_rbx;
+    context->Rcx = uc->sc_rcx;
+    context->Rdx = uc->sc_rdx;
+    context->Rsi = uc->sc_rsi;
+    context->Rdi = uc->sc_rdi;
+    context->Rbp = uc->sc_rbp;
+    context->Rsp = uc->sc_rsp;
+    context->R8 = uc->sc_r8;
+    context->R9 = uc->sc_r9;
+    context->R10 = uc->sc_r10;
+    context->R11 = uc->sc_r11;
+    context->R12 = uc->sc_r12;
+    context->R13 = uc->sc_r13;
+    context->R14 = uc->sc_r14;
+    context->R15 = uc->sc_r15;
+    context->Rip = uc->sc_rip;
+    context->EFlags = (DWORD)uc->sc_rflags;
+#elif defined(__x86_64__)
     const greg_t *r = uc->uc_mcontext.gregs;
     context->ContextFlags = CONTEXT_CONTROL | CONTEXT_INTEGER;
     context->Rax = r[REG_RAX];
@@ -546,8 +571,12 @@ DWORD GetCurrentThreadId(void)
 
 DWORD GetCurrentProcessorNumber(void)
 {
+#if defined(__OpenBSD__)
+    return 0; // OpenBSD does not tell a thread which CPU runs it
+#else
     const int cpu = sched_getcpu();
     return cpu < 0 ? 0 : (DWORD)cpu;
+#endif
 }
 
 HANDLE OpenThread(DWORD, BOOL, DWORD dwThreadId)
@@ -706,6 +735,14 @@ DWORD_PTR SetThreadAffinityMask(HANDLE hThread, DWORD_PTR dwThreadAffinityMask)
     // report that as the previous mask (non-zero means success).
     (void)dwThreadAffinityMask;
     return 0x7;
+#elif defined(__OpenBSD__)
+    // OpenBSD has no thread affinity: as on the Switch, the request is ignored and the previous mask reported is every
+    // online CPU (non-zero means success).
+    (void)dwThreadAffinityMask;
+    const long cpus = sysconf(_SC_NPROCESSORS_ONLN);
+    if (cpus >= (long)(sizeof(DWORD_PTR) * 8))
+        return ~(DWORD_PTR)0;
+    return cpus > 0 ? ((DWORD_PTR)1 << cpus) - 1 : 1;
 #else
     cpu_set_t previous;
     CPU_ZERO(&previous);

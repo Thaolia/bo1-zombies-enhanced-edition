@@ -18,6 +18,13 @@ set(SRC_DIR "${CMAKE_CURRENT_SOURCE_DIR}/src")
 set(TL_DIR  "${CMAKE_CURRENT_SOURCE_DIR}/tl")
 set(DW_DIR  "${CMAKE_CURRENT_SOURCE_DIR}/DemonWare")
 
+# OpenBSD lacks some glibc headers (<malloc.h>, <alloca.h>, <ucontext.h>); src/platform/openbsd/include stands in for
+# them, for the game and its test programs alike. The OS differences themselves are #if defined(__OpenBSD__) in the
+# posix files.
+if(CMAKE_SYSTEM_NAME STREQUAL "OpenBSD")
+    include_directories("${SRC_DIR}/platform/openbsd/include")
+endif()
+
 # BO1_PLATFORM picks the OS layer: win32 (the upstream build), posix (Linux desktop) or switch (devkitA64 + libnx).
 # Only win32 builds today; the other two are filled in by the Switch port phases (docs/PORTING.md).
 if(NINTENDO_SWITCH)

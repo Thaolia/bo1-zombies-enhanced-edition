@@ -405,6 +405,38 @@ extern "C" int _snwprintf_s(wchar_t *buffer, size_t sizeOfBuffer, size_t count, 
 extern "C" int sscanf_s(const char *buffer, const char *format, ...);
 #endif
 
+#if defined(__OpenBSD__)
+// OpenBSD has no malloc_usable_size, which _aligned_realloc needs to copy the old block: each block keeps its size
+// and the address posix_memalign returned in the 16 bytes before it.
+static inline size_t Bo1_AlignedHeader(size_t alignment)
+{
+    return alignment < 2 * sizeof(void *) ? 2 * sizeof(void *) : alignment;
+}
+static inline void *_aligned_malloc(size_t size, size_t alignment)
+{
+    if (alignment < sizeof(void *))
+        alignment = sizeof(void *);
+    const size_t header = Bo1_AlignedHeader(alignment);
+    if (size > (size_t)-1 - header)
+        return NULL;
+    void *raw = NULL;
+    if (posix_memalign(&raw, alignment, header + size))
+        return NULL;
+    char *p = (char *)raw + header;
+    ((void **)p)[-2] = raw;
+    ((size_t *)p)[-1] = size;
+    return p;
+}
+static inline void _aligned_free(void *p)
+{
+    if (p)
+        free(((void **)p)[-2]);
+}
+static inline size_t Bo1_AlignedSize(void *p)
+{
+    return ((size_t *)p)[-1];
+}
+#else
 static inline void *_aligned_malloc(size_t size, size_t alignment)
 {
     void *p = NULL;
@@ -414,6 +446,11 @@ static inline void _aligned_free(void *p)
 {
     free(p);
 }
+static inline size_t Bo1_AlignedSize(void *p)
+{
+    return malloc_usable_size(p);
+}
+#endif
 // A new block, as MSVC does when the size changes; on failure the old block is left as it was.
 static inline void *_aligned_realloc(void *p, size_t size, size_t alignment)
 {
@@ -427,7 +464,7 @@ static inline void *_aligned_realloc(void *p, size_t size, size_t alignment)
     void *grown = _aligned_malloc(size, alignment);
     if (!grown)
         return NULL;
-    const size_t old = malloc_usable_size(p);
+    const size_t old = Bo1_AlignedSize(p);
     memcpy(grown, p, old < size ? old : size);
     _aligned_free(p);
     return grown;

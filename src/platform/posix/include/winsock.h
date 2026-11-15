@@ -11,6 +11,9 @@
 #include <netdb.h>
 #include <sys/select.h>
 #include <sys/socket.h>
+#if defined(__OpenBSD__)
+#include <unistd.h> // gethostname: glibc's headers pull it in, OpenBSD's do not
+#endif
 
 typedef UINT_PTR SOCKET;
 

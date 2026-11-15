@@ -206,7 +206,7 @@
       #define RADINLINE inline
       #define RADRESTRICT __restrict
 
-  #elif defined(linux)
+  #elif defined(linux) || defined(__OpenBSD__) // OpenBSD: same header-only (stubbed) Bink model as the Linux desktop build
 
       #define __RADLINUX__
       #define __RADX86__
