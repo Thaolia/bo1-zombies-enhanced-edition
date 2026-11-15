@@ -35,6 +35,17 @@ std::string Launcher_MapFile(int map, int i);
 extern const int kLauncherStartPoints[];
 extern const int kLauncherStartPointCount;
 // mods/admin's zm_farrespawn choices (zm_where's units; 0 = off, 1500 = Moon's own), as ZmClient's FAR_RESPAWN_CHOICES.
+// "Distance des props": r_lodScaleRigid, which scales the distance a static model is seen at when the renderer picks
+// its LOD and culls it (r_add_staticmodel.cpp): 1 is the map's own, 2 culls and simplifies props at half the distance.
+// A native BO2 map draws its big props one per instance (TranZit: thousands of draws a frame on the console).
+struct LauncherPropDistance
+{
+    const char *key;   // menu.cfg value
+    const char *label; // menu text
+    const char *scale; // r_lodScaleRigid
+};
+extern const LauncherPropDistance kLauncherPropDistances[];
+extern const int kLauncherPropDistanceCount;
 extern const int kLauncherFarRespawns[];
 extern const int kLauncherFarRespawnCount;
 struct LauncherPerk
@@ -92,6 +103,7 @@ struct LauncherSettings
     int height = 720; // 720, 540 or 480: the game's frame (r_customMode), which the console scales to the screen
     int maxFps = 60;  // 30 or 60
     bool shadows = true;
+    int propDistance = 0; // index in kLauncherPropDistances: how far static models (props) are drawn
     bool fpsCounter = true;
     int runInfo = 1; // bo1_runinfo: 0 off, 1 settings and hash on the loading screen, 2 also in a corner in game
     LauncherTexFilter texFilter = LAUNCHER_TEXFILTER_ANISO16;

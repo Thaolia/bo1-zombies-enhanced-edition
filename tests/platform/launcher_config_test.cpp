@@ -32,7 +32,7 @@ bool SameSettings(const LauncherSettings &a, const LauncherSettings &b)
 {
     return a.join == b.join && a.serverHost == b.serverHost && a.serverPort == b.serverPort && a.playerName == b.playerName && a.map == b.map && a.aimAssist == b.aimAssist && a.aimSlowdown == b.aimSlowdown &&
            a.aimLockon == b.aimLockon && a.aimAutoaim == b.aimAutoaim && a.god == b.god && a.tabInfo == b.tabInfo && a.backend == b.backend &&
-           a.maxFps == b.maxFps && a.shadows == b.shadows && a.fpsCounter == b.fpsCounter &&
+           a.maxFps == b.maxFps && a.shadows == b.shadows && a.propDistance == b.propDistance && a.fpsCounter == b.fpsCounter &&
            a.texFilter == b.texFilter && a.startPoints == b.startPoints && a.startPerks == b.startPerks &&
            a.startPower == b.startPower && a.startPap == b.startPap && a.farRespawn == b.farRespawn && a.lanAuto == b.lanAuto && a.joinBo2Weapons == b.joinBo2Weapons && a.runInfo == b.runInfo && a.height == b.height &&
            std::memcmp(&a.pad, &b.pad, sizeof(a.pad)) == 0;
@@ -60,7 +60,7 @@ int main()
               "+set bo1_zombies 1 +set bo1_aimassist 1 +set aim_slowdown_enabled 1 +set aim_lockon_enabled 1"
               " +set aim_autoaim_enabled 0 +set bo1_testclient_god 0 +set fs_mods zinfo +set r_fullscreen 0"
               " +set r_customMode 1280x720 +set com_maxfps 60"
-              " +set sm_enable 1 +set bo1_fpscounter 1 +set bo1_runinfo 1 +set r_texFilterAnisoMax 16 +set r_texFilterMipMode 0"
+              " +set sm_enable 1 +set r_lodScaleRigid 1 +set bo1_fpscounter 1 +set bo1_runinfo 1 +set r_texFilterAnisoMax 16 +set r_texFilterMipMode 0"
               " +devmap zombie_theater",
               "the default line, with the Tab zombie counter");
 
@@ -74,12 +74,13 @@ int main()
     custom.maxFps = 30;
     custom.height = 480;
     custom.shadows = false;
+    custom.propDistance = 2;
     custom.fpsCounter = false;
     custom.texFilter = LAUNCHER_TEXFILTER_BILINEAR;
     CheckLine(Launcher_BuildLaunchLine(custom, "+set bo1_frameperf 200"),
               "+set bo1_zombies 1 +set bo1_aimassist 0 +set aim_slowdown_enabled 1 +set aim_lockon_enabled 1"
               " +set aim_autoaim_enabled 1 +set bo1_testclient_god 1 +set r_fullscreen 0"
-              " +set r_customMode 854x480 +set com_maxfps 30 +set sm_enable 0"
+              " +set r_customMode 854x480 +set com_maxfps 30 +set sm_enable 0 +set r_lodScaleRigid 2"
               " +set bo1_fpscounter 0 +set bo1_runinfo 1 +set r_texFilterAnisoMax 1 +set r_texFilterMipMode 2 +set bo1_frameperf 200"
               " +devmap zombie_moon",
               "a custom line, with the extra arguments before +devmap");
@@ -104,7 +105,7 @@ int main()
           "menu.cfg round-trips the defaults");
 
     const LauncherSettings bad = Launcher_ParseSettings("map=zombie_nowhere\r\nmaxfps=45\nshadows=yes\nresolution=1080\n"
-                                                        "backend=vulkan\ntexfilter=aniso3\nunknown=1\nno equals sign\n");
+                                                        "backend=vulkan\ntexfilter=aniso3\nprop_distance=far\nunknown=1\nno equals sign\n");
     Check(SameSettings(bad, defaults), "unknown maps, invalid values and unknown keys keep the defaults");
 
     const LauncherSettings crlf = Launcher_ParseSettings(" map = zombie_pentagon \r\ngod=1\r\nmaxfps=30\r\nzinfo=0\r\n");
@@ -129,7 +130,7 @@ int main()
               " +set aim_autoaim_enabled 0 +set bo1_testclient_god 0 +set fs_game mods/mapkit"
               " +set bo1_mod_mapkit bo2_zm_nuked_bsp +set fs_mods mapkit zinfo +set bo1_mod_zones zombie_bo2nuked"
               " +set bo1_bspworld maps/zombie_bo2nuked.d3dbsp +set r_fullscreen 0 +set r_customMode 1280x720"
-              " +set com_maxfps 60 +set sm_enable 1 +set bo1_fpscounter 1 +set bo1_runinfo 1 +set r_texFilterAnisoMax 16"
+              " +set com_maxfps 60 +set sm_enable 1 +set r_lodScaleRigid 1 +set bo1_fpscounter 1 +set bo1_runinfo 1 +set r_texFilterAnisoMax 16"
               " +set r_texFilterMipMode 0 +devmap zombie_pentagon",
               "the native Nuketown: ZmClient's MapKit layout on Five, its zone and BSP world");
     LauncherSettings tranzit;
@@ -166,7 +167,7 @@ int main()
     CheckLine(Launcher_BuildLaunchLine(join, "+set bo1_frameperf 200"),
               "+set bo1_zombies 1 +set bo1_aimassist 1 +set aim_slowdown_enabled 1 +set aim_lockon_enabled 1"
               " +set aim_autoaim_enabled 0 +set bo1_testclient_god 0 +set r_fullscreen 0"
-              " +set r_customMode 1280x720 +set com_maxfps 60 +set sm_enable 1"
+              " +set r_customMode 1280x720 +set com_maxfps 60 +set sm_enable 1 +set r_lodScaleRigid 1"
               " +set bo1_fpscounter 1 +set bo1_runinfo 1 +set r_texFilterAnisoMax 16 +set r_texFilterMipMode 0 +set name Switch1"
               " +set bo1_frameperf 200 +set cl_allowWanConnect 1 +set cl_autoConnect 192.168.1.20:29070",
               "a join: the game's menu, then cl_autoConnect, no +devmap, no local god mode, no fs_mods (the server's)");
@@ -179,7 +180,7 @@ int main()
               "+set bo1_zombies 1 +set bo1_aimassist 1 +set aim_slowdown_enabled 1 +set aim_lockon_enabled 1"
               " +set aim_autoaim_enabled 0 +set bo1_testclient_god 1 +set fs_mods zinfo +set r_fullscreen 0"
               " +set r_customMode 1280x720 +set com_maxfps 60"
-              " +set sm_enable 1 +set bo1_fpscounter 1 +set bo1_runinfo 1 +set r_texFilterAnisoMax 16 +set r_texFilterMipMode 0"
+              " +set sm_enable 1 +set r_lodScaleRigid 1 +set bo1_fpscounter 1 +set bo1_runinfo 1 +set r_texFilterAnisoMax 16 +set r_texFilterMipMode 0"
               " +devmap zombie_theater",
               "a join without a server address starts the solo game");
 

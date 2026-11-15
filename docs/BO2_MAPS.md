@@ -407,6 +407,19 @@ packages its zone, BSP, colour maps, layout and `imports/zm_transit/` (on the Sw
 its images, and the props collision its layout's collision edit names, 88 MB). Not yet run on the console: the
 Windows and Linux runs used 97.8 MB of the 112 MB hunk.
 
+### Draw calls on the Switch (2026-11-15)
+
+The user's console run of native TranZit drew 5 000 to 11 000 times a frame at ~24 fps with the GPU busy 19 ms: the
+frame was CPU-bound. `r_mod_drawStats 60` (Windows client, the Switch's settings: 720p, sun shadows, depth prepass) put
+the depot view at 12 986 draws: the world one surface at a time (3 958 in the lit pass, 3 667 in the prepass) and the
+props one instance at a time. `d3dbsp.py` now writes the world's surfaces in vertex batches (as Treyarch's compiler
+does), and the engine empties its pre-tessellated index buffer each frame again; the world then draws a few hundred
+batches: 5 539 draws from the depot, 2 823 in town, 3 126 from the depot without the depth prepass (`r_depthPrepass 0`,
+which costs the GPU more overdraw). Same images in the four test views. The BSP changes in its surface and index lumps
+only (`bsp1`, installed in `dist_bo2src`); its zone is unchanged. The static model cache then took the props it can
+(placed at least twice, at most 512 vertices, an even triangle count on every surface): 4 966 draws from the depot,
+2 616 at the farm. BO2's bigger props (trees, rocks, houses) still draw one per instance (`docs/PORTING.md`).
+
 ### TranZit's bus and bank (2026-11-15)
 
 Asked once the native TranZit played on Windows. Both MapKit layouts (`bo2_zm_transit`, `bo2_zm_transit_bsp`) get them

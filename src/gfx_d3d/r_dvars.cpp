@@ -292,6 +292,7 @@ const dvar_s *r_mod_fxElems; // mod (L43): r_mod_fxElems
 const dvar_s *r_mod_scsShare; // mod (L43): r_mod_scsShare
 const dvar_s *r_modelLimit;
 const dvar_s *r_mod_sceneModels; // mod
+const dvar_s *r_mod_drawStats; // mod
 const dvar_s *r_brushLimit;
 const dvar_s *r_spotLightFovInnerFraction;
 const dvar_s *r_spotLightStartRadius;
@@ -1065,6 +1066,7 @@ void __cdecl R_RegisterDvars()
     r_mod_gfxEnts = _Dvar_RegisterInt("r_mod_gfxEnts", 256, 256, 2048, 0, "mod: special models (zombies, corpses, the view weapon) drawn per frame (retail 256)");
     r_mod_fxElems = _Dvar_RegisterInt("r_mod_fxElems", 2048, 2048, 4096, 0, "mod: effect elements alive at once (retail 2048; FX_ELEM_POOL_MAX 4096), read at each effects-system reset (map load)");
     r_mod_sceneModels = _Dvar_RegisterInt("r_mod_sceneModels", 1024, 1024, R_MOD_SCENE_MODEL_MAX, 0, "mod: models drawn per frame (retail 1024, r_modelLimit); maps imported by MapKit have thousands of props");
+    r_mod_drawStats = _Dvar_RegisterInt("r_mod_drawStats", 0, 0, 100000, 0, "mod: every N frames, log the draw calls per frame by technique and surface type (drawstats:, 0 = off)");
     r_mod_scsShare = _Dvar_RegisterBool("r_mod_scsShare", 0, 0, "mod: models with byte-identical shader constant sets share one of the frame's 128 slots (retail 0)");
     r_modelLimit = _Dvar_RegisterInt(
                                      "r_modelLimit",

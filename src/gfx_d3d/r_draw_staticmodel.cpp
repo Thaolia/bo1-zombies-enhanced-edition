@@ -1,4 +1,5 @@
 #include "r_draw_staticmodel.h"
+#include "r_add_staticmodel.h" // R_MAX_PRETESS_INDICES
 #include "r_shade.h"
 #include "r_foliage.h"
 #include "r_state.h"
@@ -750,14 +751,14 @@ int __cdecl R_ReadStaticModelPreTessDrawSurf(
         return 0;
     pretessSurf->packed = R_ReadPrimDrawSurfInt(readCmdBuf);
     *firstIndex = R_ReadPrimDrawSurfInt(readCmdBuf);
-    if ( *firstIndex >= 0x100000
+    if ( *firstIndex >= R_MAX_PRETESS_INDICES
         && !Assert_MyHandler(
                     "C:\\projects_pc\\cod\\codsrc\\src\\gfx_d3d\\r_draw_staticmodel.cpp",
                     2989,
                     0,
                     "*firstIndex doesn't index R_MAX_PRETESS_INDICES\n\t%i not in [0, %i)",
                     *firstIndex,
-                    0x100000) )
+                    R_MAX_PRETESS_INDICES) )
     {
         __debugbreak();
     }

@@ -1714,9 +1714,11 @@ unsigned int __cdecl R_RenderDrawSurfListMaterial(const GfxDrawSurfListArgs *lis
                 R_SetupPass(prepassContext, 0);
                 passPrepassContext_4 = prepassContext.state;
             }
+            g_modDrawSurf = (int)((drawSurf.packed >> 51) & 0xF); // mod: r_mod_drawStats
             subListCount = rb_tessTable[(drawSurf.packed >> 51) & 0xF](
                                              listArgs,
                                              { passPrepassContext, passPrepassContext_4 });
+            g_modDrawSurf = -1;
         }
 
         if ( isPixelCostEnabled )
@@ -5236,6 +5238,7 @@ void RB_SwapBuffers()
     int desiredShow; // [esp+58h] [ebp-4h]
 
     PROF_SCOPED("RB_SwapBuffers"); // ADD
+    RB_ModDrawStats_Frame(); // mod: r_mod_drawStats
 
     iassert(dx.targetWindowIndex >= 0 && dx.targetWindowIndex < dx.windowCount);
 

@@ -1,4 +1,5 @@
 #include "r_buffers.h"
+#include "r_add_staticmodel.h" // R_MAX_PRETESS_INDICES
 #include <universal/assertive.h>
 #include "r_init.h"
 #include "r_dvars.h"
@@ -367,9 +368,9 @@ void __cdecl R_CreateDynamicBuffers()
     gfxBuf.dynamicIndexBuffer = gfxBuf.dynamicIndexBufferPool;
     for (bufferIterc = 0; bufferIterc != 2; ++bufferIterc)
     {
-        R_InitDynamicIndexBufferState(&gfxBuf.preTessIndexBufferPool[bufferIterc], 0x100000);
+        R_InitDynamicIndexBufferState(&gfxBuf.preTessIndexBufferPool[bufferIterc], R_MAX_PRETESS_INDICES);
         gfxBuf.preTessIndexBufferPool[bufferIterc].indices = (unsigned __int16 *)Z_VirtualAlloc(
-            0x200000,
+            2 * R_MAX_PRETESS_INDICES,
             "preTessIndexBuffer",
             19);
     }

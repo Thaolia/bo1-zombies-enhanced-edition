@@ -6,7 +6,9 @@ struct XModel;
 struct XSurface;
 struct GfxStaticModelDrawInst;
 
-#define R_MAX_PRETESS_INDICES 0x100000
+// mod: retail 0x100000. A frame of native TranZit seen from the depot fills a million indices once the world and the
+// static models batch (r_mod_drawStats), and what does not fit draws one surface at a time again
+#define R_MAX_PRETESS_INDICES 0x200000
 
 struct GfxStaticModelId // sizeof=0x4
 {                                       // XREF: ?R_GetStaticModelId@@YA?AUGfxStaticModelId@@HH@Z/r

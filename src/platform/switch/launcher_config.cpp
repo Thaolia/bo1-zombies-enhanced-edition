@@ -50,6 +50,13 @@ std::string Launcher_MapFile(int map, int i)
 
 const int kLauncherStartPoints[] = {0, 1000, 2500, 5000, 10000, 25000, 50000, 100000};
 const int kLauncherStartPointCount = int(sizeof(kLauncherStartPoints) / sizeof(kLauncherStartPoints[0]));
+const LauncherPropDistance kLauncherPropDistances[] = {
+    {"normal", "Normale", "1"},
+    {"reduced", "Reduite", "1.5"},
+    {"short", "Courte", "2"},
+};
+const int kLauncherPropDistanceCount = int(sizeof(kLauncherPropDistances) / sizeof(kLauncherPropDistances[0]));
+
 const int kLauncherFarRespawns[] = {0, 1500, 2500, 4000};
 const int kLauncherFarRespawnCount = int(sizeof(kLauncherFarRespawns) / sizeof(kLauncherFarRespawns[0]));
 const LauncherPerk kLauncherPerks[] = {
@@ -231,6 +238,12 @@ void Apply(LauncherSettings *s, const std::string &key, const std::string &value
     }
     else if (key == "shadows")
         ParseBool(value, &s->shadows);
+    else if (key == "prop_distance")
+    {
+        for (int i = 0; i < kLauncherPropDistanceCount; ++i)
+            if (value == kLauncherPropDistances[i].key)
+                s->propDistance = i;
+    }
     else if (key == "runinfo")
     {
         if (value == "0" || value == "1" || value == "2")
@@ -301,6 +314,7 @@ std::string Launcher_FormatSettings(const LauncherSettings &s)
     out += "resolution=" + std::to_string(s.height) + "\n";
     out += "maxfps=" + std::to_string(s.maxFps) + "\n";
     out += std::string("shadows=") + (s.shadows ? "1" : "0") + "\n";
+    out += std::string("prop_distance=") + kLauncherPropDistances[s.propDistance].key + "\n";
     out += std::string("fpscounter=") + (s.fpsCounter ? "1" : "0") + "\n";
     out += "runinfo=" + std::to_string(s.runInfo) + "\n";
     out += std::string("texfilter=") + kTexFilters[s.texFilter].key + "\n";
@@ -355,6 +369,7 @@ std::string Launcher_BuildLaunchLine(const LauncherSettings &s, const std::strin
     line += std::string(" +set r_fullscreen 0 +set r_customMode ") + (s.height == 480 ? "854x480" : s.height == 540 ? "960x540" : "1280x720");
     line += " +set com_maxfps " + std::to_string(s.maxFps);
     line += std::string(" +set sm_enable ") + (s.shadows ? "1" : "0");
+    line += std::string(" +set r_lodScaleRigid ") + kLauncherPropDistances[s.propDistance].scale;
     line += std::string(" +set bo1_fpscounter ") + (s.fpsCounter ? "1" : "0");
     line += " +set bo1_runinfo " + std::to_string(s.runInfo);
     line += " +set r_texFilterAnisoMax " + std::to_string(filter.anisoMax);
