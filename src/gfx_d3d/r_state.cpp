@@ -1034,6 +1034,8 @@ void __cdecl R_DrawIndexedPrimitive(GfxCmdBufPrimState *state, const GfxDrawPrim
             __debugbreak();
         }
         RB_TrackDrawPrimCall(state, triCount);
+        if ( r_mod_drawStats->current.integer )
+            RB_ModDrawStats_Count(state);
         if ( r_logFile && r_logFile->current.integer )
             RB_LogPrint("device->DrawIndexedPrimitive( D3DPT_TRIANGLELIST, 0, 0, args->vertexCount, args->baseIndex, triCount )\n");
         hr = device->DrawIndexedPrimitive(D3DPT_TRIANGLELIST, 0, 0, args->vertexCount, args->baseIndex, triCount);

@@ -3,8 +3,11 @@
 #include <algorithm>
 #include <xanim/xmodel_utils.h>
 #include <universal/com_memory.h>
+#include <qcommon/common.h>
 #include "r_xsurface.h"
 #include <intrin.h> // _BitScanReverse
+
+static const unsigned int SMC_MIN_INSTANCES = 2; // retail 16 (see R_AddSModelListStats)
 
 void __cdecl R_AssignSModelCacheResources(GfxWorld *world)
 {
@@ -40,14 +43,39 @@ void __cdecl R_AssignSModelCacheResources(GfxWorld *world)
     // for that zone's world: XModelSetSModelCacheForLod asserts on an index already set. This world assigns its own.
     for ( i = 0; i < v7; ++i )
         stats[i].model->lodInfo[stats[i].lod].smcIndexPlusOne = 0;
+    unsigned int oddLods = 0;
     for ( i = 0; i < v7; ++i )
     {
         model = stats[i].model;
         lod = stats[i].lod;
+        // mod (bspworld): R_CacheStaticModelIndices copies a surface's triangles two at a time, so the cache takes
+        // only lods whose every surface has an even triangle count, as Treyarch's linker pads them. BO2's models
+        // (bo2_bsp_props.py, through OAT's linker) are not padded: such a lod keeps no cache index and draws rigid
+        if ( !R_SModelLodTrianglesEven(model, lod) )
+        {
+            ++oddLods;
+            continue;
+        }
         maxEntryCount = R_GetEntryCount(&stats[i]);
         v1 = R_AssignSModelCacheIndex(stats[i].smcAllocBits, maxEntryCount, smcUseCount);
         XModelSetSModelCacheForLod(model, lod, v1, stats[i].smcAllocBits);
     }
+    if ( oddLods )
+        Com_Printf(8, "static model cache: %u of %u model lods left out (a surface with an odd triangle count)\n",
+            oddLods, v7);
+}
+
+bool __cdecl R_SModelLodTrianglesEven(const XModel *model, unsigned int lod)
+{
+    XSurface *surfs;
+    XModelGetSurfaces(model, &surfs, lod);
+    const unsigned int count = XModelGetSurfCount(model, lod);
+    for ( unsigned int s = 0; s < count; ++s )
+    {
+        if ( surfs[s].triCount & 1 )
+            return false;
+    }
+    return true;
 }
 
 unsigned __int8 __cdecl R_AssignSModelCacheIndex(
@@ -150,7 +178,11 @@ unsigned int __cdecl R_AddSModelListStats(
     unsigned int smcAllocBits; // [esp+30h] [ebp-8h]
     float lodDist; // [esp+34h] [ebp-4h]
 
-    if ( drawInstCount < 0x10 )
+    // mod (bspworld): this runs only for a world read from a BSP (a zone's world comes with its cache indices). Treyarch
+    // kept the cache for models placed at least 16 times; BO2's maps place most of their 509 (TranZit) models fewer
+    // times, which left 9 of 10 props one draw per instance and surface. The cache bounds its own refill (256
+    // instances and 8 192 vertices a frame, R_CacheStaticModelSurface), so models placed twice take it too.
+    if ( drawInstCount < SMC_MIN_INSTANCES )
         return statsCount;
     model = (*drawInstArray)->model;
     lodCount = XModelGetNumLods(model);
@@ -168,7 +200,7 @@ unsigned int __cdecl R_AddSModelListStats(
         if ( smcAllocBits <= 9 )
         {
             useCount = R_MaxModelsInDistRange(drawInstArray, drawInstCount, mins, maxs, prevLodDist, lodDist);
-            if ( useCount >= 0x10 )
+            if ( useCount >= SMC_MIN_INSTANCES )
             {
                 stats[statsCount].model = model;
                 stats[statsCount].lod = lodIter;

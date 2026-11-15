@@ -291,6 +291,7 @@ inline unsigned int R_ModGfxEntLimit() { return r_mod_gfxEnts ? (unsigned int)r_
 extern const dvar_s *r_mod_scsShare; // mod (L43): r_mod_scsShare
 extern const dvar_s *r_modelLimit;
 extern const dvar_s *r_mod_sceneModels; // mod: r_mod_sceneModels
+extern const dvar_s *r_mod_drawStats; // mod: draw call statistics (rb_stats.cpp)
 // mod: the scene's model limit: r_mod_sceneModels when raised past retail's 1024, else r_modelLimit (at most 1024)
 inline unsigned int R_ModSceneModelLimit()
 {

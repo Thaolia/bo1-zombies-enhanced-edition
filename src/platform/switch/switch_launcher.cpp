@@ -130,6 +130,7 @@ enum Item
     ITEM_RESOLUTION,
     ITEM_MAXFPS,
     ITEM_SHADOWS,
+    ITEM_PROPDIST,
     ITEM_TEXFILTER,
     ITEM_FPSCOUNTER,
     ITEM_PAD,
@@ -196,11 +197,12 @@ const ItemInfo kItems[ITEM_COUNT] = {
     {VIEW_MAIN, 20, "Resolution", "720p: celle de l'ecran. 540p, 480p: image moins nette, plus de FPS (en ligne)."},
     {VIEW_MAIN, 21, "Limite de FPS", "30: plus stable et plus econome en batterie. 60: plus fluide."},
     {VIEW_MAIN, 22, "Ombres", "Ombres dynamiques. Les couper fait gagner des FPS."},
-    {VIEW_MAIN, 23, "Filtre de texture", "Nettete des textures au loin. 16x: le plus net. Bilineaire: le plus leger."},
-    {VIEW_MAIN, 24, "Compteur FPS", "Compteur de FPS et de batterie en haut a droite."},
-    {VIEW_MAIN, 25, "Touches manette", "A: choisir le bouton de chaque action du jeu (tirer, viser, sauter...)."},
-    {VIEW_MAIN, 26, "Manettes", "A: ecran de la Switch pour connecter ou changer de manette."},
-    {VIEW_MAIN, 35, "DEMARRER", "Lance la partie avec ces reglages (aussi: bouton +)."},
+    {VIEW_MAIN, 23, "Distance des props", "Objets du decor dessines moins loin et plus simples: plus de FPS (TranZit)."},
+    {VIEW_MAIN, 24, "Filtre de texture", "Nettete des textures au loin. 16x: le plus net. Bilineaire: le plus leger."},
+    {VIEW_MAIN, 25, "Compteur FPS", "Compteur de FPS et de batterie en haut a droite."},
+    {VIEW_MAIN, 26, "Touches manette", "A: choisir le bouton de chaque action du jeu (tirer, viser, sauter...)."},
+    {VIEW_MAIN, 27, "Manettes", "A: ecran de la Switch pour connecter ou changer de manette."},
+    {VIEW_MAIN, 36, "DEMARRER", "Lance la partie avec ces reglages (aussi: bouton +)."},
     {VIEW_SERVER, 7, "Connexion", "Activee: la partie rejoint ce serveur au lieu d'une partie solo."},
     {VIEW_SERVER, 9, "Adresse IP", "A: l'adresse IP du PC qui fait tourner le serveur (Server.bat, Server.sh)."},
     {VIEW_SERVER, 10, "Port", "A: le port UDP du serveur, 3074 par defaut."},
@@ -230,7 +232,7 @@ const ItemInfo kItems[ITEM_COUNT] = {
 static_assert(ITEM_KIT_PERK_LAST - ITEM_KIT_PERK_FIRST + 1 == 8, "one kit line per kLauncherPerks entry");
 static_assert(sizeof(kItems) / sizeof(kItems[0]) == ITEM_COUNT, "one kItems line per Item");
 const int kGraphicsHeaderRow = 18;
-const int kControllerFirstRow = 27;
+const int kControllerFirstRow = 28;
 const int kControllerMaxRows = 8; // handheld + players 1-7: the rows up to DEMARRER
 const int kPadInfoRow = 28;
 const int kNetInfoRow = 24;
@@ -348,6 +350,8 @@ std::string ValueText(const LauncherSettings &s, int item)
         return std::to_string(s.maxFps);
     case ITEM_SHADOWS:
         return YesNo(s.shadows);
+    case ITEM_PROPDIST:
+        return kLauncherPropDistances[s.propDistance].label;
     case ITEM_TEXFILTER:
         return Launcher_TexFilterLabel(s.texFilter);
     case ITEM_FPSCOUNTER:
@@ -445,6 +449,9 @@ void Change(LauncherSettings *s, int item, int dir)
         break;
     case ITEM_SHADOWS:
         s->shadows = !s->shadows;
+        break;
+    case ITEM_PROPDIST:
+        s->propDistance = (s->propDistance + dir + kLauncherPropDistanceCount) % kLauncherPropDistanceCount;
         break;
     case ITEM_TEXFILTER:
         s->texFilter = LauncherTexFilter((s->texFilter + dir + LAUNCHER_TEXFILTER_COUNT) % LAUNCHER_TEXFILTER_COUNT);

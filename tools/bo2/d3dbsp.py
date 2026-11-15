@@ -384,14 +384,28 @@ class Bsp:
         soups = soups + [soup for sub in self.submodels for soup in sub[3]]
         if len(soups) > 0xFFFF:
             raise ValueError("more than 65535 surfaces")
+        # Consecutive surfaces share a vertex batch of at most 65 535 vertices: firstVertex is the batch's, the
+        # indices count from it and vertexCount reaches the surface's last vertex, as Treyarch's compiler writes them.
+        # The renderer merges the draws of one material's surfaces that share firstVertex, lightmap and reflection probe
+        # (r_add_bsp.cpp R_PreTessBspDrawSurfs, r_draw_bsp.cpp): a firstVertex per surface drew TranZit's world one
+        # surface at a time, 3 958 draws in a lit pass from the depot. A world model's surfaces and each submodel's
+        # start their own batches.
+        starts, at = set(), world_soups
+        for sub in self.submodels:
+            starts.add(at)
+            at += len(sub[3])
         tris, verts, indices = [], [], []
-        for mat, sv, si, lmap in soups:
+        batch = 0
+        for n, (mat, sv, si, lmap) in enumerate(soups):
+            if n in starts or len(verts) - batch + len(sv) > 0xFFFF:
+                batch = len(verts)
+            offset = len(verts) - batch
             sky = self.materials[mat][1] & 0x4
             lit = 0 if sky else 1
             tris.append(struct.pack("<HBBBBBxhxxiIHHi", mat, LIGHTMAP_NONE if sky else lmap, 0, lit, 0, lit, lit, 0,
-                                    len(verts), len(sv), len(si), len(indices)))
+                                    batch, offset + len(sv), len(si), len(indices)))
             verts.extend(sv)
-            indices.extend(si)
+            indices.extend(i + offset for i in si)
         if len(indices) and max(indices) > 0xFFFF:
             raise ValueError("index out of range")
         lumps[LUMP_TRIANGLES] = b"".join(tris)

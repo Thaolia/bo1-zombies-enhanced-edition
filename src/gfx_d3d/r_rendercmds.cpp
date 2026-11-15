@@ -811,6 +811,10 @@ void R_ToggleSmpFrame()
     frontEndDataOut->smcPatchVertsUsed = 0;
     frontEndDataOut->modelLightingPatchCount = 0;
     frontEndDataOut->skinnedCacheVb->used = 0;
+    // The pre-tessellated index buffer starts each frame empty too (missing from the decompile): it filled up in the
+    // first frames and every R_AllocPreTessIndices failed afterwards, so the world and the static models went one
+    // surface a draw (TranZit: 2 230 world draws in a lit pass from the depot, r_mod_drawStats)
+    frontEndDataOut->preTessIb->used = 0;
     s_cmdList = frontEndDataOut->commands;
 
     {

@@ -10,6 +10,11 @@ int __cdecl RB_Stats_TotalVertexCount();
 int __cdecl RB_Stats_TotalPrimCount();
 int __cdecl RB_Stats_ViewIndexCount(const GfxViewStats *viewStats);
 void __cdecl RB_Stats_f();
+// mod: r_mod_drawStats - draw calls by the technique and surface type R_RenderDrawSurfListMaterial is drawing
+extern int g_modDrawSurf;
+extern int g_modPreTessFails, g_modPreTessPeak; // r_pretess.cpp R_AllocPreTessIndices
+void RB_ModDrawStats_Count(const GfxCmdBufPrimState *state);
+void RB_ModDrawStats_Frame();
 void __cdecl RB_Stats_Display(const GfxFrameStats *frameStats);
 int __cdecl RB_Stats_TotalIndexCount();
 void __cdecl RB_Stats_Summarize(const char *label, const GfxViewStats *viewStats);

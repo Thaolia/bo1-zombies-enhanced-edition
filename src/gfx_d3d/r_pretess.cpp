@@ -1,4 +1,5 @@
 #include "r_pretess.h"
+#include "rb_stats.h"
 #include <universal/q_shared.h>
 #include "r_warn.h"
 #include <win32/win_net.h>
@@ -176,9 +177,14 @@ unsigned __int16 *__cdecl R_AllocPreTessIndices(int count)
     if ( !count && !Assert_MyHandler("C:\\projects_pc\\cod\\codsrc\\src\\gfx_d3d\\r_pretess.cpp", 470, 0, "%s", "count") )
         __debugbreak();
     if ( count + gfxBuf.preTessIndexBuffer->used > gfxBuf.preTessIndexBuffer->total )
+    {
+        ++g_modPreTessFails; // mod: r_mod_drawStats
         return 0;
+    }
     indices = &gfxBuf.preTessIndexBuffer->indices[gfxBuf.preTessIndexBuffer->used];
     gfxBuf.preTessIndexBuffer->used += count;
+    if ( gfxBuf.preTessIndexBuffer->used > g_modPreTessPeak )
+        g_modPreTessPeak = gfxBuf.preTessIndexBuffer->used;
     return indices;
 }
 

@@ -1,4 +1,11 @@
 #include "rb_stats.h"
+#include "r_dvars.h"
+#include "rb_logfile.h"
+#include <qcommon/common.h>
+
+#include <stddef.h>
+#include <stdio.h>
+#include <string.h>
 
 const int drawPrimHistogramLimit[15] =
 { 10, 25, 50, 100, 200, 300, 400, 600, 800, 1000, 1200, 1400, 1600, 1800, 2000 };
@@ -532,3 +539,61 @@ void __cdecl RB_DrawPrimHistogramOverlay()
     }
 }
 
+
+// mod: r_mod_drawStats N. The retail per-view prim statistics (gfx_stats) are never gathered here, and a frame's cost on
+// the Switch is its draw calls: count them by the technique (prepass, lit, shadow map...) and the surface type
+// (rb_tessTable: world, static model, xmodel...) R_RenderDrawSurfListMaterial is drawing, -1 for draws outside it, and
+// every N frames log the busiest pairs per frame.
+int g_modDrawSurf = -1;
+int g_modPreTessFails, g_modPreTessPeak;
+static int s_modDraws[257][17];
+static int s_modDrawFrames;
+
+// the technique is the drawing state's own: a lit list draws its depth prepass through a second GfxCmdBufState
+void RB_ModDrawStats_Count(const GfxCmdBufPrimState *state)
+{
+    int tech = -1;
+    if (g_modDrawSurf >= 0)
+        tech = ((const GfxCmdBufState *)((const char *)state - offsetof(GfxCmdBufState, prim)))->techType;
+    ++s_modDraws[tech + 1][g_modDrawSurf + 1];
+}
+
+void RB_ModDrawStats_Frame()
+{
+    static const char *const SURF[17] = { "other", "world", "world pretess", "smodel rigid", "smodel pretess",
+        "smodel cached", "smodel skinned", "bmodel", "xmodel rigid", "xmodel rigid skinned", "xmodel skinned", "water",
+        "code mesh", "mark mesh", "particle cloud", "rope", "glass" };
+    const int every = r_mod_drawStats ? r_mod_drawStats->current.integer : 0;
+    if (every <= 0)
+        return;
+    if (++s_modDrawFrames < every)
+        return;
+    int total = 0;
+    for (int t = 0; t < 257; ++t)
+        for (int k = 0; k < 17; ++k)
+            total += s_modDraws[t][k];
+    char line[1024];
+    int n = snprintf(line, sizeof(line), "drawstats: %d frames, %.1f draws a frame, pretess peak %d indices, %d failed "
+        "allocations:", s_modDrawFrames, (float)total / (float)s_modDrawFrames, g_modPreTessPeak, g_modPreTessFails);
+    g_modPreTessPeak = 0;
+    g_modPreTessFails = 0;
+    for (int shown = 0; shown < 10 && n < (int)sizeof(line) - 96; ++shown)
+    {
+        int bt = -1, bk = 0;
+        for (int t = 0; t < 257; ++t)
+            for (int k = 0; k < 17; ++k)
+                if (s_modDraws[t][k] && (bt < 0 || s_modDraws[t][k] > s_modDraws[bt][bk]))
+                    bt = t, bk = k;
+        if (bt < 0)
+            break;
+        const char *tech = bt ? RB_LogTechniqueType((unsigned __int8)(bt - 1)) : "none";
+        if (!strncmp(tech, "TECHNIQUE_", 10))
+            tech += 10;
+        n += snprintf(line + n, sizeof(line) - n, " %s/%s %.1f;", tech, SURF[bk],
+            (float)s_modDraws[bt][bk] / (float)s_modDrawFrames);
+        s_modDraws[bt][bk] = 0;
+    }
+    Com_Printf(8, "%s\n", line);
+    memset(s_modDraws, 0, sizeof(s_modDraws));
+    s_modDrawFrames = 0;
+}

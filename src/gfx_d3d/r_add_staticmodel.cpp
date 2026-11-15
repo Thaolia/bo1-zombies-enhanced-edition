@@ -135,8 +135,10 @@ GfxStaticModelId __cdecl R_GetStaticModelId(unsigned int smodelIndex, int lod)
     }
     if ( !r_smc_enable->current.enabled )
         goto LABEL_15;
-    if ( r_gfxopt_dynamic_foliage->current.enabled )
-        goto LABEL_15;
+    // The decompile also sent every static model to the rigid path whenever r_gfxopt_dynamic_foliage was on (its
+    // default), which left the next test (the same dvar, with the material's wind flag) dead and the cache unused: only
+    // a wind-swayed material stays out of the cache. Rigid models draw one per instance and surface; cached ones are
+    // batched (TranZit: ~2 900 static model draws a frame from the depot, r_mod_drawStats).
     Skins = XModelGetSkins(model, lod);
     technique = Material_GetTechnique(*Skins, 0xAu);
     if ( r_gfxopt_dynamic_foliage->current.enabled && (!technique || (technique->flags & 0x20) != 0) )
@@ -784,14 +786,14 @@ char __cdecl R_PreTessStaticModelCachedList(
         LOBYTE(preTessSurf) = surfaceIndex;
         HIWORD(preTessSurf) = *list;
         firstIndex = preTessIndices - gfxBuf.preTessIndexBuffer->indices;
-        if ( firstIndex >= 0x100000
+        if ( firstIndex >= R_MAX_PRETESS_INDICES
             && !Assert_MyHandler(
                         "C:\\projects_pc\\cod\\codsrc\\src\\gfx_d3d\\r_add_staticmodel.cpp",
                         327,
                         0,
                         "firstIndex doesn't index R_MAX_PRETESS_INDICES\n\t%i not in [0, %i)",
                         firstIndex,
-                        0x100000) )
+                        R_MAX_PRETESS_INDICES) )
         {
             __debugbreak();
         }
