@@ -2401,13 +2401,13 @@ int __cdecl PrivateUnhandledExceptionFilter(_EXCEPTION_POINTERS *ExceptionInfo)
     return 1;
 }
 
-char sys_cmdline[1024];
+char sys_cmdline[BO1_COMMAND_LINE_SIZE];
 char g_open_automate_benchmark[260];
 #if !defined(__SWITCH__)
 // zombies: launch.cfg next to the program (docs/SERVER.md, phase 8): its text, newlines read as blanks, goes before the
 // command line, whose values then win. A missing or empty file changes nothing. The Switch reads its own launch.cfg in
 // switch_main.cpp (the program's folder there is the same one).
-static char s_launchCommandLine[1024];
+static char s_launchCommandLine[BO1_COMMAND_LINE_SIZE];
 
 static char *Sys_PrependLaunchCfg(char *cmdLine)
 {
@@ -2529,12 +2529,12 @@ int __stdcall WinMain(HINSTANCE__ *hInstance, HINSTANCE__ *hPrevInstance, char *
             InitTiming();
             Sys_FindInfo();
             g_wv.hInstance = hInstance;
-            I_strncpyz(sys_cmdline, s_server ? "+set bo1_zombies 1 +set sv_maxclients 4 +set g_inactivity 0 +exec server.cfg " : "", 1024);
-            I_strncat(sys_cmdline, 1024, lpCmdLine);
+            I_strncpyz(sys_cmdline, s_server ? "+set bo1_zombies 1 +set sv_maxclients 4 +set g_inactivity 0 +exec server.cfg " : "", sizeof(sys_cmdline));
+            I_strncat(sys_cmdline, sizeof(sys_cmdline), lpCmdLine);
             // x6: the headless settings below must always fit (a cut '+set dedicated 1' or '+set r_aaSamples 1' changes
             // what runs); a caller line too long for them loses its tail instead (headless.ps1 refuses such lines)
-            if ( s_headless && strlen(sys_cmdline) > 1024 - 1 - 96 )
-                sys_cmdline[1024 - 1 - 96] = 0;
+            if ( s_headless && strlen(sys_cmdline) > sizeof(sys_cmdline) - 1 - 96 )
+                sys_cmdline[sizeof(sys_cmdline) - 1 - 96] = 0;
             // c2: the same for Com_ParseCommandLine's 64 (L43; retail 32) console lines (one per '+' or newline after the leading text):
             // past line 32 the rest of the line, suffix included, joins line 32 (c8: '+set r_aaSamples 1' ended up
             // inside net_ip, the back buffer stayed 4x multisampled and GetRenderTargetData failed)
@@ -2568,22 +2568,22 @@ int __stdcall WinMain(HINSTANCE__ *hInstance, HINSTANCE__ *hPrevInstance, char *
                 char suffix[96];
                 sprintf_s(suffix, " +set logfile 2%s +set r_fullscreen 0 +set r_aaSamples %i",
                     lan ? "" : " +set net_ip 127.0.0.1", aa >= 2 && aa <= 16 ? aa : 1);
-                I_strncat(sys_cmdline, 1024, suffix);
+                I_strncat(sys_cmdline, sizeof(sys_cmdline), suffix);
             }
             else if ( s_server )
             {
-                I_strncat(sys_cmdline, 1024, " +set dedicated 1 +set logfile 2");
+                I_strncat(sys_cmdline, sizeof(sys_cmdline), " +set dedicated 1 +set logfile 2");
             }
             else if ( s_headless )
             {
                 // zombies: headless is a dedicated LAN server on loopback (no renderer, no sound, no firewall
                 // prompt), logging every line; appended last so these win over the caller's values
-                I_strncat(sys_cmdline, 1024, " +set dedicated 1 +set logfile 2 +set net_ip 127.0.0.1");
+                I_strncat(sys_cmdline, sizeof(sys_cmdline), " +set dedicated 1 +set logfile 2 +set net_ip 127.0.0.1");
             }
             if ( g_open_automate_benchmark[0] )
             {
-                I_strncat(sys_cmdline, 1024, " +set r_open_automate 1 +set com_introPlayed 1 +set ui_autoContinue 1 +devmap ");
-                I_strncat(sys_cmdline, 1024, g_open_automate_benchmark);
+                I_strncat(sys_cmdline, sizeof(sys_cmdline), " +set r_open_automate 1 +set com_introPlayed 1 +set ui_autoContinue 1 +devmap ");
+                I_strncat(sys_cmdline, sizeof(sys_cmdline), g_open_automate_benchmark);
             }
             Win_RegisterClass();
             if ( !s_headless ) // zombies: headless keeps its error mode (set above)

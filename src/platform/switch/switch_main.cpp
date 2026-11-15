@@ -64,7 +64,7 @@ const char *const kSkipMenuPath = "sdmc:/switch/bo1zm/skip_menu";
 const char *const kGfxConfigPath = "sdmc:/switch/bo1zm/gfx.cfg";
 const char *const kMenuConfigPath = "sdmc:/switch/bo1zm/menu.cfg";
 const char *const kDefaultArgs = "+set bo1_zombies 1";
-char s_commandLine[1024];
+char s_commandLine[BO1_COMMAND_LINE_SIZE];
 
 // Append one line to the SD boot log and echo it to stdout (an emulator captures stdout to its own log).
 void BootLog(const char *fmt, ...)
