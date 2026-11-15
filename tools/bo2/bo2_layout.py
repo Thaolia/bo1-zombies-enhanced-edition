@@ -114,6 +114,9 @@ BUS_STOP = "reached_stop_point"  # the script_notify of the vehicle nodes where 
 # The doors fill the openings BUS_PARTS leaves in the right wall: shut (solid, drawn) while the bus drives, open (no
 # collision, not drawn) at a stop. bo2_mesh.py --mover writes their panels as <BUS_MODEL>_door<i>, in this order.
 BUS_DOORS = [((34.0, -76.0, 36.0), (82.0, -70.0, 148.0)), ((310.0, -76.0, 36.0), (358.0, -70.0, 148.0))]
+# The driver's door button (vehicle space): on the dashboard left of the wheel (the driver sits on the left, +y, the doors
+# open on the right), at a standing player's chest over the floor; out of reach from the front door's step.
+BUS_BUTTON = [350.0, 50.0, 84.0]
 # The heading at each loop point looks HEADING_REACH units back and ahead: BO2's vehicle nodes zigzag (+-50 degrees
 # between points 21 and 24 out of the depot), which turned the bus by fits of 100 degrees a second and threw its
 # rider against a wall. Over 250 units the fastest turn is 87 degrees a second.
@@ -600,7 +603,8 @@ def bus_edits(ents, col):
     pivot = [round((BUS_FLOOR[0][k] + BUS_FLOOR[1][k]) / 2, 2) for k in range(3)]
     yaws = loop_headings(ground)
     edits.append({"kind": "bus", "name": "bus", "floor": "mapkit_bus_floor", "parts": "mapkit_bus_part",
-                  "doors": doors, "pivot": pivot, "speed": BUS_SPEED, "path": ground, "yaws": yaws,
+                  "doors": doors, "pivot": pivot, "button": BUS_BUTTON, "speed": BUS_SPEED, "path": ground,
+                  "yaws": yaws,
                   "stops": [[index, wait, 0] for index, wait, _ in stops],
                   "calls": [call_spot(col, ground[index], yaws[index]) for index, _, _ in stops]})
     # the brush models spawn with angles 0: the models are drawn turned by the loop's first heading

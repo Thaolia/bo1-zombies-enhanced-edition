@@ -51,6 +51,19 @@ class LoopHeadingsTest(unittest.TestCase):
             self.assertLess(abs(d180(yaws[i])), 6.0, i)
 
 
+class BusButtonTest(unittest.TestCase):
+    def test_on_the_dashboard_out_of_reach_from_the_steps(self):
+        (lo, hi), button = bo2_layout.BUS_FLOOR, bo2_layout.BUS_BUTTON
+        self.assertTrue(lo[0] <= button[0] <= hi[0] and lo[1] <= button[1] <= hi[1])
+        self.assertGreater(button[2], hi[2])  # over the floor, under the roof
+        self.assertLess(button[2], bo2_layout.BUS_PARTS[-1][0][2])
+        # _mapkit.gsc's trigger: 48 units around the button; a player (15 units half-width) on a door's step stays outside
+        for door in bo2_layout.BUS_DOORS:
+            nearest_x = min(max(button[0], door[0][0]), door[1][0])
+            gap = math.hypot(button[0] - nearest_x, button[1] - door[0][1])
+            self.assertGreater(gap, 48.0 + 15.0)
+
+
 class CallSpotTest(unittest.TestCase):
     def test_wall_on_the_doors_side(self):
         # the bus heads +x; its doors are on its right (-y); a wall stands at y <= -200

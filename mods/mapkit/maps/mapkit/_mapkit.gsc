@@ -205,6 +205,7 @@ mapkit_bus( i )
 	level.mapkit_bus_doors = doors;
 	level.mapkit_bus_heading = heading;
 	level thread mapkit_bus_calls( i );
+	level thread mapkit_bus_button( i );
 	if ( GetDvarInt( "mapkit_bus_log" ) == 2 )
 	{
 		level thread mapkit_bus_trace( floor );
@@ -423,6 +424,94 @@ mapkit_bus_call_think( s )
 	}
 }
 
+// a point given in the vehicle's space (x forward, origin on the ground) where the bus stands now
+mapkit_bus_world( i, local )
+{
+	floor = level.mapkit_bus_floor;
+	d = local - bo1_mapkit_get( i, "pivot" );
+	yaw = floor.angles[1] + level.mapkit_bus_heading;
+	c = Cos( yaw );
+	sn = Sin( yaw );
+	return floor.origin + ( d[0] * c - d[1] * sn, d[0] * sn + d[1] * c, d[2] );
+}
+
+mapkit_bus_moving()
+{
+	return !IsDefined( level.mapkit_bus_stop ) || level.mapkit_bus_stop < 0;
+}
+
+// "button" (vehicle space, optional): by the driver's seat, a free use trigger that opens the doors on the way, for
+// a player to jump off between stops; they shut again level.mapkit_bus_button_open_time seconds later, unless the bus
+// has reached a stop by then (its own doors' cycle goes on). The trigger and the switch on the dashboard are linked to
+// the floor.
+mapkit_bus_button( i )
+{
+	at = bo1_mapkit_get( i, "button" );
+	if ( !IsDefined( at ) || level.mapkit_bus_doors.size == 0 )
+	{
+		return;
+	}
+	floor = level.mapkit_bus_floor;
+	yaw = floor.angles[1] + level.mapkit_bus_heading;
+	level.mapkit_bus_button_open_time = 5;
+	level.mapkit_bus_button_open = false;
+	level.mapkit_bus_button_at = at;
+	handle = Spawn( "script_model", mapkit_bus_world( i, at ) );
+	handle.angles = ( 0, yaw, 90 );
+	handle SetModel( "zombie_power_lever_handle" );
+	handle LinkTo( floor );
+	// the trigger stands on the floor (vehicle z 36), a player-sized cylinder around the dashboard
+	trig = Spawn( "trigger_radius_use", mapkit_bus_world( i, ( at[0], at[1], 36 ) ), 0, 48, 72 );
+	trig SetCursorHint( "HINT_NOICON" );
+	trig EnableLinkTo();
+	trig LinkTo( floor );
+	level.mapkit_bus_button = trig;
+	trig thread mapkit_bus_button_hint();
+	trig thread mapkit_bus_button_think();
+	LogPrint( "mapkit: bus button at " + trig.origin + " (vehicle " + at + ")\n" );
+}
+
+mapkit_bus_button_hint()
+{
+	while ( true )
+	{
+		if ( mapkit_bus_moving() && !level.mapkit_bus_button_open )
+		{
+			self SetHintString( "Hold ^3[{+activate}]^7 to open the doors" );
+		}
+		else
+		{
+			self SetHintString( "The doors are open" );
+		}
+		level waittill_any( "mapkit_bus_stop", "mapkit_bus_leave", "mapkit_bus_button" );
+	}
+}
+
+mapkit_bus_button_think()
+{
+	while ( true )
+	{
+		self waittill( "trigger", player );
+		if ( !mapkit_bus_moving() || level.mapkit_bus_button_open )
+		{
+			continue;
+		}
+		level.mapkit_bus_button_open = true;
+		PlaySoundAtPosition( "zmb_switch_flip", self.origin );
+		mapkit_bus_set_doors( true );
+		LogPrint( "mapkit: bus doors opened on the way by " + player.playername + "\n" );
+		level notify( "mapkit_bus_button" );
+		wait( level.mapkit_bus_button_open_time );
+		if ( mapkit_bus_moving() )
+		{
+			mapkit_bus_set_doors( false );
+			LogPrint( "mapkit: bus doors shut again on the way\n" );
+		}
+		level.mapkit_bus_button_open = false;
+		level notify( "mapkit_bus_button" );
+	}
+}
+
 // mapkit_bus_log 2 (test aid): puts player 0 on the floor's centre two seconds into every stop, logs its height for
 // two seconds, and its place in the floor's own space (x forward) each tenth of a second
 mapkit_bus_trace( floor )
@@ -571,6 +660,50 @@ mapkit_check_bus( player )
 			LogPrint( "mapkit: check bus_call " + name + " FAIL called to stop " + target + " (point " + want + "), stopped at "
 				+ passed.size + " points, the last " + passed[passed.size - 1] + "\n" );
 		}
+		mapkit_check_bus_button( i, player, name );
+	}
+}
+
+// Once the bus has left a stop, the client stands by the driver's seat and holds use toward the button: the doors must
+// open on the way, then shut again before the next stop.
+mapkit_check_bus_button( i, player, name )
+{
+	if ( !IsDefined( level.mapkit_bus_button ) )
+	{
+		return;
+	}
+	level waittill( "mapkit_bus_leave" );
+	wait( 1 );
+	at = level.mapkit_bus_button_at;
+	player SetOrigin( mapkit_bus_world( i, ( at[0] - 30, at[1] - 10, 37 ) ) );
+	SetDvar( "bo1_testclient_goto", "" );
+	SetDvar( "bo1_testclient_press", "3," + GetTime() + ",1000,300" );
+	start = GetTime();
+	while ( !level.mapkit_bus_button_open && mapkit_bus_moving() && GetTime() - start < 10000 )
+	{
+		look = mapkit_bus_world( i, at );
+		SetDvar( "bo1_testclient_look", look[0] + "," + look[1] + "," + look[2] );
+		wait( 0.05 );
+	}
+	SetDvar( "bo1_testclient_press", "" );
+	SetDvar( "bo1_testclient_look", "" );
+	opened = level.mapkit_bus_button_open && mapkit_bus_moving() && mapkit_bus_doorway_clear( 0 );
+	pressed = GetTime() - start;
+	start = GetTime();
+	while ( level.mapkit_bus_button_open && GetTime() - start < 15000 )
+	{
+		wait( 0.25 );
+	}
+	shut = mapkit_bus_moving() && !mapkit_bus_doorway_clear( 0 );
+	if ( opened && shut )
+	{
+		LogPrint( "mapkit: check bus_button " + name + " PASS the doors opened on the way " + pressed + " ms after the press "
+			+ "began and shut again before the next stop\n" );
+	}
+	else
+	{
+		LogPrint( "mapkit: check bus_button " + name + " FAIL opened " + opened + ", shut " + shut + ", moving "
+			+ mapkit_bus_moving() + ", client at " + player.origin + ", button at " + mapkit_bus_world( i, at ) + "\n" );
 	}
 }
 

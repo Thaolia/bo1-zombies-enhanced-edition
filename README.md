@@ -111,8 +111,8 @@ its doors (the power ones open with the power), Juggernog, Quick Revive, Speed C
 Ascension's zone loaded), Pack-a-Punch and the power switch where BO2 builds them, its barricades (boards zombies tear
 off and players rebuild), its bridge and its bus, which drives the loop
 through the depot, diner, farm, power station and town and carries the players standing in it, waits at each stop with
-its doors open, rings before it leaves, shuts its doors on the way and comes to a stop whose lever a player pulls once
-the power is on (zombies do not board it, and its props are still unlit), and its bank: deposits and withdrawals at
+its doors open, rings before it leaves, shuts its doors on the way (a free button by the driver's seat opens them for a
+few seconds, to jump off between stops) and comes to a stop whose lever a player pulls once the power is on (zombies do not board it, and its props are still unlit), and its bank: deposits and withdrawals at
 the teller windows and the farmhouse's weapon locker, kept between games. See `docs/BO2_MAPS.md`.
 Nuketown also runs as a native BO1 map (experimental, branch `bspnuked`): `tools/bo2/bo2_bsp.py` writes its world,
 props, collision and BO2's baked light into a BO1 BSP, and `+set bo1_bspworld maps/zombie_bo2nuked.d3dbsp` plays
