@@ -7,6 +7,11 @@
 #include <stddef.h>
 #include <string.h>
 
+// The bytes an engine command line may take, its 0 included, on every platform: launch.cfg's text, the caller's line
+// and the suffixes the engine adds. 1024 cut ZmClient's native TranZit line (full fs_b and fs_h paths, a mod stack,
+// two zones) before its last letters: "+devmap zombie_pentago" failed and the game stayed on the main menu.
+#define BO1_COMMAND_LINE_SIZE 8192
+
 // Line breaks and tabs read as blanks, and the blanks at both ends go. Returns the new length and writes the
 // terminating 0 there, so text must hold length + 1 bytes.
 inline size_t LaunchCfg_Normalize(char *text, size_t length)

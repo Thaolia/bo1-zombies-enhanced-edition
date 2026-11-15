@@ -1,6 +1,7 @@
 // Win32 process, time, memory, system information and module functions on POSIX (Linux).
 
 #include "win32_handles.h"
+#include <platform/launch_cfg.h>
 
 #include <ShlObj.h>
 #include <XInput.h>
@@ -453,7 +454,7 @@ BOOL GetVersionExA(LPOSVERSIONINFOA lpVersionInformation)
 #if defined(__SWITCH__)
 // The console has no /proc: the command line is launch.cfg's, which switch_main hands over before WinMain. Static
 // initialisers that ask earlier see it empty (r_stream.cpp's is set again by DB_InitXAssets).
-static char s_switchCommandLine[1024];
+static char s_switchCommandLine[BO1_COMMAND_LINE_SIZE];
 
 void Bo1_SetCommandLine(const char *commandLine)
 {
