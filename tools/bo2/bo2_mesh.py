@@ -455,11 +455,19 @@ MOVER_HOLES = {
 STANDING_BMODELS = ("bridge_section",)
 
 
+def tri_inside(tri, lo, hi):
+    return all(lo[k] <= p[k] <= hi[k] for p, _ in tri for k in range(3))
+
+
 def cut_holes(lod, holes):
     """lod (material -> triangles of (position, uv)) without the triangles lying inside one of holes."""
-    def inside(tri, lo, hi):
-        return all(lo[k] <= p[k] <= hi[k] for p, _ in tri for k in range(3))
-    return {m: [t for t in tris if not any(inside(t, lo, hi) for lo, hi in holes)] for m, tris in lod.items()}
+    return {m: [t for t in tris if not any(tri_inside(t, lo, hi) for lo, hi in holes)] for m, tris in lod.items()}
+
+
+def hole_part(lod, hole):
+    """The triangles of lod lying inside hole (a mover's door: the panels cut_holes leaves out), by material."""
+    part = {m: [t for t in tris if tri_inside(t, *hole)] for m, tris in lod.items()}
+    return {m: tris for m, tris in part.items() if tris}
 
 
 def read_lods(dump, name, with_index=False):
@@ -805,6 +813,17 @@ def main(argv=None):
             for material in tris:
                 groups.setdefault(material, [])
         models.append((mover, lods))
+        # each opening's panels as a model of its own, "<mover>_door<i>", in the mover's space: the layout draws it on
+        # a brush model filling that opening, which a script hides when the door opens (bo2_layout.py)
+        for index, hole in enumerate(MOVER_HOLES.get(mover, [])):
+            door = [(dist, hole_part({m: t for m, t in lod.items() if not skipped(m, args.dump)}, hole))
+                    for dist, lod in read_lods(args.dump, mover)]
+            door = [lod for lod in door if lod[1]]
+            if door:
+                for _, tris in door:
+                    for material in tris:
+                        groups.setdefault(material, [])
+                models.append((f"{mover}_door{index}", door))
 
     os.makedirs(os.path.join(args.out, "images"), exist_ok=True)
     names = sorted(m for m in groups if not skipped(m, args.dump))

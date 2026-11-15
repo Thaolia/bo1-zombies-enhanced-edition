@@ -18,6 +18,7 @@
 #include <stdio.h>
 #include <math.h>
 #include <string.h>
+#include <map>
 #include <string>
 
 static int s_checkPass, s_checkFail;
@@ -364,6 +365,99 @@ void G_Mapkit_f_light()
 void G_Mapkit_f_lightuses()
 {
     Scr_AddInt(CM_Mapkit_LightUses(Scr_GetInt(0, SCRIPTINSTANCE_SERVER)), SCRIPTINSTANCE_SERVER);
+}
+
+// The "bank" edit's records (BO2's bank account and weapon locker), kept between games and maps: one "key<TAB>value"
+// line each in <fs_homepath>/main/mapkit_bank.txt, on the machine that runs the server. The file is read again at
+// every call, so a server and a game started one after the other see each other's writes.
+namespace
+{
+    typedef std::map<std::string, std::string> MapkitBank;
+
+    std::string Mapkit_BankClean(const char *s)
+    {
+        std::string out(s ? s : "");
+        for (char &c : out)
+        {
+            if ((unsigned char)c < 0x20)
+                c = '_';
+        }
+        return out;
+    }
+
+    void Mapkit_BankPath(char *path, size_t size, const char *suffix)
+    {
+        const dvar_s *home = Dvar_FindVar("fs_homepath");
+        snprintf(path, size, "%s/main/mapkit_bank.txt%s",
+            home && home->current.string && *home->current.string ? home->current.string : ".", suffix);
+    }
+
+    void Mapkit_BankRead(MapkitBank &bank)
+    {
+        char path[512];
+        Mapkit_BankPath(path, sizeof(path), "");
+        FILE *f = 0;
+        if (fopen_s(&f, path, "rb") || !f)
+            return;
+        char line[1024];
+        while (fgets(line, sizeof(line), f))
+        {
+            char *tab = strchr(line, '\t');
+            if (!tab)
+                continue;
+            *tab = 0;
+            char *end = tab + 1 + strcspn(tab + 1, "\r\n");
+            *end = 0;
+            bank[line] = tab + 1;
+        }
+        fclose(f);
+    }
+}
+
+// bo1_mapkit_bank_get( key ): the value saved under key, undefined if none
+void G_Mapkit_f_bankget()
+{
+    MapkitBank bank;
+    Mapkit_BankRead(bank);
+    const MapkitBank::const_iterator it = bank.find(Mapkit_BankClean(Scr_GetString(0, SCRIPTINSTANCE_SERVER)));
+    if (it != bank.end())
+        Scr_AddString(it->second.c_str(), SCRIPTINSTANCE_SERVER);
+    else
+        Scr_AddUndefined(SCRIPTINSTANCE_SERVER);
+}
+
+// bo1_mapkit_bank_set( key, value ): saves value under key ("" removes it); returns 1 once the file is written
+void G_Mapkit_f_bankset()
+{
+    MapkitBank bank;
+    Mapkit_BankRead(bank);
+    const std::string key = Mapkit_BankClean(Scr_GetString(0, SCRIPTINSTANCE_SERVER));
+    const std::string value = Mapkit_BankClean(Scr_GetString(1, SCRIPTINSTANCE_SERVER));
+    if (value.empty())
+        bank.erase(key);
+    else
+        bank[key] = value;
+    // written beside, then renamed over the old file: a crash mid-write leaves the old records, not half a file
+    char path[512], temp[512];
+    Mapkit_BankPath(path, sizeof(path), "");
+    Mapkit_BankPath(temp, sizeof(temp), ".tmp");
+    FILE *f = 0;
+    bool written = !fopen_s(&f, temp, "wb") && f;
+    if (written)
+    {
+        for (MapkitBank::const_iterator it = bank.begin(); it != bank.end(); ++it)
+            fprintf(f, "%s\t%s\n", it->first.c_str(), it->second.c_str());
+        written = !ferror(f);
+        written = !fclose(f) && written;
+    }
+    if (written)
+    {
+        remove(path);
+        written = !rename(temp, path);
+    }
+    if (!written)
+        Com_PrintWarning(24, "mapkit: cannot write %s\n", path);
+    Scr_AddInt(written ? 1 : 0, SCRIPTINSTANCE_SERVER);
 }
 
 void G_Mapkit_f_mark()

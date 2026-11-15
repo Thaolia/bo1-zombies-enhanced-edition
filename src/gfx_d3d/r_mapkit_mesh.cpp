@@ -91,6 +91,24 @@ namespace
         int index;
     };
 
+    // A model drawn at the brush model of a layout "ent" edit, which a script moves: its origin is the model's point
+    // "offset" (model space), so the model sits at pose origin - axes * offset. The brush model spawns with angles 0
+    // whatever way the vehicle faces: "yaw" is that heading (TranZit's bus leaves the depot at 179.5 degrees, and was
+    // drawn driving backwards). Only the frames in which the client game posed it draw it: a hidden entity (the bus's
+    // open doors) is not posed, and an old pose is never drawn.
+    struct MkMover
+    {
+        int model;
+        int bmodel;
+        float offset[3];
+        float yaw;
+        unsigned int posedFrame; // MkMesh::frame of the last pose, MkMesh::frame + 2 before any
+        float origin[3];
+        float angles[3];
+        unsigned short lighting;
+    };
+    const int MAX_MOVERS = 8;
+
     struct MkMesh
     {
         int chunkCount; // models[0, chunkCount) are the world's chunks, drawn at placements[] with lighting[]
@@ -106,17 +124,9 @@ namespace
         int *instanceEdit;     // the door or debris edit whose purchase removes this prop, -1: none
         MkMeshOrder *instanceOrder; // R_Mapkit_AddMesh's per-frame sort
         int skyModel;          // -1: none
-        // "moverModel" drawn at the brush model of the "ent" edit named "moverEntity": its origin is the model's point
-        // "moverOffset" (model space), so the model sits at pose origin - axes * offset. The brush model spawns with
-        // angles 0 whatever way the vehicle faces: "moverYaw" is that heading (TranZit's bus leaves the depot at 179.5
-        // degrees, and was drawn driving backwards)
-        int moverModel;        // -1: none
-        int moverBModel;
-        float moverOffset[3];
-        float moverYaw;
-        bool moverPosed;
-        float moverOrigin[3];
-        float moverAngles[3];
+        MkMover movers[MAX_MOVERS];
+        int moverCount;
+        unsigned int frame; // R_Mapkit_AddMesh calls
         char (*modelNames)[NAME_BYTES];
         int surfCount;
         XSurface *surfs;
@@ -944,26 +954,44 @@ void __cdecl R_Mapkit_LoadMesh()
         s_mesh.instanceCullSq[i] = cull * cull;
     }
     s_mesh.skyModel = skyIndex >= 0 && emptyModel && !emptyModel[skyIndex] ? (int)chunkCount + skyIndex : -1;
-    // a model drawn with a moving layout brush model (BO2's TranZit bus: bo2_mesh.py --mover, bo2_layout.py)
-    s_mesh.moverModel = -1;
-    s_mesh.moverPosed = false;
-    const char *moverName = 0, *moverEntity = 0;
-    if (CM_Mapkit_GetField(edit, "moverModel", &moverName, unused) == MKF_STRING
-        && CM_Mapkit_GetField(edit, "moverEntity", &moverEntity, unused) == MKF_STRING)
+    // models drawn with moving layout brush models (BO2's TranZit bus and its doors: bo2_mesh.py --mover,
+    // bo2_layout.py): "moverModel", "moverEntity", "moverOffset", "moverYaw", then each of "movers" with the fields
+    // "model", "entity", "offset", "yaw"
+    s_mesh.moverCount = 0;
+    s_mesh.frame = 0;
+    const int listed = CM_Mapkit_GetField(edit, "#movers", 0, unused) == MKF_NUMBER ? (int)unused[0] : 0;
+    for (int n = -1; n < listed && s_mesh.moverCount < MAX_MOVERS; ++n)
     {
-        for (unsigned int m = 0; m < modelCount && s_mesh.moverModel < 0; ++m)
+        char key[4][32];
+        static const char *const FIELDS[4] = { "model", "entity", "offset", "yaw" };
+        for (int f = 0; f < 4; ++f)
+        {
+            if (n < 0)
+                snprintf(key[f], sizeof(key[f]), "mover%c%s", FIELDS[f][0] - 32, FIELDS[f] + 1);
+            else
+                snprintf(key[f], sizeof(key[f]), "movers.%d.%s", n, FIELDS[f]);
+        }
+        const char *moverName = 0, *moverEntity = 0;
+        if (CM_Mapkit_GetField(edit, key[0], &moverName, unused) != MKF_STRING
+            || CM_Mapkit_GetField(edit, key[1], &moverEntity, unused) != MKF_STRING)
+            continue;
+        MkMover *mover = &s_mesh.movers[s_mesh.moverCount];
+        mover->model = -1;
+        for (unsigned int m = 0; m < modelCount && mover->model < 0; ++m)
             if (!strcmp(s_mesh.modelNames[chunkCount + m], moverName) && emptyModel && !emptyModel[m])
-                s_mesh.moverModel = (int)(chunkCount + m);
-        s_mesh.moverBModel = CM_Mapkit_EntBModel(moverEntity);
+                mover->model = (int)(chunkCount + m);
+        mover->bmodel = CM_Mapkit_EntBModel(moverEntity);
         const char *ignored = 0;
-        if (CM_Mapkit_GetField(edit, "moverOffset", &ignored, s_mesh.moverOffset) != MKF_VECTOR)
-            memset(s_mesh.moverOffset, 0, sizeof(s_mesh.moverOffset));
+        if (CM_Mapkit_GetField(edit, key[2], &ignored, mover->offset) != MKF_VECTOR)
+            memset(mover->offset, 0, sizeof(mover->offset));
         float yaw[3] = {};
-        s_mesh.moverYaw = CM_Mapkit_GetField(edit, "moverYaw", &ignored, yaw) == MKF_NUMBER ? yaw[0] : 0.0f;
+        mover->yaw = CM_Mapkit_GetField(edit, key[3], &ignored, yaw) == MKF_NUMBER ? yaw[0] : 0.0f;
+        mover->posedFrame = 2;
+        const bool found = mover->model >= 0 && mover->bmodel >= 0;
         Com_Printf(8, "mapkit: mesh edit %d: mover %s on %s (brush model %d)%s\n", edit, moverName, moverEntity,
-            s_mesh.moverBModel, s_mesh.moverModel < 0 || s_mesh.moverBModel < 0 ? ": not found, not drawn" : "");
-        if (s_mesh.moverBModel < 0)
-            s_mesh.moverModel = -1;
+            mover->bmodel, found ? "" : ": not found, not drawn");
+        if (found)
+            ++s_mesh.moverCount;
     }
     // Optional after the sky index: named groups of props that a door or debris edit removes when bought (another
     // game's doors and furniture: BO2's blockers are script models, which bo2_mesh.py writes as props). A group
@@ -1052,11 +1080,17 @@ void __cdecl R_Mapkit_RestoreMeshBuffers()
 
 void __cdecl R_Mapkit_SetMoverPose(int brushModel, const float *origin, const float *angles)
 {
-    if (!s_mesh.ready || s_mesh.moverModel < 0 || brushModel != s_mesh.moverBModel)
+    if (!s_mesh.ready)
         return;
-    memcpy(s_mesh.moverOrigin, origin, sizeof(s_mesh.moverOrigin));
-    memcpy(s_mesh.moverAngles, angles, sizeof(s_mesh.moverAngles));
-    s_mesh.moverPosed = true;
+    for (int i = 0; i < s_mesh.moverCount; ++i)
+    {
+        MkMover *mover = &s_mesh.movers[i];
+        if (mover->bmodel != brushModel)
+            continue;
+        memcpy(mover->origin, origin, sizeof(mover->origin));
+        memcpy(mover->angles, angles, sizeof(mover->angles));
+        mover->posedFrame = s_mesh.frame;
+    }
 }
 
 void __cdecl R_Mapkit_AddMesh(const float *viewOrigin)
@@ -1082,20 +1116,24 @@ void __cdecl R_Mapkit_AddMesh(const float *viewOrigin)
     }
     for (int c = 0; c < s_mesh.chunkCount; ++c)
         R_FilterXModelIntoScene(&s_mesh.models[c], &s_mesh.placements[c], 0, &s_mesh.lighting[c], 0.0f);
-    if (s_mesh.moverModel >= 0 && s_mesh.moverPosed)
+    // posed in this frame or the one before, whichever of the client game and this call runs first in a frame
+    for (int i = 0; i < s_mesh.moverCount; ++i)
     {
-        static unsigned short moverLighting;
+        MkMover *mover = &s_mesh.movers[i];
+        if (s_mesh.frame - mover->posedFrame > 1)
+            continue;
         float axis[3][3];
-        const float angles[3] = { s_mesh.moverAngles[0], s_mesh.moverAngles[1] + s_mesh.moverYaw, s_mesh.moverAngles[2] };
+        const float angles[3] = { mover->angles[0], mover->angles[1] + mover->yaw, mover->angles[2] };
         AnglesToAxis(angles, axis);
         GfxScaledPlacement placement = {};
         for (int k = 0; k < 3; ++k)
-            placement.base.origin[k] = s_mesh.moverOrigin[k] - axis[0][k] * s_mesh.moverOffset[0]
-                - axis[1][k] * s_mesh.moverOffset[1] - axis[2][k] * s_mesh.moverOffset[2];
+            placement.base.origin[k] = mover->origin[k] - axis[0][k] * mover->offset[0] - axis[1][k] * mover->offset[1]
+                - axis[2][k] * mover->offset[2];
         AxisToQuat(axis, placement.base.quat);
         placement.scale = 1.0f;
-        R_FilterXModelIntoScene(&s_mesh.models[s_mesh.moverModel], &placement, 0, &moverLighting, 0.0f);
+        R_FilterXModelIntoScene(&s_mesh.models[mover->model], &placement, 0, &mover->lighting, 0.0f);
     }
+    ++s_mesh.frame;
     // The scene holds 1024 models a frame (GfxScene::sceneModel, r_modelLimit; up to 4096 with r_mod_sceneModels) and
     // Nuketown has 2096 props: past the limit R_AllocSceneModel drops the rest. The props go nearest first, by the
     // distance to their bounding sphere, so the dropped ones are the farthest. The sphere, not the origin: a prop's

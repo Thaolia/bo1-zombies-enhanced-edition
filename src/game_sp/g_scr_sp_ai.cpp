@@ -481,6 +481,8 @@ void G_Mapkit_f_graphcheck();
 void G_Mapkit_f_catalog();
 void G_Mapkit_f_light();
 void G_Mapkit_f_lightuses();
+void G_Mapkit_f_bankget();
+void G_Mapkit_f_bankset();
 
 const BuiltinFunctionDef g_sp_ai_functions[] =
 {
@@ -496,6 +498,8 @@ const BuiltinFunctionDef g_sp_ai_functions[] =
     { "bo1_mapkit_catalog", G_Mapkit_f_catalog, 0 },
     { "bo1_mapkit_light", G_Mapkit_f_light, 0 }, // mapkit-fix-3 mood lighting
     { "bo1_mapkit_lightuses", G_Mapkit_f_lightuses, 0 },
+    { "bo1_mapkit_bank_get", G_Mapkit_f_bankget, 0 },
+    { "bo1_mapkit_bank_set", G_Mapkit_f_bankset, 0 },
     { "bo1_mod_getenemycount", G_f_mod_getenemycount, 0 }, // mod (L43): only called by bo1_mod_scriptperf rewrites
     { "getaispeciesarray", G_f_getaispeciesarray, 0 },
     { "getaiarray", G_f_getaiarray, 0 },

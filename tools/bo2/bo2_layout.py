@@ -29,6 +29,9 @@ imports/<map>/<map>.collision.bin: copy the .bin there in the run folder) and it
   - traverse: the node_negotiation pairs whose BO2 animscript has a BO1 one of about the same height (TRAVERSES);
   - collision "cut": the BO2 clip at each machine and box spot (MapKit's machine brings its own);
   - mesh: the drawable world, <folder of the collision>/<map>.mesh.bin and images/ (tools/bo2/bo2_mesh.py writes them).
+  - bus (TranZit): the vehicle loop with its stops, smoothed headings, doors and the levers that call it, and the
+    layout brush models it carries players on;
+  - bank (TranZit): the teller windows' deposit and withdrawal and the weapon locker, from the placed props.
 Not converted: dog spawns, BO2-only mechanics (the garage-door crawl becomes a mantle).
 docs/BO2_MAPS.md has the whole procedure.
 """
@@ -108,6 +111,17 @@ BUS_PARTS = [((34.0, -94.0, 0.0), (82.0, -70.0, 18.0)), ((310.0, -94.0, 0.0), (3
              ((-96.0, -76.0, 148.0), (449.0, 81.0, 156.0))]
 BUS_SPEED = 440.0  # units a second: BO2's speed 30 is mph (528 units/s), slowed down at its corners
 BUS_STOP = "reached_stop_point"  # the script_notify of the vehicle nodes where the bus stops
+# The doors fill the openings BUS_PARTS leaves in the right wall: shut (solid, drawn) while the bus drives, open (no
+# collision, not drawn) at a stop. bo2_mesh.py --mover writes their panels as <BUS_MODEL>_door<i>, in this order.
+BUS_DOORS = [((34.0, -76.0, 36.0), (82.0, -70.0, 148.0)), ((310.0, -76.0, 36.0), (358.0, -70.0, 148.0))]
+# The heading at each loop point looks HEADING_REACH units back and ahead: BO2's vehicle nodes zigzag (+-50 degrees
+# between points 21 and 24 out of the depot), which turned the bus by fits of 100 degrees a second and threw its
+# rider against a wall. Over 250 units the fastest turn is 87 degrees a second.
+HEADING_REACH = 250.0
+# Where a player calls the bus at each stop (BO2: once the power is on): a lever box on the nearest wall on the doors'
+# side, searched at these places along the bus (vehicle space x) up to CALL_REACH units out from its side.
+CALL_ALONG = [420.0, 300.0, 520.0, 200.0, -150.0, 620.0]
+CALL_REACH = 400.0
 
 
 def read_entities(path):
@@ -577,17 +591,114 @@ def bus_edits(ents, col):
         lo, hi = world_box(*part)
         edits.append({"kind": "ent", "keys": {"classname": "script_brushmodel", "targetname": "mapkit_bus_part"},
                       "bmodel": {"mins": lo, "maxs": hi}})
+    doors = []
+    for index, door in enumerate(BUS_DOORS):
+        lo, hi = world_box(*door)
+        doors.append(f"mapkit_bus_door{index}")
+        edits.append({"kind": "ent", "keys": {"classname": "script_brushmodel", "targetname": doors[-1]},
+                      "bmodel": {"mins": lo, "maxs": hi}})
     pivot = [round((BUS_FLOOR[0][k] + BUS_FLOOR[1][k]) / 2, 2) for k in range(3)]
+    yaws = loop_headings(ground)
     edits.append({"kind": "bus", "name": "bus", "floor": "mapkit_bus_floor", "parts": "mapkit_bus_part",
-                  "pivot": pivot, "speed": BUS_SPEED, "path": ground,
-                  "stops": [[index, wait, 0] for index, wait, _ in stops]})
-    # the brush models spawn with angles 0: the model is drawn turned by the loop's first heading
-    mover = {"moverModel": BUS_MODEL, "moverEntity": "mapkit_bus_floor", "moverOffset": pivot,
-             "moverYaw": round(math.degrees(heading), 2)}
+                  "doors": doors, "pivot": pivot, "speed": BUS_SPEED, "path": ground, "yaws": yaws,
+                  "stops": [[index, wait, 0] for index, wait, _ in stops],
+                  "calls": [call_spot(col, ground[index], yaws[index]) for index, _, _ in stops]})
+    # the brush models spawn with angles 0: the models are drawn turned by the loop's first heading
+    first = round(math.degrees(heading), 2)
+    mover = {"moverModel": BUS_MODEL, "moverEntity": "mapkit_bus_floor", "moverOffset": pivot, "moverYaw": first,
+             "movers": [{"model": f"{BUS_MODEL}_door{index}", "entity": name,
+                         "offset": [round((BUS_DOORS[index][0][k] + BUS_DOORS[index][1][k]) / 2, 2) for k in range(3)],
+                         "yaw": first} for index, name in enumerate(doors)]}
     return edits, mover
 
 
-def build(ents, col, name, collision, links_file=None):
+def loop_headings(points, reach=HEADING_REACH):
+    """The bus's heading (degrees) at each point of the closed loop: from the point reach units back along the loop to
+    the one reach units ahead."""
+    n = len(points)
+    step = [math.dist(points[i][:2], points[(i + 1) % n][:2]) for i in range(n)]
+    yaws = []
+    for i in range(n):
+        ahead, gone = i, 0.0
+        while gone < reach and ahead - i < n:
+            gone += step[ahead % n]
+            ahead += 1
+        back, gone = i, 0.0
+        while gone < reach and i - back < n:
+            back -= 1
+            gone += step[back % n]
+        a, b = points[back % n], points[ahead % n]
+        yaws.append(round(math.degrees(math.atan2(b[1] - a[1], b[0] - a[0])), 2))
+    return yaws
+
+
+def call_spot(col, point, heading):
+    """{"origin", "yaw", "wall"} of the lever box that calls the bus to the stop at point (the bus facing heading): 4
+    units off the first world wall met going out from the doors' side (CALL_ALONG, CALL_REACH), on a floor within 48
+    units of the road with room for a player in front, facing the road ("wall": 1); else beside the road in front of
+    the front door ("wall": 0)."""
+    c, s_ = math.cos(math.radians(heading)), math.sin(math.radians(heading))
+    out = (s_, -c)  # the doors' side (vehicle -y)
+    facing = round((heading + 90.0) % 360.0, 2)
+    for along in CALL_ALONG:
+        base = (point[0] + along * c, point[1] + along * s_)
+        for d in range(80, int(CALL_REACH) + 1, 4):
+            spot = (base[0] + out[0] * d, base[1] + out[1] * d)
+            ground = col.floor([spot[0], spot[1], point[2] + 64])
+            if ground is None or abs(ground - point[2]) > 48:
+                break
+            if not col.solid_at((spot[0], spot[1], ground + 48)):
+                continue
+            box = (spot[0] - out[0] * 4, spot[1] - out[1] * 4)
+            stand = (spot[0] - out[0] * 40, spot[1] - out[1] * 40)
+            if any(col.solid_at((stand[0], stand[1], ground + h)) for h in (16, 48)):
+                break
+            return {"origin": [round(box[0], 2), round(box[1], 2), round(ground, 2)], "yaw": facing, "wall": 1}
+    spot = (point[0] + CALL_ALONG[0] * c + out[0] * 150, point[1] + CALL_ALONG[0] * s_ + out[1] * 150)
+    ground = col.floor([spot[0], spot[1], point[2] + 64])
+    z = ground if ground is not None and abs(ground - point[2]) <= 48 else point[2]
+    return {"origin": [round(spot[0], 2), round(spot[1], 2), round(z, 2)], "yaw": facing, "wall": 0}
+
+
+def read_props(path):
+    """The placed props of the dump's <map>.d3dbsp.smodels.csv as (model, origin, forward axis), [] without the file."""
+    props = []
+    if os.path.exists(path):
+        with open(path, encoding="latin-1") as f:
+            next(f, None)
+            for line in f:
+                row = line.strip().split(",")
+                if len(row) >= 7:
+                    props.append((row[0], [float(v) for v in row[1:4]], [float(v) for v in row[4:7]]))
+    return props
+
+
+def bank_edit(props, col):
+    """TranZit's bank (BO2 _zm_banking, _zm_weapon_locker) as a MapKit "bank" edit: "deposit" and "withdraw" in front
+    of the first two intact teller windows (a model faces its +x: the lobby), "locker" in front of the weapon locker
+    (the farmhouse's fridge); None when the map has neither. Each is {"origin", "yaw"}: the use trigger's centre at the
+    counter's height and the way a player there looks."""
+    def front(origin, axis, reach, up):
+        yaw_deg = math.degrees(math.atan2(axis[1], axis[0]))
+        spot = [origin[0] + axis[0] * reach, origin[1] + axis[1] * reach, origin[2] + up]
+        return {"origin": [round(v, 2) for v in spot], "yaw": round((yaw_deg + 180.0) % 360.0, 2)}
+
+    windows = sorted((p for p in props if p[0] == "p6_zm_bank_teller_window"), key=lambda p: (p[1][0], p[1][1]))
+    lockers = [p for p in props if p[0] == "p6_zm_weapon_locker"]
+    if len(windows) < 2 and not lockers:
+        return None
+    edit = {"kind": "bank", "name": "bank"}
+    if len(windows) >= 2:
+        edit["deposit"] = front(windows[0][1], windows[0][2], 32.0, 0.0)
+        edit["withdraw"] = front(windows[1][1], windows[1][2], 32.0, 0.0)
+    if lockers:
+        o = lockers[0][1]
+        ground = col.floor([o[0], o[1], o[2] + 16])
+        edit["locker"] = front([o[0], o[1], ground if ground is not None else o[2]], lockers[0][2], 32.0, 48.0)
+    return edit
+
+
+def build(ents, col, name, collision, links_file=None, props=()):
     submodels = col.submodels
     folder = os.path.dirname(collision)
     edits = [{"kind": "collision", "file": collision},
@@ -859,6 +970,9 @@ def build(ents, col, name, collision, links_file=None):
     bus, mover = bus_edits(ents, col)
     edits += bus
     edits[1].update(mover)
+    bank = bank_edit(props, col)
+    if bank:
+        edits.append(bank)
     if cuts:
         edits[0]["cut"] = cuts
     edits += blocker_edits(ents, submodels, zones, start_zones)
@@ -915,7 +1029,8 @@ def main(argv=None):
     drop_ids = {id(placed[n]) for n in dropped}
     ents = [e for e in ents if id(e) not in drop_ids]
     layout, counts, skipped, traverse_skipped, machines_skipped = build(ents, col, name, collision,
-                                                                        links_out and os.path.basename(links_out))
+                                                                        links_out and os.path.basename(links_out),
+                                                                        read_props(base + ".smodels.csv"))
     out = args.out or f"{name}.json"
     with open(out, "w", encoding="utf-8") as f:
         json.dump(layout, f, indent=1)
