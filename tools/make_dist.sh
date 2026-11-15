@@ -750,6 +750,11 @@ package_switch() {
     # The start menu stacks mods/zinfo (Tab counter) and mods/admin (start points and perks): the engine reads mods
     # under its base folder, sdmc:/switch/bo1zm/mods (FS_Startup)
     rsync -a --delete "$ROOT/mods/" "$sd/mods/"
+    # main/playlists_sp.info sets scr_zm_extra_perk_* (bg_misc.cpp, BG_SetZombieExternalDvars): without it retail
+    # _zombiemode_ffotd removes Mule Kick, and on a MapKit empty base _zombiemode_perks::init then finds no machine and
+    # returns before it sets packapunch_timeout (the Pack-a-Punch kept the weapon) and the Juggernog health
+    mkdir -p "$sd/main"
+    rsync -a "$ROOT/data/main/" "$sd/main/"
     if [ "$GAME_DATA" = 0 ]; then
         # The tools that complete it from the player's own Black Ops (tools/switch_setup): ffconv for the zones and
         # shaders.pack, uam and make_dksh_pack for shaders.dksh, built from the same sources as this .nro.

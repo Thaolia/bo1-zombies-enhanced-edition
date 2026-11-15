@@ -447,6 +447,14 @@ from `bo2_layout.py`; `mods/mapkit/MAPKIT.md` has the `bus` and `bank` edits.
   next: it passes the others and cuts a wait elsewhere short. `call_spot` puts it 4 units off the first world wall on
   the doors' side (depot, farm, power station, town); the diner's has no wall within 400 units and stands beside the
   road. BO2's own call spots are not in the dump (its scripts place them).
+- **Driver's button** (asked after the first package). The bus never opened between stops, so a rider was shut in to
+  the next stop. A free use trigger by the driver's seat (`BUS_BUTTON`, vehicle space: the dashboard left of the
+  wheel, out of reach from the front door's step), with Five's lever handle on it, opens the doors on the way; they
+  shut again 5 s later (a player in the doorway is put inside), unless the bus has reached a stop by then. The trigger
+  and the handle are linked to the floor (`EnableLinkTo`). Regenerated layouts: identical to the installed ones but for
+  the bus edit's `button`. Self-test `bus_button` (once the bus has left a stop, the client holds use toward the
+  button from beside the driver's seat: the doorway must open, then shut before the next stop): native TranZit (Linux,
+  focused windows and risers as above) 125/0.
 - **Bank.** Deposit (1 000 points, account at most 250 000) and withdrawal (1 000 back less a 100-point fee) at the first
   two intact teller windows (`p6_zm_bank_teller_window`, lobby side), the weapon locker in front of BO2's
   `p6_zm_weapon_locker` (the farmhouse's fridge): it keeps the weapon in hand (not the last one) with its ammo and gives
