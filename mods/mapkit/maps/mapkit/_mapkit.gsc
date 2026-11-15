@@ -9,6 +9,8 @@
 //   window { spawn, target, every, room } zombies of the round spawn outside a window (mapkit_window below)
 //   powerswitch { name, origin, yaw, snap } the retail power switch; without one the empty base has power from the start
 //   pap    { name, origin, yaw, snap }     the retail Pack-a-Punch machine (power-gated like the perks)
+//   bus    { floor, parts, doors, path, yaws, stops, calls } BO2's TranZit bus (mapkit_bus below)
+//   bank   { deposit, withdraw, locker }  BO2's bank and weapon locker, kept between games (mapkit_bank below)
 // Test aids (dvars, all off by default): mapkit_selftest 1 = trace probes across every box + player origin log
 // + bo1_mapkit_dump("mapkit_dump.json") for tools/mapkit/topdown.mjs.
 
@@ -156,11 +158,14 @@ mapkit_marathon_perk()
 
 // "bus" edit: a vehicle that drives a loop and carries the players standing in it (BO2's TranZit bus, written by
 // tools/bo2/bo2_layout.py). Its collision is the layout's brush models: "floor" (the one that moves, the engine also
-// draws the mesh edit's moverModel on it) and "parts" (walls, roof, door steps), linked to the floor; the engine
-// carries a player standing on a moving script_brushmodel, as on Five's elevators. "path" lists the loop's points on
-// the ground, "stops" [point index, seconds, 0] where it waits, "pivot" the floor's centre in the vehicle's space
-// (x forward, the vehicle's origin on the ground), "speed" its units a second. The brush models stand at the loop's
-// first point, facing the second, with angles 0: the floor's yaw is the heading less that first heading.
+// draws the mesh edit's moverModel on it), "parts" (walls, roof, door steps) and "doors" (the openings' panels, drawn
+// with the mesh edit's "movers"), all linked to the floor; the engine carries a player standing on a moving
+// script_brushmodel, as on Five's elevators. "path" lists the loop's points on the ground, "yaws" the heading at each
+// (smoothed by the layout: optional, the segment's own heading otherwise), "stops" [point index, seconds, 0] where it
+// waits with its doors open, "calls" a {origin, yaw} per stop where a player calls it once the power is on, "pivot"
+// the floor's centre in the vehicle's space (x forward, the vehicle's origin on the ground), "speed" its units a
+// second. The brush models stand at the loop's first point, facing the second, with angles 0: the floor's yaw is the
+// heading less that first heading.
 mapkit_bus( i )
 {
 	floor = GetEnt( bo1_mapkit_get( i, "floor" ), "targetname" );
@@ -174,6 +179,16 @@ mapkit_bus( i )
 	{
 		parts[p] LinkTo( floor );
 	}
+	doors = [];
+	for ( d = 0; d < Int( mapkit_get_or( i, "#doors", 0 ) ); d++ )
+	{
+		door = GetEnt( bo1_mapkit_get( i, "doors." + d ), "targetname" );
+		if ( IsDefined( door ) )
+		{
+			door LinkTo( floor );
+			doors[doors.size] = door;
+		}
+	}
 	count = Int( bo1_mapkit_get( i, "#path" ) );
 	stops = Int( bo1_mapkit_get( i, "#stops" ) );
 	pivot = bo1_mapkit_get( i, "pivot" );
@@ -181,31 +196,36 @@ mapkit_bus( i )
 	first = bo1_mapkit_get( i, "path.0" );
 	second = bo1_mapkit_get( i, "path.1" );
 	heading = VectorToAngles( ( second[0] - first[0], second[1] - first[1], 0 ) )[1];
+	smoothed = Int( mapkit_get_or( i, "#yaws", 0 ) ) == count;
 	yaw = heading;
 	LogPrint( "mapkit: bus " + bo1_mapkit_get( i, "name" ) + " on a loop of " + count + " points, " + stops + " stops, "
-		+ parts.size + " parts\n" );
+		+ parts.size + " parts, " + doors.size + " doors, headings " + mapkit_choose( smoothed, "smoothed", "per segment" )
+		+ "\n" );
 	level.mapkit_bus_floor = floor;
+	level.mapkit_bus_doors = doors;
+	level.mapkit_bus_heading = heading;
+	level thread mapkit_bus_calls( i );
+	if ( GetDvarInt( "mapkit_bus_log" ) == 2 )
+	{
+		level thread mapkit_bus_trace( floor );
+	}
 	at = 0;
 	while ( true )
 	{
-		for ( s = 0; s < stops; s++ )
+		s = mapkit_bus_stop_index( i, stops, at );
+		if ( s >= 0 && ( !IsDefined( level.mapkit_bus_call ) || level.mapkit_bus_call == s ) )
 		{
-			stop = bo1_mapkit_get( i, "stops." + s );
-			if ( Int( stop[0] ) == at )
-			{
-				LogPrint( "mapkit: bus stop " + s + " (point " + at + ") at " + floor.origin + " yaw " + floor.angles[1] + "\n" );
-				level.mapkit_bus_at = at;
-				level notify( "mapkit_bus_stop", at );
-				wait( stop[1] );
-				level.mapkit_bus_at = -1;
-				level notify( "mapkit_bus_leave", at );
-			}
+			mapkit_bus_wait_at_stop( i, s, at );
 		}
 		next = ( at + 1 ) % count;
 		from = bo1_mapkit_get( i, "path." + at );
 		to = bo1_mapkit_get( i, "path." + next );
 		flat = ( to[0] - from[0], to[1] - from[1], 0 );
-		if ( Length( flat ) > 1 )
+		if ( smoothed )
+		{
+			yaw = bo1_mapkit_get( i, "yaws." + next );
+		}
+		else if ( Length( flat ) > 1 )
 		{
 			yaw = VectorToAngles( flat )[1];
 		}
@@ -219,11 +239,12 @@ mapkit_bus( i )
 		centre = to + ( pivot[0] * c - pivot[1] * sn, pivot[0] * sn + pivot[1] * c, pivot[2] );
 		floor MoveTo( centre, time );
 		// to an absolute angle: a relative RotateYaw started while the last one still turns starts from where that one
-		// stood, and the floor lost 24 degrees a loop
+		// stood, and the floor lost 24 degrees a loop. A smoothed heading turns over the whole segment, at the speed
+		// the bus drives it: turned in 0.5 s at most, a 60-degree corner threw a standing rider against a wall
 		turn = AngleClamp180( yaw - heading - floor.angles[1] );
 		if ( Abs( turn ) > 0.01 )
 		{
-			floor RotateTo( ( 0, floor.angles[1] + turn, 0 ), Min( time, 0.5 ) );
+			floor RotateTo( ( 0, floor.angles[1] + turn, 0 ), mapkit_choose( smoothed, time, Min( time, 0.5 ) ) );
 		}
 		floor waittill( "movedone" );
 		at = next;
@@ -241,7 +262,223 @@ mapkit_bus( i )
 	}
 }
 
-// The client boards the bus at its first stop, stands still, and must still be on its floor at the next stop.
+mapkit_get_or( i, key, fallback )
+{
+	value = bo1_mapkit_get( i, key );
+	if ( !IsDefined( value ) )
+	{
+		return fallback;
+	}
+	return value;
+}
+
+mapkit_choose( test, a, b )
+{
+	if ( test )
+	{
+		return a;
+	}
+	return b;
+}
+
+// the stop at loop point at, -1 when the bus does not stop there
+mapkit_bus_stop_index( i, stops, at )
+{
+	for ( s = 0; s < stops; s++ )
+	{
+		if ( Int( bo1_mapkit_get( i, "stops." + s )[0] ) == at )
+		{
+			return s;
+		}
+	}
+	return -1;
+}
+
+// BO2's bus at a stop: doors open, it waits its time (cut short when a player calls it elsewhere), rings its bell
+// 5 seconds before leaving, then shuts its doors and goes a second later
+mapkit_bus_wait_at_stop( i, s, at )
+{
+	floor = level.mapkit_bus_floor;
+	if ( IsDefined( level.mapkit_bus_call ) && level.mapkit_bus_call == s )
+	{
+		level.mapkit_bus_call = undefined;
+		level notify( "mapkit_bus_called" );
+		LogPrint( "mapkit: bus called to stop " + s + " arrived\n" );
+	}
+	mapkit_bus_set_doors( true );
+	LogPrint( "mapkit: bus stop " + s + " (point " + at + ") at " + floor.origin + " yaw " + floor.angles[1] + "\n" );
+	level.mapkit_bus_at = at;
+	level.mapkit_bus_stop = s;
+	level notify( "mapkit_bus_stop", at );
+	warning = 5;
+	left = bo1_mapkit_get( i, "stops." + s )[1] - warning;
+	while ( left > 0 && ( !IsDefined( level.mapkit_bus_call ) || level.mapkit_bus_call == s ) )
+	{
+		wait( 0.25 );
+		left -= 0.25;
+	}
+	PlaySoundAtPosition( "evt_thief_alarm_single", floor.origin );
+	wait( warning );
+	mapkit_bus_set_doors( false );
+	wait( 1 );
+	level.mapkit_bus_at = -1;
+	level.mapkit_bus_stop = -1;
+	level notify( "mapkit_bus_leave", at );
+}
+
+// open: no collision and not drawn (the mesh edit draws a door only while its entity is shown); shut: a player
+// standing in the doorway is first put inside
+mapkit_bus_set_doors( open )
+{
+	doors = level.mapkit_bus_doors;
+	inward = AnglesToRight( ( 0, level.mapkit_bus_floor.angles[1] + level.mapkit_bus_heading, 0 ) ) * -1;
+	for ( d = 0; d < doors.size; d++ )
+	{
+		if ( open )
+		{
+			doors[d] NotSolid();
+			doors[d] Hide();
+			PlaySoundAtPosition( "evt_elevator_freight_door_open", doors[d].origin );
+			continue;
+		}
+		players = get_players();
+		for ( p = 0; p < players.size; p++ )
+		{
+			gap = players[p].origin - doors[d].origin;
+			if ( Length( ( gap[0], gap[1], 0 ) ) < 40 && gap[2] > -90 && gap[2] < 40 )
+			{
+				players[p] SetOrigin( players[p].origin + inward * 40 );
+				LogPrint( "mapkit: bus door " + d + " shut: player " + p + " put inside\n" );
+			}
+		}
+		doors[d] Solid();
+		doors[d] Show();
+		PlaySoundAtPosition( "evt_elevator_freight_door_close", doors[d].origin );
+	}
+}
+
+// the bus goes to stop s next, passing the others
+mapkit_bus_request( s, who )
+{
+	level.mapkit_bus_call = s;
+	LogPrint( "mapkit: bus called to stop " + s + " by " + who + "\n" );
+}
+
+// a lever box (Five's power switch models) on a wall beside each stop calls the bus there once the power is on (BO2);
+// the layout puts it on the nearest wall on the doors' side ("wall": 1), else beside the road
+mapkit_bus_calls( i )
+{
+	for ( s = 0; s < Int( mapkit_get_or( i, "#calls", 0 ) ); s++ )
+	{
+		origin = bo1_mapkit_get( i, "calls." + s + ".origin" );
+		yaw = mapkit_get_or( i, "calls." + s + ".yaw", 0 );
+		if ( !IsDefined( origin ) )
+		{
+			continue;
+		}
+		at = origin + ( 0, 0, 48 );
+		panel = Spawn( "script_model", at );
+		panel.angles = ( 0, yaw + 90, 0 );
+		panel SetModel( "zombie_power_lever_short" );
+		lever = Spawn( "script_model", at );
+		lever.angles = ( 0, yaw + 90, 90 );
+		lever SetModel( "zombie_power_lever_handle" );
+		trig = Spawn( "trigger_radius_use", at + AnglesToForward( ( 0, yaw, 0 ) ) * 24 - ( 0, 0, 8 ), 0, 40, 72 );
+		trig SetCursorHint( "HINT_NOICON" );
+		trig.mapkit_lever = lever;
+		trig thread mapkit_bus_call_think( s );
+		bo1_mapkit_mark( "trigger", "bus_call_" + s, trig.origin, 40 );
+		LogPrint( "mapkit: bus call " + s + " at " + origin + " yaw " + yaw + " wall " + mapkit_get_or( i, "calls." + s + ".wall", 0 )
+			+ "\n" );
+	}
+}
+
+mapkit_bus_call_think( s )
+{
+	if ( IsDefined( level.flag ) && IsDefined( level.flag[ "power_on" ] ) && !flag( "power_on" ) )
+	{
+		self SetHintString( "The bus can be called once the power is on" );
+		flag_wait( "power_on" );
+	}
+	while ( true )
+	{
+		self SetHintString( "Hold ^3[{+activate}]^7 to call the bus" );
+		self waittill( "trigger", player );
+		if ( IsDefined( level.mapkit_bus_stop ) && level.mapkit_bus_stop == s )
+		{
+			continue;
+		}
+		if ( !IsDefined( level.mapkit_bus_call ) || level.mapkit_bus_call != s )
+		{
+			mapkit_bus_request( s, player.playername );
+			self.mapkit_lever RotateRoll( -90, 0.3 );
+			self.mapkit_lever PlaySound( "zmb_switch_flip" );
+		}
+		self SetHintString( "The bus is on its way" );
+		while ( IsDefined( level.mapkit_bus_call ) && level.mapkit_bus_call == s )
+		{
+			level waittill_any( "mapkit_bus_called", "mapkit_bus_stop" );
+		}
+		self.mapkit_lever RotateTo( ( 0, self.mapkit_lever.angles[1], 90 ), 0.3 );
+	}
+}
+
+// mapkit_bus_log 2 (test aid): puts player 0 on the floor's centre two seconds into every stop, logs its height for
+// two seconds, and its place in the floor's own space (x forward) each tenth of a second
+mapkit_bus_trace( floor )
+{
+	level thread mapkit_bus_trace_board( floor );
+	while ( true )
+	{
+		wait( 0.1 );
+		players = get_players();
+		for ( p = 0; p < players.size; p++ )
+		{
+			d = players[p].origin - floor.origin;
+			c = Cos( floor.angles[1] );
+			s = Sin( floor.angles[1] );
+			LogPrint( "mapkit: bus trace t " + GetTime() + " yaw " + floor.angles[1] + " player " + p + " local ("
+				+ ( d[0] * c + d[1] * s ) + ", " + ( d[1] * c - d[0] * s ) + ", " + d[2] + ") ground "
+				+ players[p] IsOnGround() + "\n" );
+		}
+	}
+}
+
+mapkit_bus_trace_board( floor )
+{
+	while ( true )
+	{
+		level waittill( "mapkit_bus_stop", at );
+		wait( 2 );
+		players = get_players();
+		if ( players.size == 0 )
+		{
+			continue;
+		}
+		player = players[0];
+		player SetOrigin( floor.origin + ( 0, 0, 9 ) );
+		for ( k = 0; k < 40; k++ )
+		{
+			LogPrint( "mapkit: bus board point " + at + " k " + k + " z " + ( player.origin[2] - floor.origin[2] ) + " xy "
+				+ Distance2D( player.origin, floor.origin ) + " ground " + player IsOnGround() + "\n" );
+			wait( 0.05 );
+		}
+	}
+}
+
+// whether a player-sized trace crosses door d's opening, from 30 units inside the bus to 30 outside
+mapkit_bus_doorway_clear( d )
+{
+	door = level.mapkit_bus_doors[d];
+	out = AnglesToRight( ( 0, level.mapkit_bus_floor.angles[1] + level.mapkit_bus_heading, 0 ) );
+	start = door.origin - out * 30 - ( 0, 0, 30 );
+	end = door.origin + out * 30 - ( 0, 0, 30 );
+	return DistanceSquared( PlayerPhysicsTrace( start, end ), end ) < 1;
+}
+
+// The client boards the bus at its first stop, stands still, and must still be on its floor at the next stop; the
+// doors are open at the stop and shut on the way; then a call to the stop after the next one must bring the bus there
+// without stopping between.
 mapkit_check_bus( player )
 {
 	for ( i = 0; i < bo1_mapkit_editcount(); i++ )
@@ -272,9 +509,13 @@ mapkit_check_bus( player )
 		SetDvar( "bo1_testclient_goto", "" );
 		SetDvar( "bo1_testclient_look", "" );
 		SetDvar( "bo1_testclient_press", "" );
+		open_at_stop = level.mapkit_bus_doors.size == 0 || mapkit_bus_doorway_clear( 0 );
 		player SetOrigin( floor.origin + ( 0, 0, 9 ) );
 		wait( 1 );
 		boarded = player.origin;
+		level waittill( "mapkit_bus_leave" );
+		wait( 2 );
+		shut_on_way = level.mapkit_bus_doors.size == 0 || !mapkit_bus_doorway_clear( 0 );
 		start = GetTime();
 		while ( ( !IsDefined( level.mapkit_bus_at ) || level.mapkit_bus_at != next ) && GetTime() - start < 900000 )
 		{
@@ -292,7 +533,314 @@ mapkit_check_bus( player )
 			LogPrint( "mapkit: check bus " + name + " FAIL the client was left at " + player.origin + ", the floor is at "
 				+ floor.origin + " (boarded at " + boarded + ")\n" );
 		}
+		if ( open_at_stop && shut_on_way )
+		{
+			LogPrint( "mapkit: check bus_doors " + name + " PASS open at the stop, shut on the way\n" );
+		}
+		else
+		{
+			LogPrint( "mapkit: check bus_doors " + name + " FAIL open at the stop " + open_at_stop + ", shut on the way "
+				+ shut_on_way + "\n" );
+		}
+		stops = Int( bo1_mapkit_get( i, "#stops" ) );
+		if ( stops < 3 )
+		{
+			continue;
+		}
+		target = 3 % stops;
+		mapkit_bus_request( target, "the self-test" );
+		passed = [];
+		start = GetTime();
+		while ( GetTime() - start < 600000 )
+		{
+			level waittill( "mapkit_bus_stop", at );
+			passed[passed.size] = at;
+			if ( level.mapkit_bus_stop == target )
+			{
+				break;
+			}
+		}
+		want = Int( bo1_mapkit_get( i, "stops." + target )[0] );
+		if ( passed.size == 1 && passed[0] == want )
+		{
+			LogPrint( "mapkit: check bus_call " + name + " PASS called to stop " + target + " (point " + want
+				+ "), no stop between\n" );
+		}
+		else
+		{
+			LogPrint( "mapkit: check bus_call " + name + " FAIL called to stop " + target + " (point " + want + "), stopped at "
+				+ passed.size + " points, the last " + passed[passed.size - 1] + "\n" );
+		}
 	}
+}
+
+// "bank" edit (BO2's TranZit bank, written by tools/bo2/bo2_layout.py): "deposit" and "withdraw" { origin, yaw } are
+// the teller windows' use triggers, "locker" the weapon locker's. As in BO2 (_zm_banking, _zm_weapon_locker) a deposit
+// takes 1000 points into the player's account (at most mapkit_bank_max()), a withdrawal gives them back less a 100-point
+// fee, and the locker keeps one weapon with its ammo; both last between games and maps. The engine keeps them in
+// <fs_homepath>/main/mapkit_bank.txt under the player's name (bo1_mapkit_bank_get / _set, g_mapkit.cpp): a game's
+// points change only once the file is written.
+mapkit_bank( i )
+{
+	level.mapkit_bank_triggers = [];
+	actions = [];
+	actions[0] = "deposit";
+	actions[1] = "withdraw";
+	actions[2] = "locker";
+	for ( a = 0; a < actions.size; a++ )
+	{
+		origin = bo1_mapkit_get( i, actions[a] + ".origin" );
+		if ( !IsDefined( origin ) )
+		{
+			continue;
+		}
+		trig = Spawn( "trigger_radius_use", origin, 0, 40, 72 );
+		trig SetCursorHint( "HINT_NOICON" );
+		trig.mapkit_bank_action = actions[a];
+		if ( actions[a] == "deposit" )
+		{
+			trig SetHintString( "Hold ^3[{+activate}]^7 to deposit 1000 points" );
+		}
+		else if ( actions[a] == "withdraw" )
+		{
+			trig SetHintString( "Hold ^3[{+activate}]^7 to withdraw 1000 points [Fee: 100]" );
+		}
+		else
+		{
+			trig SetHintString( "Hold ^3[{+activate}]^7 to store or take your weapon" );
+		}
+		trig thread mapkit_bank_think();
+		level.mapkit_bank_triggers[actions[a]] = trig;
+		bo1_mapkit_mark( "trigger", "bank_" + actions[a], origin, 40 );
+		LogPrint( "mapkit: bank " + actions[a] + " at " + origin + "\n" );
+	}
+}
+
+mapkit_bank_max()
+{
+	return 250000;
+}
+
+mapkit_bank_key( player )
+{
+	if ( IsDefined( player.mapkit_bank_key ) )
+	{
+		return player.mapkit_bank_key;
+	}
+	return player.playername;
+}
+
+mapkit_bank_balance( player )
+{
+	value = bo1_mapkit_bank_get( "bank/" + mapkit_bank_key( player ) );
+	if ( !IsDefined( value ) )
+	{
+		return 0;
+	}
+	return Int( value );
+}
+
+mapkit_bank_think()
+{
+	while ( true )
+	{
+		self waittill( "trigger", player );
+		if ( !is_player_valid( player ) )
+		{
+			continue;
+		}
+		if ( self.mapkit_bank_action == "deposit" )
+		{
+			mapkit_bank_deposit( player );
+		}
+		else if ( self.mapkit_bank_action == "withdraw" )
+		{
+			mapkit_bank_withdraw( player );
+		}
+		else
+		{
+			mapkit_bank_locker( player );
+		}
+		wait( 0.25 );
+	}
+}
+
+mapkit_bank_refuse( player, why )
+{
+	player play_sound_on_ent( "no_purchase" );
+	player IPrintLn( why );
+}
+
+mapkit_bank_deposit( player )
+{
+	balance = mapkit_bank_balance( player );
+	if ( player.score < 1000 )
+	{
+		mapkit_bank_refuse( player, "Not enough points" );
+		return false;
+	}
+	if ( balance + 1000 > mapkit_bank_max() )
+	{
+		mapkit_bank_refuse( player, "Your account is full (" + balance + ")" );
+		return false;
+	}
+	if ( !bo1_mapkit_bank_set( "bank/" + mapkit_bank_key( player ), "" + ( balance + 1000 ) ) )
+	{
+		mapkit_bank_refuse( player, "The bank is closed (cannot save)" );
+		return false;
+	}
+	player maps\_zombiemode_score::minus_to_player_score( 1000 );
+	player play_sound_on_ent( "purchase" );
+	player IPrintLn( "Bank account: " + ( balance + 1000 ) );
+	LogPrint( "mapkit: bank deposit by " + mapkit_bank_key( player ) + ", account " + ( balance + 1000 ) + "\n" );
+	return true;
+}
+
+mapkit_bank_withdraw( player )
+{
+	balance = mapkit_bank_balance( player );
+	if ( balance < 1000 )
+	{
+		mapkit_bank_refuse( player, "Not enough in your account (" + balance + ")" );
+		return false;
+	}
+	if ( !bo1_mapkit_bank_set( "bank/" + mapkit_bank_key( player ), "" + ( balance - 1000 ) ) )
+	{
+		mapkit_bank_refuse( player, "The bank is closed (cannot save)" );
+		return false;
+	}
+	player maps\_zombiemode_score::add_to_player_score( 1000 - 100, false );
+	player play_sound_on_ent( "purchase" );
+	player IPrintLn( "Bank account: " + ( balance - 1000 ) );
+	LogPrint( "mapkit: bank withdrawal by " + mapkit_bank_key( player ) + ", account " + ( balance - 1000 ) + "\n" );
+	return true;
+}
+
+// the locker takes the weapon in hand when the player has another one to switch to, and gives the stored one back
+// (with its ammo) when the map's zones hold it; one weapon per player
+mapkit_bank_locker( player )
+{
+	key = "locker/" + mapkit_bank_key( player );
+	stored = bo1_mapkit_bank_get( key + "/weapon" );
+	if ( IsDefined( stored ) )
+	{
+		if ( !bo1_mapkit_weaponloaded( stored ) )
+		{
+			mapkit_bank_refuse( player, "Your stored weapon (" + stored + ") is not on this map" );
+			return false;
+		}
+		if ( player HasWeapon( stored ) )
+		{
+			mapkit_bank_refuse( player, "You already have your stored weapon" );
+			return false;
+		}
+		clip = bo1_mapkit_bank_get( key + "/clip" );
+		stock = bo1_mapkit_bank_get( key + "/stock" );
+		if ( !bo1_mapkit_bank_set( key + "/weapon", "" ) )
+		{
+			mapkit_bank_refuse( player, "The locker is stuck (cannot save)" );
+			return false;
+		}
+		bo1_mapkit_bank_set( key + "/clip", "" );
+		bo1_mapkit_bank_set( key + "/stock", "" );
+		player maps\_zombiemode_weapons::weapon_give( stored );
+		if ( IsDefined( clip ) && IsDefined( stock ) )
+		{
+			player SetWeaponAmmoClip( stored, Int( clip ) );
+			player SetWeaponAmmoStock( stored, Int( stock ) );
+		}
+		LogPrint( "mapkit: locker gave " + stored + " back to " + mapkit_bank_key( player ) + "\n" );
+		return true;
+	}
+	weapon = player GetCurrentWeapon();
+	primaries = player GetWeaponsListPrimaries();
+	if ( !is_in_array( primaries, weapon ) )
+	{
+		mapkit_bank_refuse( player, "Hold the weapon to store" );
+		return false;
+	}
+	if ( primaries.size < 2 )
+	{
+		mapkit_bank_refuse( player, "You cannot store your last weapon" );
+		return false;
+	}
+	clip = player GetWeaponAmmoClip( weapon );
+	stock = player GetWeaponAmmoStock( weapon );
+	// ammo first, the weapon last: a game that finds the weapon finds its ammo
+	if ( !bo1_mapkit_bank_set( key + "/clip", "" + clip ) || !bo1_mapkit_bank_set( key + "/stock", "" + stock )
+		|| !bo1_mapkit_bank_set( key + "/weapon", weapon ) )
+	{
+		mapkit_bank_refuse( player, "The locker is stuck (cannot save)" );
+		return false;
+	}
+	player TakeWeapon( weapon );
+	for ( p = 0; p < primaries.size; p++ )
+	{
+		if ( primaries[p] != weapon )
+		{
+			player SwitchToWeapon( primaries[p] );
+			break;
+		}
+	}
+	player play_sound_on_ent( "purchase" );
+	LogPrint( "mapkit: locker took " + weapon + " (" + clip + " + " + stock + ") from " + mapkit_bank_key( player ) + "\n" );
+	return true;
+}
+
+// The client, under a self-test account name, deposits, withdraws (net 900 back), stores its weapon and takes it back;
+// the account and the locker end as they began.
+mapkit_check_bank( player )
+{
+	if ( !mapkit_has_kind( "bank" ) )
+	{
+		return;
+	}
+	player.mapkit_bank_key = "mapkit_selftest";
+	bo1_mapkit_bank_set( "bank/mapkit_selftest", "" );
+	player.score += 1000;
+	before = player.score;
+	deposited = mapkit_bank_deposit( player );
+	after_deposit = player.score;
+	balance = mapkit_bank_balance( player );
+	withdrawn = mapkit_bank_withdraw( player );
+	if ( deposited && withdrawn && after_deposit == before - 1000 && balance == 1000 && player.score == before - 100
+		&& mapkit_bank_balance( player ) == 0 )
+	{
+		LogPrint( "mapkit: check bank deposit PASS 1000 in, 900 back, account 0\n" );
+	}
+	else
+	{
+		LogPrint( "mapkit: check bank deposit FAIL deposit " + deposited + " (score " + before + " -> " + after_deposit
+			+ ", account " + balance + "), withdrawal " + withdrawn + " (score " + player.score + ", account "
+			+ mapkit_bank_balance( player ) + ")\n" );
+	}
+	if ( IsDefined( level.mapkit_bank_triggers ) && IsDefined( level.mapkit_bank_triggers["locker"] ) )
+	{
+		primaries = player GetWeaponsListPrimaries();
+		if ( primaries.size < 2 )
+		{
+			player GiveWeapon( "m14_zm" );
+			player SwitchToWeapon( "m14_zm" );
+			wait( 1 );
+		}
+		weapon = player GetCurrentWeapon();
+		stored = mapkit_bank_locker( player );
+		gone = !player HasWeapon( weapon );
+		wait( 1 );
+		back = mapkit_bank_locker( player );
+		if ( stored && gone && back && player HasWeapon( weapon )
+			&& !IsDefined( bo1_mapkit_bank_get( "locker/mapkit_selftest/weapon" ) ) )
+		{
+			LogPrint( "mapkit: check bank locker PASS stored and took back " + weapon + "\n" );
+		}
+		else
+		{
+			LogPrint( "mapkit: check bank locker FAIL " + weapon + ": stored " + stored + ", gone " + gone + ", back " + back
+				+ "\n" );
+		}
+	}
+	player.mapkit_bank_key = undefined;
+	player.score -= 900;
 }
 
 mapkit_retail_hint_cost( cost )
@@ -320,6 +868,10 @@ main_end()
 		if ( kind == "bus" )
 		{
 			level thread mapkit_bus( i );
+		}
+		if ( kind == "bank" )
+		{
+			level thread mapkit_bank( i );
 		}
 		if ( bo1_mapkit_get( i, "kind" ) == "perk" )
 		{
@@ -734,9 +1286,9 @@ mapkit_precache()
 	{
 		return;
 	}
-	if ( mapkit_has_kind( "powerswitch" ) )
+	if ( mapkit_has_kind( "powerswitch" ) || mapkit_has_kind( "bus" ) )
 	{
-		PrecacheModel( "zombie_power_lever_short" );
+		PrecacheModel( "zombie_power_lever_short" ); // and the boxes that call the bus (mapkit_bus_calls)
 		PrecacheModel( "zombie_power_lever_handle" );
 	}
 	if ( mapkit_has_kind( "pap" ) )
@@ -1343,6 +1895,7 @@ mapkit_check()
 	mapkit_check_pap( player );
 	mapkit_check_lights();
 	mapkit_check_bus( player );
+	mapkit_check_bank( player );
 	level.mapkit_test_purchases = false;
 	SetDvar( "bo1_testclient_press", "" );
 	for ( i = 0; i < bo1_mapkit_editcount(); i++ )
@@ -1350,7 +1903,7 @@ mapkit_check()
 		kind = bo1_mapkit_get( i, "kind" );
 		if ( kind != "window" && kind != "perk" && kind != "room" && kind != "box" && kind != "stairs" && kind != "node" && kind != "zone"
 			&& kind != "wallbuy" && kind != "spawner" && kind != "spawn" && kind != "door" && kind != "debris" && kind != "mysterybox"
-			&& kind != "pap" && kind != "powerswitch" && kind != "light" && kind != "riser" && kind != "bus" && kind != "farrespawn" )
+			&& kind != "pap" && kind != "powerswitch" && kind != "light" && kind != "riser" && kind != "bus" && kind != "bank" && kind != "farrespawn" )
 		{
 			LogPrint( "mapkit: check " + kind + " " + mapkit_name( i ) + " SKIP (no runtime check for this kind yet)\n" );
 		}

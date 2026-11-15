@@ -407,6 +407,47 @@ packages its zone, BSP, colour maps, layout and `imports/zm_transit/` (on the Sw
 its images, and the props collision its layout's collision edit names, 88 MB). Not yet run on the console: the
 Windows and Linux runs used 97.8 MB of the 112 MB hunk.
 
+### TranZit's bus and bank (2026-11-15)
+
+Asked once the native TranZit played on Windows. Both MapKit layouts (`bo2_zm_transit`, `bo2_zm_transit_bsp`) get them
+from `bo2_layout.py`; `mods/mapkit/MAPKIT.md` has the `bus` and `bank` edits.
+
+- **The rider slid in the turns.** A trace of the rider in the floor's own space (`mapkit_bus_log 2`, Windows client)
+  showed the engine carrying it exactly (`G_PushEntity` turns it with the floor) through the gentle turns, and the
+  slide starting where BO2's vehicle nodes zigzag (+-50 degrees between points 21 and 24, and 60 to 63): the floor's
+  yaw went 101, 150, 94, 55, 92 degrees within two seconds, because each segment's own heading was reached in 0.5 s at
+  most, whatever the segment's length. The layout now carries `yaws`, each point's heading from 250 units back to
+  250 units ahead along the loop (`loop_headings`), and the floor turns over the whole segment: 87 degrees a second at
+  most. Same trace after: the rider stayed at the floor's centre to the diner, the farm and the power station but for
+  one slip of 48 units in a slow turn, and stayed in the bus.
+- **The first try boarded no one.** A player put on the floor while the zombies' spawn logic still moved them fell
+  78 units under the bus: the floor and the traces were fine (a `BulletTrace` and a `PlayerPhysicsTrace` stopped on it).
+  The test aid now boards player 0 two seconds into each stop.
+- **Stops and doors.** At a stop the two door brush models (`mapkit_bus_door0/1`, filling the right wall's openings)
+  stop colliding and are hidden; Five's alarm bell (`evt_thief_alarm_single`, no BO2 sounds here) rings 5 s before
+  the bus leaves; the doors shut (a player in the doorway is put inside) with Five's freight elevator sounds, and the bus
+  goes a second later. `bo2_mesh.py --mover` writes the panels its `MOVER_HOLES` cut as two models
+  (`veh_t6_civ_bus_zombie_door0/1`), which the mesh edit's new `movers` draw on the door entities: only in the frames
+  the client game posed them, so a hidden door (and a bus out of the snapshot) is not drawn at an old pose. Checked
+  on Windows screenshots: the rear opening empty at the depot, the folding panels shut the second before it leaves.
+- **Calls.** Once the power is on, a lever box (Five's power switch models) by each stop sends the bus to that stop
+  next: it passes the others and cuts a wait elsewhere short. `call_spot` puts it 4 units off the first world wall on
+  the doors' side (depot, farm, power station, town); the diner's has no wall within 400 units and stands beside the
+  road. BO2's own call spots are not in the dump (its scripts place them).
+- **Bank.** Deposit (1 000 points, account at most 250 000) and withdrawal (1 000 back less a 100-point fee) at the first
+  two intact teller windows (`p6_zm_bank_teller_window`, lobby side), the weapon locker in front of BO2's
+  `p6_zm_weapon_locker` (the farmhouse's fridge): it keeps the weapon in hand (not the last one) with its ammo and gives
+  it back on a later use when the map's zones hold it. The engine keeps them by player name in
+  `<fs_homepath>/main/mapkit_bank.txt` (`bo1_mapkit_bank_get` / `_set`, `g_mapkit.cpp`), read at each call and
+  rewritten through a temporary file; a game's points change only once it is written.
+- Self-test: `bus_doors` (a player trace crosses the front doorway at the stop, not on the way), `bus_call` (called to
+  stop 3 from stop 1, the bus stops nowhere between), `bank deposit` and `bank locker` (under the account
+  `mapkit_selftest`, removed after). Native TranZit (Linux): pass 198 fail 1, all five bus and bank checks passing; the
+  failure, `depot_baricade3` ("zombies got spawned outside only", a spawner in the depot's basement, far from the bus),
+  passed on a focused rerun (`mapkit_test_windows depot_baricade3`: 124/0) and had failed the same way in an earlier run.
+- Not done: zombies chasing and boarding the bus, its roof hatch, ladder, horn, lights and driver, the bus's own wall
+  buy, BO2's sounds.
+
 ## What comes out of `zm_nuked`
 
 With [OpenAssetTools](https://github.com/Laupetin/OpenAssetTools) 0.34.0 (GPL v3) and a world dumper written for it
@@ -869,7 +910,8 @@ TranZit goes through the same tools, with what its size and its bus needed:
   and the bus ride. `pow_door_rr` is a SKIP: BO2's graph reaches its room by stairs below the doorway, so no link crosses
   it.
 - **Not done.** The props are unlit (TranZit's placements carry no `smodellight` colours), the fog and the lava,
-  the buildables, Denizens, the Avogadro, the bank, the Jet Gun and the other BO2 weapons.
+  the buildables, Denizens, the Avogadro, the Jet Gun and the other BO2 weapons (the bank and the bus's doors and calls
+  came on 2026-11-15: "TranZit's bus and bank" below).
 
 #### The user's first TranZit run (2026-11-11)
 
