@@ -401,7 +401,7 @@ Build it (the procedure of Nuketown's world with these differences):
     +set bo1_mod_zones zombie_bo2transit zombie_cosmodrome +set bo1_bspworld maps/zombie_bo2transit.d3dbsp \
     +devmap zombie_pentagon
 
-(Ascension's zone gives the Stamin-Up machine.) ZmClient offers it as « Mapkit : TranZit native (Black Ops II, monde
+(Ascension's zone gives the Stamin-Up machine.) The renderer sorts at most 4 096 materials, Five brings about 2 600 and a client's HUD lookups some 90 more: `bo2_bsp.py` writes one world material per template and colour map (our copies keep nothing else), 153 for TranZit's 953 BO2 world materials, and a client stays near 3 350. ZmClient offers it as « Mapkit : TranZit native (Black Ops II, monde
 BSP) » when the package holds its zone and BSP, the Switch start menu as « TranZit (BO2, natif) »; `make_dist.sh --bo2`
 packages its zone, BSP, colour maps, layout and `imports/zm_transit/` (on the Switch: the links, the blockers mesh and
 its images, and the props collision its layout's collision edit names, 88 MB). Not yet run on the console: the

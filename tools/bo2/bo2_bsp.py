@@ -266,6 +266,12 @@ def main(argv=None):
     bake_tris = []
     lightmap_of = {}  # BO2 lightmap index -> BSP lightmap index (NO_LIGHTMAP: a white one)
     zone_materials, skipped_names, no_map, bad_image = [], 0, [], []
+    # Our copies keep only a template (the blend) and a colour map, so BO2 materials that differ in what we drop
+    # (normal and specular maps, constants) become the same material: one is kept, named after the first, and every
+    # BO2 name maps to it. TranZit: 953 BO2 world materials, 153 different ones. The renderer sorts at most 4096
+    # materials (a 12-bit index in each draw surface); with Five's 2 600 and BO2's HUD lookups a client loading native
+    # TranZit with Ascension's zone passed it (assert "assetCount < maxCount" in Material_Sort).
+    shared, material_of = {}, {}
     tri_total = 0
     for material in sorted(groups):
         if skipped(material, args.dump):
@@ -282,16 +288,21 @@ def main(argv=None):
         if not os.path.exists(iwi) and not dds_to_iwi(dds, iwi, multiply):
             bad_image.append(material)
             continue
-        shutil.copyfile(iwi, os.path.join(raw, "images", image + ".iwi"))
-        name = bsp_material_name(material)
-        mat = json.loads(json.dumps(templates[flag]))
-        for t in mat["textures"]:
-            if t["name"] == "colorMap":
-                t["image"] = image
-        with open(os.path.join(raw, "materials", "wc", name + ".json"), "w", encoding="utf-8") as f:
-            json.dump(mat, f, indent=4)
-        zone_materials.append(name)
-        index = bsp.add_material(name, 0, 0)
+        if (flag, image) in shared:
+            name, index = shared[(flag, image)]
+        else:
+            shutil.copyfile(iwi, os.path.join(raw, "images", image + ".iwi"))
+            name = bsp_material_name(material)
+            mat = json.loads(json.dumps(templates[flag]))
+            for t in mat["textures"]:
+                if t["name"] == "colorMap":
+                    t["image"] = image
+            with open(os.path.join(raw, "materials", "wc", name + ".json"), "w", encoding="utf-8") as f:
+                json.dump(mat, f, indent=4)
+            zone_materials.append(name)
+            index = bsp.add_material(name, 0, 0)
+            shared[(flag, image)] = (name, index)
+        material_of[bsp_material_name(material)] = name
         # One surface per material and cell (the renderer culls whole surfaces). The OBJ's own vertices, welded by
         # (position, uv). The OBJ winds as the BSP does (front normal (c - a) x (b - a)): in the play area 87 % of
         # the near-horizontal area then faces up.
@@ -354,11 +365,11 @@ def main(argv=None):
 
     window_models = 0
     if args.window_models:
-        wood = sorted((n for n in zone_materials if args.window_material in n), key=len)
+        wood = sorted((n for n in material_of if args.window_material in n), key=len)
         if not wood:
             sys.exit(f"--window-material {args.window_material}: no material of the map has it in its name")
         window_models = add_window_models(bsp, args.window_models, col_material, lightmap_of[NO_LIGHTMAP],
-                                          bsp.add_material(wood[0], 0, 0))
+                                          bsp.add_material(material_of[wood[0]], 0, 0))
 
     layout, cuts = None, []
     if args.layout:
