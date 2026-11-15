@@ -69,6 +69,12 @@ folder> +devmap zombie_theater` for the windowed client, with `+set bo1_headless
 `BO1_GL_DEBUG=1` logs OpenGL's debug messages. Converted zones from before 2026-10-24 need a new `shaders.pack`
 (`ffconv` again).
 
+On OpenBSD/amd64 the same posix build compiles as well (not yet run on an OpenBSD machine here). It cross-compiles
+from Linux with an OpenBSD clang/lld toolchain whose sysroot holds the official sets and the `sdl2` package: pass that
+toolchain's CMake file (`-DCMAKE_TOOLCHAIN_FILE=...`) and `-DSDL2_DIR=<sysroot>/usr/local/lib/cmake/SDL2`. The OS
+differences are under `#if defined(__OpenBSD__)` in `src/platform/posix` (sysctl instead of `/proc`, `funopen`,
+`getthrid`, no CPU affinity); `src/platform/openbsd/include` stands in for the glibc headers OpenBSD lacks.
+
 A dedicated zombies server (work in progress, branch `server`) is the same program started with `+set bo1_server 1`
 on Windows or Linux: no window, listening on UDP on every interface, `server.cfg` for its settings. `Server.bat
 [map] [port]` and `./Server.sh [map] [port]` start one. Clients join with `Play.bat net <address>:<port> [name]`

@@ -89,6 +89,13 @@ bo1_headless 1` pour le serveur dédié (et `+set bo1_headless_client 1` pour le
 d'OpenGL dans le log. Les zones converties avant le 2026-10-24 ont besoin d'un nouveau `shaders.pack` (relancer
 `ffconv`).
 
+Sur OpenBSD/amd64, le même build posix compile aussi (pas encore lancé sur une machine OpenBSD ici). Il se compile
+en croisé depuis Linux avec une chaîne clang/lld pour OpenBSD dont le sysroot contient les sets officiels et le paquet
+`sdl2` : passe son fichier CMake (`-DCMAKE_TOOLCHAIN_FILE=...`) et `-DSDL2_DIR=<sysroot>/usr/local/lib/cmake/SDL2`.
+Les différences d'OS sont sous `#if defined(__OpenBSD__)` dans `src/platform/posix` (sysctl au lieu de `/proc`,
+`funopen`, `getthrid`, pas d'affinité CPU) ; `src/platform/openbsd/include` remplace les en-têtes glibc absents
+d'OpenBSD.
+
 ## Serveur dédié zombies (en cours, branche `server`)
 C'est le même programme lancé avec `+set bo1_server 1`, sous Windows ou Linux : pas de fenêtre, écoute UDP sur toutes
 les interfaces, réglages dans `server.cfg`. `Server.bat [map] [port]` et `./Server.sh [map] [port]` en lancent un

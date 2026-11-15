@@ -30,7 +30,7 @@
 
 // fopencookie's seek callback takes off_t* on newlib (Switch, without __LARGE64_FILES) but off64_t* on glibc; the
 // custom text stream's seek matches whichever the platform's cookie_io_functions_t expects.
-#if defined(__SWITCH__)
+#if defined(__SWITCH__) || defined(__OpenBSD__)
 using Bo1CookieOff = off_t;
 #else
 using Bo1CookieOff = off64_t;
@@ -251,6 +251,34 @@ int TextClose(void *cookie)
     return result;
 }
 
+#if defined(__OpenBSD__)
+// OpenBSD has funopen(3) instead of fopencookie: int sizes, the seek returns the new offset, and the stream's
+// direction comes from which callbacks are given rather than from a mode string.
+int TextReadFn(void *cookie, char *buffer, int size)
+{
+    return (int)TextRead(cookie, buffer, (size_t)size);
+}
+
+int TextWriteFn(void *cookie, const char *buffer, int size)
+{
+    return (int)TextWrite(cookie, buffer, (size_t)size);
+}
+
+fpos_t TextSeekFn(void *cookie, fpos_t offset, int whence)
+{
+    Bo1CookieOff position = (Bo1CookieOff)offset;
+    return TextSeek(cookie, &position, whence) ? (fpos_t)-1 : (fpos_t)position;
+}
+
+FILE *OpenTextCookie(TextStream *stream, const char *mode)
+{
+    const bool update = strchr(mode, '+') != nullptr;
+    const bool reads = update || mode[0] == 'r';
+    const bool writes = update || mode[0] == 'w' || mode[0] == 'a';
+    return funopen(stream, reads ? TextReadFn : nullptr, writes ? TextWriteFn : nullptr, TextSeekFn, TextClose);
+}
+#endif
+
 void FillFindInfo(const std::string &name, const struct stat &st, struct _finddata64i32_t *info)
 {
     memset(info, 0, sizeof(*info));
@@ -424,7 +452,11 @@ FILE *bo1_fopen(const char *path, const char *mode)
     if (!raw)
         return nullptr;
     TextStream *stream = new TextStream{raw};
+#if defined(__OpenBSD__)
+    FILE *text = OpenTextCookie(stream, binaryMode.c_str());
+#else
     FILE *text = fopencookie(stream, binaryMode.c_str(), {TextRead, TextWrite, TextSeek, TextClose});
+#endif
     if (!text)
     {
         fclose(raw);

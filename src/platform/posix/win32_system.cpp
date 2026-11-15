@@ -22,7 +22,15 @@
 #else
 #include <sys/mman.h>
 #include <sys/syscall.h>
+#if defined(__OpenBSD__)
+#include <limits.h>
+#include <pthread_np.h>
+#include <sys/sched.h>
+#include <sys/sysctl.h>
+#include <uvm/uvmexp.h>
+#else
 #include <sys/sysinfo.h>
+#endif
 #endif
 #include <sys/resource.h>
 #include <time.h>
@@ -164,6 +172,70 @@ void *ReserveAligned(SIZE_T size, int prot)
 #endif
 }
 
+#if defined(__OpenBSD__)
+// OpenBSD has no /proc: the process facts the Linux code reads there come from sysctl(2).
+std::vector<std::string> OpenBSDArguments()
+{
+    int mib[4] = {CTL_KERN, KERN_PROC_ARGS, (int)getpid(), KERN_PROC_ARGV};
+    size_t size = 0;
+    if (sysctl(mib, 4, nullptr, &size, nullptr, 0) || !size)
+        return {};
+    std::vector<char> buffer(size);
+    if (sysctl(mib, 4, buffer.data(), &size, nullptr, 0))
+        return {};
+    std::vector<std::string> arguments;
+    for (char **argv = reinterpret_cast<char **>(buffer.data()); *argv; ++argv)
+        arguments.emplace_back(*argv);
+    return arguments;
+}
+
+bool OpenBSDSelfInfo(kinfo_proc *info)
+{
+    int mib[6] = {CTL_KERN, KERN_PROC, KERN_PROC_PID, (int)getpid(), (int)sizeof(kinfo_proc), 1};
+    size_t size = sizeof(*info);
+    return !sysctl(mib, 6, info, &size, nullptr, 0) && size == sizeof(*info);
+}
+
+// The executable's absolute path, from argv[0] as the shell resolved it: a path when it holds a '/', else the first
+// executable of that name in PATH. OpenBSD keeps no record of the file a process was started from.
+bool OpenBSDExecutablePath(char *path, size_t size)
+{
+    const std::vector<std::string> arguments = OpenBSDArguments();
+    if (arguments.empty() || arguments[0].empty())
+        return false;
+    char resolved[PATH_MAX];
+    const std::string &name = arguments[0];
+    if (name.find('/') != std::string::npos)
+    {
+        if (!realpath(name.c_str(), resolved))
+            return false;
+    }
+    else
+    {
+        const char *pathVariable = getenv("PATH");
+        std::string directories = pathVariable ? pathVariable : "/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin";
+        bool found = false;
+        size_t start = 0;
+        while (!found && start <= directories.size())
+        {
+            const size_t end = directories.find(':', start);
+            std::string directory = directories.substr(start, end == std::string::npos ? std::string::npos : end - start);
+            start = end == std::string::npos ? directories.size() + 1 : end + 1;
+            const std::string candidate = (directory.empty() ? std::string(".") : directory) + "/" + name;
+            found = !access(candidate.c_str(), X_OK) && realpath(candidate.c_str(), resolved);
+        }
+        if (!found)
+            return false;
+    }
+    const size_t length = strlen(resolved);
+    if (length >= size)
+        return false;
+    memcpy(path, resolved, length + 1);
+    return true;
+}
+#endif
+
+#if !defined(__OpenBSD__) // OpenBSD reads these facts through sysctl(2)
 long ReadProcStatusKb(const char *field)
 {
     FILE *f = fopen("/proc/self/status", "r");
@@ -183,6 +255,7 @@ long ReadProcStatusKb(const char *field)
     fclose(f);
     return value;
 }
+#endif
 
 HMODULE ExecutableModule()
 {
@@ -202,6 +275,27 @@ HMODULE ExecutableModule()
 std::string ReadCommandLine()
 {
     std::string commandLine;
+#if defined(__OpenBSD__)
+    for (const std::string &argument : OpenBSDArguments())
+    {
+        if (!commandLine.empty())
+            commandLine += ' ';
+        if (argument.empty() || argument.find_first_of(" \t\"") != std::string::npos)
+        {
+            commandLine += '"';
+            for (char ch : argument)
+            {
+                if (ch == '"')
+                    commandLine += '\\';
+                commandLine += ch;
+            }
+            commandLine += '"';
+        }
+        else
+            commandLine += argument;
+    }
+    return commandLine;
+#else
     FILE *f = fopen("/proc/self/cmdline", "rb");
     if (!f)
         return commandLine;
@@ -236,6 +330,7 @@ std::string ReadCommandLine()
     }
     fclose(f);
     return commandLine;
+#endif
 }
 
 std::atomic<LPTOP_LEVEL_EXCEPTION_FILTER> s_exceptionFilter{nullptr};
@@ -280,7 +375,11 @@ void CrashSignalHandler(int signal, siginfo_t *info, void *ucontext)
             record.NumberParameters = 2;
 #if defined(__x86_64__)
             // The page fault error code's bit 1 is set for a write.
+#if defined(__OpenBSD__)
+            const long error = static_cast<const ucontext_t *>(ucontext)->sc_err;
+#else
             const greg_t error = static_cast<const ucontext_t *>(ucontext)->uc_mcontext.gregs[REG_ERR];
+#endif
             record.ExceptionInformation[0] = (error & 2) ? 1 : 0;
 #endif
             record.ExceptionInformation[1] = (ULONG_PTR)info->si_addr;
@@ -330,7 +429,12 @@ void OutputDebugStringA(LPCSTR)
 
 BOOL IsDebuggerPresent(void)
 {
+#if defined(__OpenBSD__)
+    kinfo_proc info;
+    return OpenBSDSelfInfo(&info) && (info.p_psflags & 0x00000200); // PS_TRACED (sys/proc.h, kernel-only header)
+#else
     return ReadProcStatusKb("TracerPid") > 0;
+#endif
 }
 
 // The engine raises 0x406D1388 to name a thread for the debugger (MSVC's THREADNAME_INFO). Any other exception has no
@@ -352,7 +456,11 @@ void RaiseException(DWORD dwExceptionCode, DWORD dwExceptionFlags, DWORD nNumber
             char name[16];
             strncpy(name, info->name, sizeof(name) - 1);
             name[sizeof(name) - 1] = 0;
+#if defined(__OpenBSD__)
+            pthread_set_name_np(pthread_self(), name);
+#else
             pthread_setname_np(pthread_self(), name);
+#endif
         }
         return;
     }
@@ -548,6 +656,20 @@ BOOL GetProcessAffinityMask(HANDLE hProcess, PDWORD_PTR lpProcessAffinityMask, P
     *lpProcessAffinityMask = 0x7;
     *lpSystemAffinityMask = 0x7;
     return TRUE;
+#elif defined(__OpenBSD__)
+    // OpenBSD has no CPU affinity: the process may run on every online CPU.
+    if (hProcess != BO1_PSEUDO_PROCESS)
+    {
+        Bo1_SetLastError(ERROR_INVALID_PARAMETER);
+        return FALSE;
+    }
+    const long count = sysconf(_SC_NPROCESSORS_ONLN);
+    const DWORD_PTR all = count >= (long)(sizeof(DWORD_PTR) * 8) ? ~(DWORD_PTR)0
+                          : count > 0                             ? (((DWORD_PTR)1 << count) - 1)
+                                                                  : 1;
+    *lpProcessAffinityMask = all;
+    *lpSystemAffinityMask = all;
+    return TRUE;
 #else
     cpu_set_t set;
     CPU_ZERO(&set);
@@ -582,6 +704,15 @@ BOOL SetProcessAffinityMask(HANDLE hProcess, DWORD_PTR dwProcessAffinityMask)
         return FALSE;
     }
     return TRUE; // per-thread core mask via svcSetThreadCoreMask at the boot milestone
+#elif defined(__OpenBSD__)
+    // No CPU affinity on OpenBSD: as on the Switch, the scheduler keeps placing the threads.
+    (void)dwProcessAffinityMask;
+    if (hProcess != BO1_PSEUDO_PROCESS)
+    {
+        Bo1_SetLastError(ERROR_INVALID_PARAMETER);
+        return FALSE;
+    }
+    return TRUE;
 #else
     cpu_set_t set;
     CPU_ZERO(&set);
@@ -622,6 +753,10 @@ BOOL GetProcessHandleCount(HANDLE hProcess, PDWORD pdwHandleCount)
         Bo1_SetLastError(ERROR_INVALID_HANDLE);
         return FALSE;
     }
+#if defined(__OpenBSD__)
+    *pdwHandleCount = (DWORD)getdtablecount();
+    return TRUE;
+#else
     DIR *dir = opendir("/proc/self/fd");
     if (!dir)
     {
@@ -637,6 +772,7 @@ BOOL GetProcessHandleCount(HANDLE hProcess, PDWORD pdwHandleCount)
     closedir(dir);
     *pdwHandleCount = count;
     return TRUE;
+#endif
 }
 
 // No cycle counter per process or thread on Linux: the CPU time in nanoseconds stands in for it (the engine only
@@ -757,6 +893,31 @@ LONG CompareFileTime(const FILETIME *lpFileTime1, const FILETIME *lpFileTime2)
 // System-wide CPU times from /proc/stat, in 100 ns units; kernel time includes idle time, as on Windows.
 BOOL GetSystemTimes(PFILETIME lpIdleTime, PFILETIME lpKernelTime, PFILETIME lpUserTime)
 {
+#if defined(__OpenBSD__)
+    // kern.cp_time, in statistics-clock ticks. Its scale across CPUs may differ from Linux's summed /proc/stat line;
+    // the callers (g_sp_measure, Tracy) only use ratios of deltas.
+    long cpTime[CPUSTATES];
+    int cpMib[2] = {CTL_KERN, KERN_CPTIME};
+    size_t cpSize = sizeof(cpTime);
+    clockinfo clock;
+    int clockMib[2] = {CTL_KERN, KERN_CLOCKRATE};
+    size_t clockSize = sizeof(clock);
+    if (sysctl(cpMib, 2, cpTime, &cpSize, nullptr, 0) || sysctl(clockMib, 2, &clock, &clockSize, nullptr, 0))
+    {
+        Bo1_SetLastError(ERROR_NOT_SUPPORTED);
+        return FALSE;
+    }
+    const ULONGLONG rate = (ULONGLONG)(clock.stathz ? clock.stathz : clock.hz);
+    const ULONGLONG idleTime = (ULONGLONG)cpTime[CP_IDLE] * 10000000ull / rate;
+    if (lpIdleTime)
+        *lpIdleTime = FileTimeFromHundredNs(idleTime);
+    if (lpKernelTime)
+        *lpKernelTime = FileTimeFromHundredNs(
+            (ULONGLONG)(cpTime[CP_SYS] + cpTime[CP_SPIN] + cpTime[CP_INTR]) * 10000000ull / rate + idleTime);
+    if (lpUserTime)
+        *lpUserTime = FileTimeFromHundredNs((ULONGLONG)(cpTime[CP_USER] + cpTime[CP_NICE]) * 10000000ull / rate);
+    return TRUE;
+#else
     FILE *f = fopen("/proc/stat", "r");
     unsigned long long user = 0, nice = 0, system = 0, idle = 0, iowait = 0, irq = 0, softirq = 0;
     const int read = f ? fscanf(f, "cpu %llu %llu %llu %llu %llu %llu %llu", &user, &nice, &system, &idle, &iowait,
@@ -778,6 +939,7 @@ BOOL GetSystemTimes(PFILETIME lpIdleTime, PFILETIME lpKernelTime, PFILETIME lpUs
     if (lpUserTime)
         *lpUserTime = FileTimeFromHundredNs((user + nice) * unit);
     return TRUE;
+#endif
 }
 
 DWORD timeGetTime(void)
@@ -964,6 +1126,24 @@ BOOL GlobalMemoryStatusEx(LPMEMORYSTATUSEX lpBuffer)
     const DWORDLONG available = total > used ? total - used : 0;
     lpBuffer->ullTotalPageFile = total;
     lpBuffer->ullAvailPageFile = available;
+#elif defined(__OpenBSD__)
+    int64_t physical = 0;
+    int physMib[2] = {CTL_HW, HW_PHYSMEM64};
+    size_t physSize = sizeof(physical);
+    uvmexp uvm;
+    int uvmMib[2] = {CTL_VM, VM_UVMEXP};
+    size_t uvmSize = sizeof(uvm);
+    if (sysctl(physMib, 2, &physical, &physSize, nullptr, 0) || sysctl(uvmMib, 2, &uvm, &uvmSize, nullptr, 0))
+    {
+        Bo1_SetLastError(Bo1_ErrorFromErrno(errno));
+        return FALSE;
+    }
+    const DWORDLONG page = (DWORDLONG)uvm.pagesize;
+    const DWORDLONG total = (DWORDLONG)physical;
+    const DWORDLONG available = (DWORDLONG)uvm.free * page;
+    const DWORDLONG swapFree = uvm.swpages > uvm.swpginuse ? (DWORDLONG)(uvm.swpages - uvm.swpginuse) * page : 0;
+    lpBuffer->ullTotalPageFile = total + (DWORDLONG)uvm.swpages * page;
+    lpBuffer->ullAvailPageFile = available + swapFree;
 #else
     struct sysinfo info;
     if (sysinfo(&info))
@@ -1063,9 +1243,19 @@ BOOL K32GetProcessMemoryInfo(HANDLE Process, PPROCESS_MEMORY_COUNTERS ppsmemCoun
         Bo1_SetLastError(ERROR_INVALID_PARAMETER);
         return FALSE;
     }
+#if defined(__OpenBSD__)
+    kinfo_proc info;
+    rusage usage;
+    const long pageKb = sysconf(_SC_PAGESIZE) / 1024;
+    const bool haveInfo = OpenBSDSelfInfo(&info);
+    const long rss = haveInfo ? (long)info.p_vm_rssize * pageKb : -1;
+    const long peakRss = !getrusage(RUSAGE_SELF, &usage) ? usage.ru_maxrss : -1; // kilobytes
+    const long data = haveInfo ? (long)info.p_vm_dsize * pageKb : -1;
+#else
     const long rss = ReadProcStatusKb("VmRSS");
     const long peakRss = ReadProcStatusKb("VmHWM");
     const long data = ReadProcStatusKb("VmData");
+#endif
     memset(ppsmemCounters, 0, cb);
     ppsmemCounters->cb = cb;
     ppsmemCounters->WorkingSetSize = (SIZE_T)(rss > 0 ? rss : 0) * 1024;
@@ -1127,7 +1317,13 @@ DWORD GetModuleFileNameA(HMODULE hModule, LPSTR lpFilename, DWORD nSize)
     memcpy(path, kExe, (size_t)length);
 #else
     if (!hModule || hModule == ExecutableModule())
+    {
+#if defined(__OpenBSD__)
+        length = OpenBSDExecutablePath(path, sizeof(path)) ? (ssize_t)strlen(path) : -1;
+#else
         length = readlink("/proc/self/exe", path, sizeof(path) - 1);
+#endif
+    }
     else
     {
         // A shared library, found by its load address (GetModuleHandleExA's handles).
