@@ -125,6 +125,7 @@ folders and archives in `build/dist`, one per platform:
 | `BO1Zombies_windows/` | the 64-bit client and dedicated server, `Play.bat` (`Play.bat net <address[:port]> [name]` joins a server), `Server.bat [map] [port]`, `zmclient.exe`, `zmadmin.exe`, `ffconv.exe`, the 64-bit runtime DLLs, `switch-tools\uam.exe` (below) | `.zip` |
 | `BO1Zombies_linux/` | the Linux client and dedicated server, `play.sh` (`./play.sh net ...`), `server.sh [map] [port]`, `zmclient`, `zmadmin`, `ffconv.exe`, `shaders.pack` | `.tar.gz` |
 | `BO1Zombies_switch/` | an SD card tree, `switch/bo1zm/` with the `.nro`, `shaders.pack` and `shaders.dksh` | `.zip` |
+| `BO1Zombies_openbsd/` | the OpenBSD/amd64 client and dedicated server, `BO1Zombies-8.0` (the release) and `BO1Zombies-current`, `play.sh` and `server.sh` (POSIX sh: they pick the running system's program and raise the data size limit), `shaders.pack`; only when asked (`tools/make_dist.sh openbsd`) | `.tar.gz` |
 
 Each also holds the converted zones, the install's `main/*.iwd` and `localization.txt` (and `main/video` on PC), a
 `LISEZMOI.txt` and a `VERSION.txt` (commit, date, NRO link time). With `--no-game-data` the packages go to
@@ -135,15 +136,20 @@ Windows, `./setup_switch.sh <install>` on Linux. They copy `localization.txt` an
 `ffconv` (through wine or WSL on Linux), and compile `shaders.dksh` with `uam` and `make_dksh_pack` (a Nuitka `.exe`
 on Windows, `python3` on Linux; `tools/uam/build.sh` builds both uams, `tools/switch_setup/build.sh` the `.exe`).
 
-    tools/make_dist.sh                       # all three
+    tools/make_dist.sh                       # windows, linux and switch
     tools/make_dist.sh switch linux          # some
+    tools/make_dist.sh --openbsd-cross /opt/openbsd-cross openbsd
     tools/make_dist.sh --no-build windows    # package what is built, fail on anything missing or out of date
 
 Unless `--no-build`, it builds what the packages need, incrementally: the `win64-msvc` preset, the Linux and Switch
 programs in `--work` (an ext4 folder, `~/.cache/bo1zm-dist`), the converted zones when they are missing or older than
 the converter's sources (`ffconv --verify`, then `check_shader_pack.py`; the old zones stay until the new ones
 pass), and `shaders.dksh` when its `shaders.pack` changed (it fails if uam rejects a shader). Other options:
-`--out`, `--game`, `--zones`, `--dxsdk`, `--archive auto|zip|tar|none`, `--jobs`; `--help` lists them. The packages
+`--out`, `--game`, `--zones`, `--dxsdk`, `--archive auto|zip|tar|none`, `--jobs`; `--help` lists them. The OpenBSD
+programs build with the cross toolchain of [cross-compiler-openbsd](https://github.com/Thaolia/cross-compiler-openbsd)
+(`--openbsd-cross <prefix>` or `OPENBSD_CROSS`: its `install.sh` prefix, with the `8.0` and `current` sysroots and
+their `sdl2` package). There is no ZmClient or ffconv for OpenBSD: the `_nodata` OpenBSD package takes the game files
+of a Windows or Linux install made with ZmClient (its `LISEZMOI.txt` lists them). The packages
 hold your own game files: keep them for your own devices, never publish them (the `_nodata` ones hold none).
 
 `switch-tools\uam.exe` in the Windows package is deko3d's offline shader compiler, which devkitPro ships for Linux
@@ -165,12 +171,14 @@ for Stamin-Up). The extraction is game data, so `--bo2` cannot be combined with
 
 ### Release on GitHub
 
-`.github/workflows/release.yml` builds the three programs on GitHub's machines and publishes a release, "BO1 Zombies
+`.github/workflows/release.yml` builds the programs of the four platforms on GitHub's machines and publishes a release, "BO1 Zombies
 Enhanced edition version <tag>", holding one archive per platform (`BO1Zombies_<tag>_windows.zip`, `_linux`,
-`_switch`), each the `_nodata` package. It starts by hand only: Actions, "Release", "Run workflow", with the tag to
+`_switch`, and `BO1Zombies_<tag>_openbsd.tar.gz`: OpenBSD's base system has tar, not unzip), each the `_nodata`
+package. It starts by hand only: Actions, "Release", "Run workflow", with the tag to
 create (e.g. `v0.1.0`). It downloads the June 2010 DirectX SDK from Microsoft, builds `win64-msvc` with ZmClient and
 ZmAdmin (Nuitka) on Windows, the Linux program, `ffconv.exe` and the Linux ZmClient and ZmAdmin on Ubuntu, the `.nro`
-in devkitPro's `devkita64` container, then packages them with `tools/make_dist.sh --no-build --no-game-data`, as on a
+in devkitPro's `devkita64` container, the OpenBSD programs for 8.0 and -current with cross-compiler-openbsd (pinned
+to a commit; the 8.0 sysroot is cached, -current's is fetched each run), then packages them with `tools/make_dist.sh --no-build --no-game-data`, as on a
 PC. The release holds no file of the game.
 
 French version: `README.fr.md`.

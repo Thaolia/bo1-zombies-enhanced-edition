@@ -6,15 +6,18 @@
 #   linux    BO1Zombies_linux/     the Linux client and dedicated server (play.sh, server.sh), zmclient, zmadmin,
 #                                  ffconv.exe
 #   switch   BO1Zombies_switch/    an SD card tree: switch/bo1zm/ with the .nro and its data
+#   openbsd  BO1Zombies_openbsd/   the OpenBSD/amd64 client and dedicated server, one program for the release (8.0)
+#                                  and one for -current (play.sh and server.sh pick the running system's)
 #
-#   tools/make_dist.sh [options] [windows] [linux] [switch]        no platform: all three
+#   tools/make_dist.sh [options] [windows] [linux] [switch] [openbsd]
+#                    no platform: windows, linux and switch (openbsd needs its cross toolchain, see --openbsd-cross)
 #
 #   --out DIR        packages and archives                          default: build/dist
 #   --work DIR       ext4 folder for the Linux and Switch builds    default: ~/.cache/bo1zm-dist
 #   --game DIR       the game files setup.ps1 copied                 default: build/Release
 #   --zones DIR      ffconv's output (zone/, shaders.pack)           default: build/zones64
 #   --dxsdk DIR      June 2010 DirectX SDK root (Include/)           default: /mnt/c/SDKs/DXSDK_Jun10/DXSDK
-#   --archive KIND   auto | zip | tar | none     auto: zip for windows and switch, tar.gz for linux
+#   --archive KIND   auto | zip | tar | none     auto: zip for windows and switch, tar.gz for linux and openbsd
 #   --no-build       package what is built; fail if anything is missing or out of date
 #   --no-game-data   packages without any file of the game, in BO1Zombies_<platform>_nodata/: on windows and
 #                    linux the player installs them from their own Black Ops with ZmClient (Installation view); the
@@ -26,6 +29,9 @@
 #                    the 64-bit DIR/mods/bo2weapons/mod.ff and DIR/mods/bo2weapons/images/), either or both. They
 #                    go into the windows and linux packages, where ZmClient's Solo view offers them ("Mapkit :
 #                    Nuketown (Black Ops II)", "Armes de Black Ops II"); game data, so not with --no-game-data
+#   --openbsd-cross DIR  the OpenBSD cross toolchain's prefix (github.com/Thaolia/cross-compiler-openbsd: its
+#                    install.sh, with the 8.0 and current sysroots and their sdl2 package in DIR/sysroot/<flavor>)
+#                                                                    default: $OPENBSD_CROSS, else /opt/openbsd-cross
 #   --jobs N         parallel jobs                                   default: the CPU count
 #
 # What it builds when needed (unless --no-build): the win64-msvc preset (Visual Studio, from WSL), the Linux and
@@ -51,6 +57,9 @@ BUILD=1
 GAME_DATA=1
 BO2=""
 JOBS="$(nproc)"
+OPENBSD_CROSS="${OPENBSD_CROSS:-/opt/openbsd-cross}"
+# The release and -current: -current breaks the ABI between releases, so each gets its own program.
+OPENBSD_FLAVORS=(8.0 current)
 PLATFORMS=()
 CMAKE_EXE="${CMAKE_EXE:-/mnt/c/Program Files (x86)/Microsoft Visual Studio/2022/BuildTools/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin/cmake.exe}"
 export DEVKITPRO="${DEVKITPRO:-/opt/devkitpro}"
@@ -62,7 +71,7 @@ abspath() { mkdir -p "$1" && (cd "$1" && pwd); }
 
 while [ $# -gt 0 ]; do
     case "$1" in
-    windows | linux | switch) PLATFORMS+=("$1") ;;
+    windows | linux | switch | openbsd) PLATFORMS+=("$1") ;;
     all) PLATFORMS+=(windows linux switch) ;;
     --out) OUT="$2"; shift ;;
     --work) WORK="$2"; shift ;;
@@ -73,6 +82,7 @@ while [ $# -gt 0 ]; do
     --no-build) BUILD=0 ;;
     --no-game-data) GAME_DATA=0 ;;
     --bo2) BO2="$2"; shift ;;
+    --openbsd-cross) OPENBSD_CROSS="$2"; shift ;;
     --jobs) JOBS="$2"; shift ;;
     -h | --help) usage ;;
     *) echo "make_dist: unknown argument: $1" >&2; usage 2 ;;
@@ -227,6 +237,30 @@ build_linux() {
     echo "built $WORK/linux/Release/BO1Zombies"
 }
 
+openbsd_tool() { echo "$OPENBSD_CROSS/bin/x86_64-unknown-openbsd$1-$2"; } # <flavor> <tool>
+
+build_openbsd() {
+    local f sysroot
+    [ -f "$OPENBSD_CROSS/share/openbsd-cross/openbsd-toolchain.cmake" ] ||
+        die "no OpenBSD cross toolchain in $OPENBSD_CROSS (pass --openbsd-cross or set OPENBSD_CROSS)"
+    mirror_sources
+    for f in "${OPENBSD_FLAVORS[@]}"; do
+        step "openbsd $f: building in $WORK/openbsd-$f"
+        sysroot="$("$(openbsd_tool "$f" sysroot)")" || die "no OpenBSD $f sysroot in $OPENBSD_CROSS/sysroot/$f"
+        [ -f "$sysroot/usr/local/lib/cmake/SDL2/sdl2-config.cmake" ] ||
+            die "no sdl2 package in the OpenBSD $f sysroot: openbsd-pkg-fetch --sysroot $sysroot sdl2"
+        if [ ! -f "$WORK/openbsd-$f/build.ninja" ]; then
+            # shellcheck disable=SC2046
+            run_logged "openbsd-$f-configure" cmake -S "$WORK/src" -B "$WORK/openbsd-$f" -G Ninja \
+                -DCMAKE_BUILD_TYPE=Release -DOPENBSD_FLAVOR="$f" \
+                -DCMAKE_TOOLCHAIN_FILE="$OPENBSD_CROSS/share/openbsd-cross/openbsd-toolchain.cmake" \
+                -DSDL2_DIR="$sysroot/usr/local/lib/cmake/SDL2" -DDXSDK_DIR="$DXSDK" $(launcher_flags)
+        fi
+        run_logged "openbsd-$f-build" ninja -C "$WORK/openbsd-$f" -j "$JOBS" BO1Zombies
+        echo "built $WORK/openbsd-$f/Release/BO1Zombies"
+    done
+}
+
 build_switch() {
     [ -f "$DEVKITPRO/cmake/Switch.cmake" ] || die "devkitPro not found in $DEVKITPRO (set DEVKITPRO)"
     step "switch: building in $WORK/switch"
@@ -336,6 +370,10 @@ if wants linux; then
     need "$WORK/linux/Release/BO1Zombies" "the Linux program"
     build_zmadmin linux "$ROOT/build/zmadmin/linux/zmadmin"
     build_zmclient linux "$ROOT/build/zmclient/linux/zmclient"
+fi
+if wants openbsd; then
+    [ "$BUILD" = 1 ] && build_openbsd
+    for f in "${OPENBSD_FLAVORS[@]}"; do need "$WORK/openbsd-$f/Release/BO1Zombies" "the OpenBSD $f program"; done
 fi
 if wants switch; then
     [ "$BUILD" = 1 ] && build_switch
@@ -801,6 +839,142 @@ EOF
     write_version "$d" switch "nro build: $(cat "$WORK/switch/romfs/build.txt")"
 }
 
+package_openbsd() {
+    local d="$OUT/BO1Zombies_openbsd$SUFFIX" f
+    step "openbsd: $d"
+    mkdir -p "$d/main"
+    for f in "${OPENBSD_FLAVORS[@]}"; do cp "$WORK/openbsd-$f/Release/BO1Zombies" "$d/BO1Zombies-$f"; done
+    rsync -a --delete "$ROOT/mods/" "$d/mods/"
+    rsync -a "$ROOT/data/main/" "$d/main/"
+    if [ "$GAME_DATA" = 1 ]; then
+        game_data "$d" video
+        bo2_data "$d"
+        cp "$ZONES/shaders.pack" "$d/"
+    fi
+    # OpenBSD's base system has no bash: both scripts are POSIX sh (ksh).
+    cat > "$d/bo1_program.sh" << 'EOF'
+# Sourced by play.sh and server.sh: the program built for the running OpenBSD, and the data size limit raised.
+# -current and the release do not share an ABI: a snapshot's kern.version says -current or -beta.
+# BO1_OPENBSD=8.0 or BO1_OPENBSD=current forces one.
+bo1_program() { # <data size the program wants, in KB>
+    flavor="${BO1_OPENBSD:-}"
+    if [ -z "$flavor" ]; then
+        case "$(sysctl -n kern.version 2>/dev/null | head -n 1)" in
+        *-current* | *-beta*) flavor=current ;;
+        *) flavor="$(uname -r)" ;;
+        esac
+    fi
+    if [ ! -x "$HERE/BO1Zombies-$flavor" ]; then
+        echo "no program for OpenBSD $flavor here: BO1Zombies-8.0 (the release) or BO1Zombies-current;" >&2
+        echo "set BO1_OPENBSD=8.0 or BO1_OPENBSD=current to pick one" >&2
+        exit 1
+    fi
+    PROGRAM="$HERE/BO1Zombies-$flavor"
+    # OpenBSD counts mmap against the data size limit (login.conf's datasize): raise it to the class's maximum.
+    ulimit -d "$(ulimit -H -d)" 2>/dev/null || true
+    case "$(ulimit -d)" in
+    unlimited) ;;
+    *) [ "$(ulimit -d)" -ge "$1" ] ||
+        echo "warning: data size limit $(ulimit -d) KB, under the $1 KB a map may need (datasize in /etc/login.conf)" >&2 ;;
+    esac
+}
+EOF
+    cat > "$d/play.sh" << 'EOF'
+#!/bin/sh
+# Black Ops 1 Zombies, OpenBSD client (OpenGL 4.3). ./play.sh opens the game's menu (Zombies, Solo, a map).
+#   ./play.sh net <address[:port]> [name]   joins a dedicated server once the menu is up, and again whenever the game
+#                                           is back at the menu
+#   FULLSCREEN=1 ./play.sh                  full screen instead of a 1280x720 window
+# Solo games show the zombie counter beside the Tab scoreboard (mods/zinfo); on a server, the server decides.
+set -eu
+HERE="$(cd "$(dirname "$0")" && pwd)"
+. "$HERE/bo1_program.sh"
+bo1_program 3145728
+NET=""
+if [ "${1:-}" = net ]; then
+    [ -n "${2:-}" ] || { echo "usage: $0 net <address[:port]> [name]" >&2; exit 1; }
+    NET="$2"
+fi
+NAME="${3:-}"
+if [ "${FULLSCREEN:-0}" = 1 ]; then
+    set -- +set r_fullscreen 1 +set r_borderless 0
+else
+    set -- +set r_fullscreen 0 +set r_borderless 1 +set r_customMode 1280x720 +set vid_xpos 60 +set vid_ypos 60
+fi
+if [ -n "$NET" ]; then
+    set -- "$@" +set cl_autoConnect "$NET"
+    if [ -n "$NAME" ]; then set -- "$@" +set name "$NAME"; fi
+else
+    set -- "$@" +set net_ip 127.0.0.1 +set fs_mods zinfo
+fi
+cd "$HERE"
+exec "$PROGRAM" +set bo1_zombies 1 +set fs_b "$HERE" +set fs_h "$HERE" +set logfile 2 "$@"
+EOF
+    cat > "$d/server.sh" << 'EOF'
+#!/bin/sh
+# Black Ops 1 Zombies dedicated server, listening on UDP on every interface. In a terminal it shows the curses
+# console; started by a service or with its output redirected it keeps the plain console (stdout / stdin).
+#   ./server.sh [map] [port] [more + commands]      defaults: zombie_theater 3074
+#   ./server.sh zombie_cosmodrome 3074 +set g_password secret
+# Settings: server/main/server.cfg; log: server/main/console_mp.log.
+set -eu
+HERE="$(cd "$(dirname "$0")" && pwd)"
+. "$HERE/bo1_program.sh"
+bo1_program 1048576
+MAP="${1:-zombie_theater}"
+PORT="${2:-3074}"
+if [ $# -ge 2 ]; then shift 2; else shift $#; fi
+mkdir -p "$HERE/server/main"
+cd "$HERE"
+exec "$PROGRAM" +set fs_b "$HERE" +set fs_h "$HERE/server" +set bo1_server 1 +set net_ip 0.0.0.0 +set net_port "$PORT" "$@" +devmap "$MAP"
+EOF
+    for f in "${OPENBSD_FLAVORS[@]}"; do chmod +x "$d/BO1Zombies-$f"; done
+    chmod +x "$d/play.sh" "$d/server.sh"
+    cat > "$d/LISEZMOI.txt" << 'EOF'
+BO1 Zombies, portage OpenBSD/amd64 : client (OpenGL 4.3) et serveur dédié
+=========================================================================
+
+PROGRAMMES  BO1Zombies-8.0 pour OpenBSD 8.0, BO1Zombies-current pour -current (un snapshot) : -current change
+            d'ABI entre deux versions. play.sh et server.sh prennent celui du système qui tourne ;
+            BO1_OPENBSD=8.0 ou BO1_OPENBSD=current en impose un. Après une mise à jour de -current, prenez le
+            paquet d'une version plus récente si le programme ne démarre plus.
+JOUER       ./play.sh                     ouvre le menu du jeu (Zombies, Solo, une map).
+            FULLSCREEN=1 ./play.sh        en plein écran.
+REJOINDRE   ./play.sh net 192.168.1.20:3074 MonNom
+            rejoint un serveur dédié dès que le menu est prêt, et y revient tout seul après une coupure.
+SERVEUR     ./server.sh [map] [port]      par défaut : zombie_theater 3074
+            Dans un terminal, il affiche sa console curses. Réglages dans server/main/server.cfg, journal dans
+            server/main/console_mp.log.
+TAB         en tenant Tab, les zombies en vie et ceux qui restent dans la manche s'affichent à gauche
+            (mod zinfo, actif par défaut en solo et sur le serveur ; « zinfo 0 » dans la console le cache).
+ZOMBIES     /zm_where dans la console : la position de chaque zombie vivant et sa distance, du plus proche au
+            plus loin ; aussi dans console_mp.log.
+SPEEDRUN    en bas de l'écran de chargement : les réglages qui changent la partie et un hash SHA-512 du
+            programme et des zones chargées (console_mp.log, lignes runinfo:) ; « bo1_runinfo 2 » le garde dans
+            un coin en jeu. Il distingue deux runs faites avec des fichiers différents ; il ne prouve rien.
+
+Prérequis : OpenBSD/amd64 avec X, SDL2 (doas pkg_add sdl2) et une carte graphique dont le pilote Mesa donne
+OpenGL 4.3 (amdgpu, inteldrm récents). OpenBSD compte la mémoire du programme dans la limite datasize de la classe
+de connexion (/etc/login.conf) : le serveur en prend environ 650 Mo sur Kino, le client bien plus (textures,
+pilote OpenGL). play.sh et server.sh la montent au maximum de la classe et préviennent sous 3 Go (client) ou 1 Go
+(serveur) : il faut alors une classe plus large (staff, ou une classe à vous ; usermod -L <classe> <vous>).
+Pas encore essayé sur une vraie machine OpenBSD : renvoyez main/console_mp.log en cas de problème.
+
+EOF
+    bo2_note >> "$d/LISEZMOI.txt"
+    if [ "$GAME_DATA" = 1 ]; then
+        data_note machines >> "$d/LISEZMOI.txt"
+    else
+        cat >> "$d/LISEZMOI.txt" << 'EOF'
+Ce dossier ne contient aucun fichier du jeu. ZmClient et ffconv n'existent pas pour OpenBSD : installez d'abord
+le paquet Windows ou Linux sur un PC avec votre Call of Duty: Black Ops (Steam), faites-y l'installation (zmclient,
+vue Installation, F7), puis copiez de ce dossier vers celui-ci : localization.txt, shaders.pack, zone/ et main/
+(ses .iwd et video/). Ce sont alors vos propres fichiers de jeu : gardez-les pour vos machines, ne les publiez pas.
+EOF
+    fi
+    write_version "$d" openbsd "programs: ${OPENBSD_FLAVORS[*]/#/BO1Zombies-}"
+}
+
 make_archive() { # <package dir name> <default kind>
     local kind="$ARCHIVE" name="$1"
     [ "$kind" = auto ] && kind="$2"
@@ -824,11 +998,12 @@ check_space "$OUT"
 wants windows && { package_windows; make_archive "BO1Zombies_windows$SUFFIX" zip; }
 wants linux && { package_linux; make_archive "BO1Zombies_linux$SUFFIX" tar; }
 wants switch && { package_switch; make_archive "BO1Zombies_switch$SUFFIX" zip; }
+wants openbsd && { package_openbsd; make_archive "BO1Zombies_openbsd$SUFFIX" tar; }
 
 step "done: $OUT"
 for p in "${PLATFORMS[@]}"; do du -sh "$OUT/BO1Zombies_$p$SUFFIX" | sed 's/\t/  /'; done
 if [ "$GAME_DATA" = 1 ]; then
     echo "These packages hold your own game files: keep them for your own devices, never publish them."
 else
-    echo "These packages hold no game file: the player installs them from their own Black Ops (zmclient; Switch: Setup-Switch.bat, setup_switch.sh)."
+    echo "These packages hold no game file: the player installs them from their own Black Ops (zmclient; Switch: Setup-Switch.bat, setup_switch.sh; OpenBSD: the files of a Windows or Linux install)."
 fi

@@ -193,7 +193,14 @@ ZmClient la propose sous « Mapkit : Nuketown native (Black Ops II, monde BSP) �
 - `BO1Zombies_linux/` (`.tar.gz`) : le client et le serveur Linux, `zmclient`, `zmadmin`, `ffconv.exe`, avec `play.sh` (`./play.sh net ...`),
   `server.sh [map] [port]` et `shaders.pack` ;
 - `BO1Zombies_switch/` (`.zip`) : une arborescence de carte SD, `switch/bo1zm/` avec le `.nro`, `shaders.pack` et
-  `shaders.dksh`.
+  `shaders.dksh` ;
+- `BO1Zombies_openbsd/` (`.tar.gz`), seulement sur demande (`tools/make_dist.sh openbsd`) : le client et le serveur
+  OpenBSD/amd64, `BO1Zombies-8.0` (la version stable) et `BO1Zombies-current`, avec `play.sh` et `server.sh` (sh POSIX :
+  ils prennent le programme du système qui tourne et montent la limite de mémoire) et `shaders.pack`. Il se compile
+  avec la chaîne de [cross-compiler-openbsd](https://github.com/Thaolia/cross-compiler-openbsd)
+  (`--openbsd-cross <préfixe>` ou `OPENBSD_CROSS` : le préfixe de son `install.sh`, avec les sysroots `8.0` et
+  `current` et leur paquet `sdl2`). Il n'y a ni ZmClient ni ffconv pour OpenBSD : le paquet OpenBSD `_nodata` prend
+  les fichiers du jeu d'une installation Windows ou Linux faite avec ZmClient (son `LISEZMOI.txt` les liste).
 
 Chaque paquet contient aussi les zones converties, les `main/*.iwd` et le `localization.txt` de l'install (plus
 `main/video` sur PC), un `LISEZMOI.txt` et un `VERSION.txt` (commit, date, heure du lien du NRO). Avec
@@ -231,12 +238,14 @@ d'origine du jeu le fait démarrer sans aucun pilote son, comme un PC sans carte
 
 ### Release sur GitHub
 
-`.github/workflows/release.yml` compile les trois programmes sur les machines de GitHub et publie une release, « BO1 Zombies
+`.github/workflows/release.yml` compile les programmes des quatre plateformes sur les machines de GitHub et publie une release, « BO1 Zombies
 Enhanced edition version <tag> », avec une archive par plateforme (`BO1Zombies_<tag>_windows.zip`, `_linux`,
-`_switch`), chacune le paquet `_nodata`. Elle ne se lance qu'à la main : Actions, « Release », « Run workflow », avec le
+`_switch`, et `BO1Zombies_<tag>_openbsd.tar.gz` : le système de base d'OpenBSD a tar, pas unzip), chacune le paquet
+`_nodata`. Elle ne se lance qu'à la main : Actions, « Release », « Run workflow », avec le
 tag à créer (par exemple `v0.1.0`). Elle télécharge le SDK DirectX de juin 2010 chez Microsoft, compile `win64-msvc`,
 ZmClient et ZmAdmin (Nuitka) sous Windows, le programme Linux, `ffconv.exe` et ZmClient/ZmAdmin Linux sous Ubuntu, le
-`.nro` dans le conteneur `devkita64` de devkitPro, puis empaquette le tout avec
+`.nro` dans le conteneur `devkita64` de devkitPro, les programmes OpenBSD 8.0 et -current avec cross-compiler-openbsd
+(figé sur un commit ; le sysroot 8.0 est gardé en cache, celui de -current est téléchargé à chaque fois), puis empaquette le tout avec
 `tools/make_dist.sh --no-build --no-game-data`, comme sur un PC. La release ne contient aucun fichier du jeu.
 
 `--bo2 DIR` ajoute aussi aux paquets windows et linux votre propre extraction d'une map de Black Ops II
