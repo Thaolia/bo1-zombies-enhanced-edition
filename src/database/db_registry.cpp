@@ -540,6 +540,7 @@ char g_debugZoneName[64];
 
 int g_zoneCount;
 XZone g_zones[32];
+void DB_UnloadLevelZonesInStackOrder(int zoneFreeFlags, bool levelPatchFirst);
 
 const dvar_t *db_xassetdebug;
 const dvar_t *db_xassetdebugtype;
@@ -3484,6 +3485,7 @@ void __cdecl DB_LoadXAssets(XZoneInfo *zoneInfo, unsigned int zoneCount, int syn
         }
         for ( j = 0; j < zoneCount; ++j )
         {
+            DB_UnloadLevelZonesInStackOrder(zoneInfo[j].freeFlags, levelPatchFirst);
             if ( !levelPatchFirst )
             {
                 DB_UnloadXAssetsMemoryForZone(zoneInfo[j].freeFlags, 0x40000);
@@ -5009,6 +5011,58 @@ void DB_FreeDefaultEntries()
     }
 }
 
+// mod: a bo1_mod_zones zone brings its own '<zone>_patch' and localized zone (Ascension's for TranZit's Stamin-Up),
+// loaded after the level's. Physical memory is a stack, freed last-in first-out, and the retail order below (one
+// flag at a time) then reached the level's zone while the mod zone's language zone was still on top: "free does not
+// match allocation", fatal, on leaving native TranZit. When that order differs from the reverse of the load order,
+// the level's zones go in the reverse load order; otherwise nothing changes.
+void DB_UnloadLevelZonesInStackOrder(int zoneFreeFlags, bool levelPatchFirst)
+{
+    static const int retailOrder[2][6] = { { 0x40000, 0x80000, 0x10000, 0x20000, 0x4000, 0x8000 },
+                                           { 0x10000, 0x20000, 0x4000, 0x8000, 0x80000, 0x40000 } };
+    const int *order = retailOrder[levelPatchFirst ? 1 : 0];
+    int mask = 0;
+    for ( int k = 0; k < 6; ++k )
+        mask |= order[k] & zoneFreeFlags;
+    if ( !mask )
+        return;
+    int planned[ARRAY_COUNT(g_zones)];
+    bool taken[ARRAY_COUNT(g_zones)] = {};
+    int plannedCount = 0;
+    for ( int k = 0; k < 6; ++k )
+    {
+        if ( !(order[k] & mask) )
+            continue;
+        for ( int i = g_zoneCount - 1; i >= 0; --i )
+        {
+            if ( !taken[i] && (g_zones[i].flags & order[k]) )
+            {
+                taken[i] = true;
+                planned[plannedCount++] = i;
+            }
+        }
+    }
+    bool retail = true;
+    int stackCount = 0;
+    for ( int i = g_zoneCount - 1; i >= 0; --i )
+    {
+        if ( g_zones[i].flags & mask )
+        {
+            if ( stackCount >= plannedCount || planned[stackCount] != i )
+                retail = false;
+            ++stackCount;
+        }
+    }
+    if ( retail )
+        return;
+    Com_Printf(16, "mod: level zones freed in reverse load order (a mod zone's own patch or language zone lies between them)\n");
+    for ( int i = g_zoneCount - 1; i >= 0; --i )
+    {
+        if ( g_zones[i].flags & mask )
+            DB_UnloadXAssetsMemory(&g_zones[i]);
+    }
+}
+
 void __cdecl DB_UnloadXAssetsMemoryForZone(int zoneFreeFlags, int zoneFreeBit)
 {
     int i; // [esp+0h] [ebp-4h]
@@ -5412,7 +5466,10 @@ char *__cdecl DB_ReferencedFFNameList()
                     I_strncat(g_zoneNameList, 2080, "usermaps");
                     I_strncat(g_zoneNameList, 2080, "/");
                     String = Dvar_GetString("fs_usermapdir");
-                    I_strncat(g_zoneNameList, 2080, String);
+                    // mod: a bo1_mod_zones zone in usermaps/<zone>/ on a retail map (fs_usermapdir empty) is named by
+                    // its own folder. "usermaps//<zone>" started a comment for the client's Cmd_TokenizeString: the
+                    // names after it were lost and native TranZit (two mod zones) failed with "file sum/name mismatch"
+                    I_strncat(g_zoneNameList, 2080, *String ? String : g_zoneNames[i].name);
                     I_strncat(g_zoneNameList, 2080, "/");
                 }
                 I_strncat(g_zoneNameList, 2080, g_zoneNames[i].name);

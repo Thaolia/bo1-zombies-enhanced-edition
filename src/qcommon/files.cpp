@@ -545,6 +545,14 @@ FS_SERVER_COMPARE_RESULT __cdecl FS_CompareFFs(char *neededFFs, int len, int dls
         if ( !fileSize )
         {
             v5 = fs_usermapDir && *fs_usermapDir->current.string;
+            // mod: a server's bo1_mod_zones zone "usermaps/<zone>/<zone>" (DB_ReferencedFFNameList) is looked for in
+            // usermaps/<zone>/ as well when this client has no user map directory (a retail base map, MapKit's)
+            if ( !v5 && fs_usermapDir && !I_strnicmp(fs_serverReferencedFFNames[i], "usermaps/", 9) )
+            {
+                const char *zone = fs_serverReferencedFFNames[i] + 9;
+                const char *slash = strchr(zone, '/');
+                v5 = slash && !I_stricmp(slash + 1, va("%.*s", (int)(slash - zone), zone));
+            }
             if ( !v5 || I_strnicmp(fs_serverReferencedFFNames[i], "usermaps", 8) )
             {
                 v4 = fs_gameDirVar && *fs_gameDirVar->current.string;
