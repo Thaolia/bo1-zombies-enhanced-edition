@@ -92,6 +92,11 @@ TRAVERSES = {
     "zm_alcatraz_dock_water_jump_up": "by_height",
     "zm_alcatraz_gondola_climb": "by_height",
     "zm_prison_jump_up_to_climb": "by_height",
+    # Buried's (its town's balconies, the railings at the start)
+    "zm_jump_down_240": "by_height",
+    "zm_jump_up_grabbed_48": "by_height",
+    "zm_jump_down_startrailing": "by_height",
+    "zm_jump_up_startrailing": "by_height",
 }
 # BO1's jump downs by height: BO2's animscript names do not give the drop (TranZit's "zm_jump_down_48" off a roof falls
 # 102 units), so a jump down takes the BO1 one nearest the pair's own drop

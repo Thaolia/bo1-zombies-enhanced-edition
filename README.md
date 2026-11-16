@@ -1,12 +1,140 @@
 # BO1 Zombies
 
+Black Ops 1 Zombies with its engine decompiled, so mods can change the engine itself, not just scripts and maps.
+This fork (branch `switch`) also runs it in 64-bit on Windows, Linux, OpenBSD and the Nintendo Switch, adds a dedicated
+server, and brings Black Ops II maps and weapons into it.
+
+![](images/1.webp)
+
+![](images/2.webp)
+
+> **No game data is included.** Every package is built from *your own* Black Ops (and Black Ops II for the BO2
+> content). Keep the packages for your own devices and never publish them.
+
+French version: `README.fr.md`. The full, detailed reference is [below](#detailed-reference-original-readme).
+
+## Contents
+
+- [What you get](#what-you-get)
+- [Platforms](#platforms)
+- [Getting started](#getting-started)
+- [Black Ops II content](#black-ops-ii-content)
+- [Tools](#tools)
+- [Building](#building)
+- [Documentation](#documentation)
+- [Detailed reference (original README)](#detailed-reference-original-readme)
+
+## What you get
+
+- **The ten zombies maps and Dead Ops Arcade**, solo or online.
+- **A dedicated server** for Windows and Linux. Players can join a game in progress, and up to 32 can play. It comes
+  with admin commands (`zm_god`, `zm_points`, `zm_perk`, `zm_round`...) and an admin console (`zmadmin`).
+- **A player launcher** (`zmclient`). It plays solo with mods, joins servers, opens a two-window split screen, and
+  installs the game files from your own copy.
+- **Mods** that stack: horde, nightmare, MapKit, no perks, zombie counter, the BO2 weapons, dual-wield Pack-a-Punch
+  weapons.
+- **Black Ops II maps**: Nuketown, TranZit, Mob of the Dead and Buried, as native BO1 maps.
+- **Speedrun info**: the settings that change a run and a SHA-512 over the program and its zones, shown on screen.
+
+## Platforms
+
+| Platform | Status | Notes |
+|---|---|---|
+| Windows 64-bit | playable | the original D3D9 renderer; `Play.bat`, `zmclient.exe` |
+| Windows 32-bit | reference build | the retail layout; `Play.bat offline` without Steam |
+| Linux x86-64 | work in progress | OpenGL 4.3 client, dedicated server and headless client; no sound or gamepad yet |
+| OpenBSD/amd64 | compiles | cross-built from Linux; not yet run on a real machine |
+| Nintendo Switch 1 | playable homebrew | `.nro` for Atmosphère, deko3d or OpenGL, start menu on the console |
+
+## Getting started
+
+1. **Get a package.** Build one with `tools/make_dist.sh` (see [Packages](#packages) below). A GitHub release
+   holds the same packages without game files.
+2. **Add your game files.** With a package that has no game files, ZmClient's *Installation* view copies them from
+   your Black Ops install and converts the zones. On the Switch, `Setup-Switch.bat` (Windows) or
+   `./setup_switch.sh` (Linux) completes the SD card folder.
+3. **Play.**
+   - **Windows / Linux**: run `zmclient`, or `Play.bat` / `play.sh`.
+   - **Switch**: launch the `.nro` in application mode (hold R while starting a game). The start menu picks the
+     map, the server to join, aim assist, god mode, the start kit (points, power, Pack-a-Punch, perks), graphics,
+     controls and controllers. **+** starts the game.
+   - **Server**: `Server.bat [map] [port]` or `./server.sh [map] [port]`. Players join with
+     `Play.bat net <address>:<port>`, from ZmClient, or from the Switch's **Serveur** screen.
+
+## Black Ops II content
+
+Extracted from your own Black Ops II with `tools/bo2` (OpenAssetTools plus a world dumper) and packaged with
+`make_dist.sh --bo2`:
+
+| Map | What works | Not there |
+|---|---|---|
+| Nuketown | the whole map, its props and BO2's baked light; self-test 106/106 | — |
+| TranZit (classic) | doors, power, perks, Pack-a-Punch, barricades, the bridge, the bus and the bank | Denizens, buildables |
+| Mob of the Dead | cell blocks, doors, perks, Pack-a-Punch, the gondola (running from the start) | afterlife, the plane, Brutus |
+| Buried | town, cave and mansion, perks, Pack-a-Punch; the power is on from the start | Leroy, ghosts, the maze puzzles, buildables |
+
+The BO2 weapons (36 box weapons and their Pack-a-Punch versions) come as the `bo2weapons` mod. In ZmClient's Solo view
+the maps are listed as « Mapkit : … native (Black Ops II, monde BSP) ». Details: `docs/BO2_MAPS.md`,
+`docs/BO2_WEAPONS.md`.
+
+## Tools
+
+| Tool | What it does |
+|---|---|
+| `tools/ffconv` | converts your install's fastfiles to the 64-bit format and translates the shaders (`--verify` checks each zone) |
+| `tools/zmclient` | player launcher: solo with mods, servers, split screen, installation |
+| `tools/zmadmin` | server admin console: players, game, settings, rcon, log |
+| `tools/make_dist.sh` | builds the ready-to-copy packages of every platform |
+| `tools/bo2` | turns a Black Ops II map into a MapKit layout and a native BO1 map |
+| `tools/dualwield` | builds the dual-wield Pack-a-Punch mod from your zones |
+| `tools/switch_setup` | completes a Switch SD card folder from your install |
+| `tools/server_status.py`, `tools/server_rcon.py` | query a server, send rcon commands |
+
+## Building
+
+```sh
+# zones: from your install, never written into it
+build\ffconv\ffconv.exe --verify --game "C:\...\Call of Duty Black Ops" --out build\zones64
+
+# Windows 64-bit
+cmake --preset win64-msvc && cmake --build --preset win64-msvc-release      # then Play.bat x64
+
+# Linux
+cmake --preset linux64-clang -DDXSDK_DIR=<June 2010 DirectX SDK> && cmake --build --preset linux64-clang
+
+# every package (bash, from WSL)
+tools/make_dist.sh
+```
+
+The Switch build uses devkitPro (devkitA64, libnx) and is driven by `make_dist.sh`. Prerequisites and every option
+are in the [detailed reference](#detailed-reference-original-readme) and in `docs/PORTING.md`.
+
+## Documentation
+
+| Question | Read |
+|---|---|
+| Port plan, status, decisions | `docs/PORTING.md` |
+| How the port is layered | `docs/ARCHITECTURE.md` |
+| Renderer backends | `docs/RENDERER.md` |
+| Dedicated server | `docs/SERVER.md` |
+| Black Ops II maps / weapons | `docs/BO2_MAPS.md`, `docs/BO2_WEAPONS.md` |
+| Mods | `mods/*/README.md`, `mods/mapkit/MAPKIT.md` |
+
+---
+
+## Detailed reference (original README)
+
+The README as it was before this summary, kept in full.
+
+### BO1 Zombies
+
 Decompiled engine code for Black Ops 1 Zombies, so mods can change the engine itself, not just scripts and maps.
 
 ![](images/1.webp)
 
 ![](images/2.webp)
 
-## Nintendo Switch port (branch `switch`)
+#### Nintendo Switch port (branch `switch`)
 
 This fork ports the engine to Nintendo Switch 1 homebrew (`.nro`, AArch64, libnx). The v1 target is solo offline
 zombies on the base maps. It is a work in progress: see `docs/PORTING.md` for the plan and status, and
@@ -119,7 +247,7 @@ props, collision and BO2's baked light into a BO1 BSP, and `+set bo1_bspworld ma
 MapKit's Nuketown gameplay on it (the self-test passes 106 of 106 checks; models are not lit yet). `make_dist.sh --bo2`
 packages it and ZmClient's Solo view offers it as "Mapkit : Nuketown native (Black Ops II, monde BSP)".
 
-## Packages
+#### Packages
 
 `tools/make_dist.sh` (bash, from WSL) turns a source tree where `setup.ps1` has copied the game into ready-to-copy
 folders and archives in `build/dist`, one per platform:
@@ -176,7 +304,7 @@ your copy of the "Relaxing Dual Wield" mod, which adds the PPSh; see `mods/dualw
 Switch included. Nuketown has over 2 000 props: ZmClient's Lancement view, "Modèles affichés par image" at 4096
 (`r_mod_sceneModels`), draws them all; 1024 (retail) drops the farthest.
 
-### Release on GitHub
+##### Release on GitHub
 
 `.github/workflows/release.yml` builds the programs of the four platforms on GitHub's machines and publishes a release, "BO1 Zombies
 Enhanced edition version <tag>", holding one archive per platform (`BO1Zombies_<tag>_windows.zip`, `_linux`,

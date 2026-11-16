@@ -497,6 +497,10 @@ bo2_note() {
             echo "DEAD        propre Black Ops II : l'île sans l'après-vie ni l'avion, le Pack-a-Punch dans le bloc des"
             echo "            cellules."
         fi
+        if [ -f "$BO2/main/maps/zombie_bo2buried.d3dbsp" ]; then
+            echo "BURIED      zmclient, vue Solo : « Mapkit : Buried native (Black Ops II, monde BSP) », de votre propre"
+            echo "            Black Ops II : la ville sans Leroy ni le manoir hanté."
+        fi
     fi
     if [ $BO2_WEAPONS = 1 ]; then
         echo "ARMES BO2   zmclient, vue Solo : « Armes de Black Ops II » (ou zmadmin au lancement du serveur), tirées"

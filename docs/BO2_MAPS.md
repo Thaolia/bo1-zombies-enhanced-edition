@@ -534,6 +534,56 @@ user after the start door fix, nor on the console.
 ZmClient offers it as « Mapkit : Mob of the Dead native (Black Ops II, monde BSP) », the Switch start menu as « Mob of
 the Dead (BO2, natif) »; `make_dist.sh --bo2` packages it as TranZit.
 
+### Buried's world as a native map (2026-11-16)
+
+`zm_buried` (images in `dlc3.ipak`, through the same links) goes through the tools unchanged but for four traversals,
+as `zombie_bo2buried` with the layout `bo2_zm_buried_bsp`: the town and its cave, without Leroy, the haunted mansion's
+ghosts, the maze's puzzles or the buildables. 122 110 world triangles in 1 782 surfaces, 9 774 props of 619 models,
+11 684 brushes, 196 lamps; BSP 80 MB, zone 10 MB, 301 colour maps, props collision 62 MB; hunk 55.4 MB after the render
+world, 57.4 at most (Windows). Layout: 41 zones, 35 windows, 60 risers, 38 spawners, 9 doors, 7 debris, 7 box spots,
+Juggernog, Double Tap, Quick Revive, Speed Cola and Stamin-Up (Ascension's zone, as TranZit), the Pack-a-Punch by the
+maze, 5 wall buys; no power switch, so the power is on from the start. Left out: Mule Kick and Vulture Aid (no machine
+on Five), the LSAT, `zm_jump_across_120` (TranZit has it too and keeps its layout). `zm_jump_down_240`,
+`zm_jump_up_grabbed_48` and the start's railing jumps take the climbs' rule (by height).
+
+Checked: Windows client (D3D9): spawn in the processing plant, walking, the town's street, cave and mansion drawn, the
+round starts, clean exit. Self-test (Linux, timescale 4, before the four traversals): pass 246 fail 12, 32 of 35
+windows and 58 of 60 risers, rounds on to 28 in 38 minutes. Failing: the candy store's staircase debris and so its
+upper floor's zone (the client stands beside the steps), Quick Revive (a shovel by the machine stops the client 49 units
+from the trigger), the start's upper Ithaca (the client stays on the floor below), 3 windows, 2 risers.
+
+Props' collision, after the user got stuck three times (`bo2_bsp_props.py`, `bo2_props_collision.py`; every case
+checked with a Windows client walking through it):
+- **The slide** from the start down to the tunnels. BO2 lays thin player clips over it as its floor. Its rock piles
+  were boxes: those of the rocks hanging from the ceiling (turned over: their up axis points down) filled the space
+  under the rocks (37 units left where the rocks leave 84), and those of the rocks under the clips stood up to 40 units
+  over it, so the player walked on them into the hanging ones. A pile turned over, or under a player clip with a floor
+  (`clip_ramps`: player clip only, a side of normal z 0.7 or more), now keeps its triangles, and the faces under such a
+  clip, up to `RAMP_COVER` (36) units over it, are left out: the real rocks rise 22 units through the clip under rocks
+  hanging 47 units over them, which no player passes. 1 014 piles, 49 341 triangles left under clips.
+- **Leroy's cell** in the jail: the frame's collision LOD keeps the closed door's rails across the doorway (the door is
+  a script model, left out with Leroy). `DOORWAYS` cuts the frame's triangles between x = -42 and 12 (model space; the
+  door's hinge is at -42): the cell is open, as after Leroy is freed.
+- **The general store's stairs** and the doorway at their top: each prism went 16 units behind its face, so the
+  prisms of a part thinner than that (a railing's spindles, a door frame's trim) came out of its other side, 13 units
+  into the stairs and at head height in the doorway (a standing player stopped, a crouching one passed).
+  `prism_depths` stops each prism at the model's next face behind it (a ray from the face's centre, at least 1 unit):
+  the railing's prisms are now 1.8 to 4 units deep. MapKit's own import (`bo2_props_collision.py` run alone) still
+  writes 16-unit prisms.
+
+The BSP is otherwise the same (zone unchanged); the props' collision file holds 360 154 prisms (302 366 before) in
+73 MB. Self-test after these changes: pass 244 fail 14 (247/11 and 246/12 on the two runs before): the candy store's
+debris and zone, Quick Revive, the upper Ithaca, 4 windows and a riser as before, plus two of the general store's
+window checks, whose zombies came through those windows earlier in the run but not within the check's 90 s (the
+props do not block the AI; `bank_1` failed the same way on the first run and passed on the second). The changes apply
+to every map at its next `bo2_bsp.py` run: Nuketown, TranZit and Mob of the Dead were not rebuilt with them.
+
+    tools/bo2/bo2_bsp.py $D/zm_buried zm_buried --name zombie_bo2buried ... (as Mob of the Dead, no --mover)
+    +set bo1_mod_mapkit bo2_zm_buried_bsp +set bo1_mod_zones zombie_bo2buried zombie_cosmodrome \
+    +set bo1_bspworld maps/zombie_bo2buried.d3dbsp +devmap zombie_pentagon
+
+ZmClient: « Mapkit : Buried native (Black Ops II, monde BSP) »; Switch start menu: « Buried (BO2, natif) ».
+
 ## What comes out of `zm_nuked`
 
 With [OpenAssetTools](https://github.com/Laupetin/OpenAssetTools) 0.34.0 (GPL v3) and a world dumper written for it
