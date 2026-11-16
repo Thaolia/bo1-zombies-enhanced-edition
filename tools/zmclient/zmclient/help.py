@@ -71,6 +71,14 @@ ROW_HELP = {
                    "(docs/BO2_WEAPONS.md) et se pose dans mods/bo2weapons/. Les armes au mur restent celles de la "
                    "map. Un joueur qui rejoint un serveur avec ces armes doit avoir le même mod.ff (vue Jouer, mode "
                    "Rejoindre : « Armes de Black Ops II »).",
+    "dual_wield": "Le Pack-a-Punch double le Ray Gun (deux Ray Guns) et le Thundergun (« Zeus and Hera ») (mod "
+                  "dualwield, réglages dualwield_pap et dualwield_ppsh). Leur mod.ff se construit depuis les zones de "
+                  "votre jeu, ou depuis votre copie du mod « Relaxing Dual Wield » : il double alors aussi le PPSh "
+                  "(« The Grim Reapers ») et met le PPSh-41 dans la boîte (mods/dualwield/README.md). Se cumule avec "
+                  "les armes de Black Ops II.",
+    "join_dual_wield": "À cocher pour rejoindre un serveur qui a les armes doublées (mod dualwield) : le jeu charge "
+                       "alors le même mods/dualwield/mod.ff. Sans lui, l'entrée sur ce serveur échoue en nommant "
+                       "l'arme qui manque.",
     "join_bo2_weapons": "À cocher pour rejoindre un serveur qui a les armes de Black Ops II (mod bo2weapons) : le jeu "
                         "charge alors le même mods/bo2weapons/mod.ff. Sans lui, l'entrée sur ce serveur échoue "
                         "et le jeu revient au menu avec un message (arme manquante).",

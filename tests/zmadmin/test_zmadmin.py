@@ -300,6 +300,21 @@ class LauncherTest(unittest.TestCase):
         self.assertNotIn("fs_game", line)
         self.assertNotIn("bo2weapons", " ".join(plain))
 
+    def test_dual_wield(self):
+        with tempfile.TemporaryDirectory() as d:
+            for name in (launcher.EXE_NAME, launcher.SCRIPT_NAME):
+                open(os.path.join(d, name), "w").close()
+            for mod in ("zone", "mods/dualwield"):
+                os.makedirs(os.path.join(d, mod))
+            dist = launcher.find_dist(d)
+            self.assertFalse(dist.dual_wield())
+            open(os.path.join(d, "mods", "dualwield", "mod.ff"), "w").close()
+            self.assertTrue(dist.dual_wield())
+            both = " ".join(launcher.server_command(dist, "zombie_theater", 3080, "pw", bo2_box=0, dual_wield=True))
+            alone = " ".join(launcher.server_command(dist, "zombie_theater", 3080, "pw", dual_wield=True))
+        self.assertIn("+set fs_mods bo2weapons dualwield +set bo2weapons_box 0 +rcon_password pw", both)
+        self.assertIn("+set rcon_password pw +set fs_mods dualwield +rcon_password pw", alone)
+
 
 class MouseTest(unittest.TestCase):
     def test_kinds(self):

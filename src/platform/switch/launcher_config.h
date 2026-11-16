@@ -87,6 +87,12 @@ struct LauncherSettings
     // kept in menu.cfg).
     bool joinBo2Weapons = true;
     bool bo2WeaponsInstalled = false;
+    // mods/dualwield (mods/dualwield/README.md): dual-wield weapons after Pack-a-Punch, from the player's own copy of
+    // the "Relaxing Dual Wield" mod. dualWield for a solo game, joinDualWield to join a server that has them; both only
+    // when dualWieldInstalled, which the menu sets from the SD card (not kept in menu.cfg).
+    bool dualWield = false;
+    bool joinDualWield = true;
+    bool dualWieldInstalled = false;
     int map = 0;            // index into kLauncherMaps
     bool aimAssist = true;
     bool aimSlowdown = true;

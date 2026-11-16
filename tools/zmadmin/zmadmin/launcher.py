@@ -5,8 +5,9 @@ The command line is the one of the folder's server.sh / Server.bat (tools/make_d
 - the rcon password twice. '+set rcon_password' is applied before server.cfg runs (Com_StartupVariable), and a
   server.cfg 'set rcon_password' would override it; the '+rcon_password <pw>' command runs after server.cfg's exec,
   in command-line order (Dvar_Command), so ZmAdmin's password always wins.
-With Black Ops II's weapons (docs/BO2_WEAPONS.md), fs_mods names mods/bo2weapons, whose mod.ff the engine loads at
-start-up (DB_FindModZone). A server.cfg that sets fs_mods replaces it.
+With Black Ops II's weapons (docs/BO2_WEAPONS.md) or the dual-wield weapons (mods/dualwield/README.md), fs_mods names
+mods/bo2weapons and/or mods/dualwield, whose mod.ff the engine loads at start-up (DB_ListModZones). A server.cfg that
+sets fs_mods replaces it.
 """
 import json
 import os
@@ -33,6 +34,10 @@ class Dist:
     def bo2_weapons(self):
         """mods/bo2weapons/mod.ff is in the folder: the player built it from their own Black Ops II."""
         return os.path.isfile(os.path.join(self.root, "mods", "bo2weapons", "mod.ff"))
+
+    def dual_wield(self):
+        """mods/dualwield/mod.ff is in the folder: the player built it from their own copy of the mod."""
+        return os.path.isfile(os.path.join(self.root, "mods", "dualwield", "mod.ff"))
 
     def mods(self):
         try:
@@ -61,10 +66,13 @@ def find_dist(explicit=None):
     return None
 
 
-def server_command(dist, map_name, port, password, bo2_box=None):
+def server_command(dist, map_name, port, password, bo2_box=None, dual_wield=False):
     """bo2_box: None without Black Ops II's weapons, else mods/bo2weapons' bo2weapons_box (0 with the map's weapons,
-    1 BO2's and the map's special ones, 2 BO2's only). The server stacks mods/zinfo and mods/admin itself."""
-    bo2 = [] if bo2_box is None else ["+set", "fs_mods", "bo2weapons", "+set", "bo2weapons_box", str(bo2_box)]
+    1 BO2's and the map's special ones, 2 BO2's only). dual_wield: mods/dualwield's weapons. The server stacks
+    mods/zinfo and mods/admin itself."""
+    mods = (["bo2weapons"] if bo2_box is not None else []) + (["dualwield"] if dual_wield else [])
+    bo2 = (["+set", "fs_mods"] + mods if mods else []) + (
+        [] if bo2_box is None else ["+set", "bo2weapons_box", str(bo2_box)])
     return [dist.exe,
             "+set", "fs_b", dist.root, "+set", "fs_h", dist.home,
             "+set", "bo1_server", "1", "+set", "net_ip", "0.0.0.0", "+set", "net_port", str(port),
@@ -132,7 +140,7 @@ class LocalServer:
         # a PID the system gave to another program since: not our server
         return exe is not None and _same_file(exe.removesuffix(" (deleted)"), self.dist.exe)
 
-    def start(self, map_name, port, password, bo2_box=None):
+    def start(self, map_name, port, password, bo2_box=None, dual_wield=False):
         if self.running():
             raise RuntimeError(f"le serveur local tourne déjà (PID {self.pid})")
         os.makedirs(self.dist.main, exist_ok=True)
@@ -143,7 +151,7 @@ class LocalServer:
         else:
             kwargs["start_new_session"] = True
         try:
-            self._proc = subprocess.Popen(server_command(self.dist, map_name, port, password, bo2_box),
+            self._proc = subprocess.Popen(server_command(self.dist, map_name, port, password, bo2_box, dual_wield),
                                           cwd=self.dist.root, stdin=subprocess.DEVNULL, stdout=out, stderr=subprocess.STDOUT, **kwargs)
         finally:
             out.close()

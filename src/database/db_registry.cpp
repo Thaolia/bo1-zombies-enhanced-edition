@@ -4513,11 +4513,21 @@ bool __cdecl DB_GetZoneAllocType(int zoneFlags)
     return zoneFlags >= 0x100000;
 }
 
-// mod: the "mod" zone's file. fs_game's mod.ff as retail, else the first mod of the fs_mods stack that has one
-// (mods/<name>/mod.ff): fs_mods "bo2weapons" loads its weapons without an fs_game, whose change sent by a server makes
-// a joining client restart. Each folder is looked up under fs_homepath, then fs_basepath (a package's mods/ sit beside
-// the program; the dedicated server's fs_homepath is server/). folder (when given) gets the folder's name.
-static bool DB_FindModZone(char *filename, unsigned int size, char *folder, unsigned int folderSize)
+// mod: the mod zones' files. fs_game's mod.ff as retail, then the mod.ff of each mod of the fs_mods stack
+// (mods/<name>/mod.ff), each folder once: fs_mods "bo2weapons" loads its weapons without an fs_game, whose change sent
+// by a server makes a joining client restart. Each folder is looked up under fs_homepath, then fs_basepath (a
+// package's mods/ sit beside the program; the dedicated server's fs_homepath is server/). The first file found is the
+// retail "mod" zone; every other one loads too, as zone "mod_<folder's last name>" (DB_LoadGraphicsAssetsForPC), so
+// two stacked mods can each bring weapons (mods/bo2weapons and mods/dualwield).
+#define DB_MAX_MOD_ZONES 8
+struct DBModZoneFile
+{
+    char zoneName[72];
+    char folder[72];
+    char filename[260];
+};
+
+static int DB_ListModZones(DBModZoneFile *zones, int max)
 {
     char names[16][64];
     char candidates[17][72];
@@ -4531,22 +4541,63 @@ static bool DB_FindModZone(char *filename, unsigned int size, char *folder, unsi
                              fs_basepath && fs_homepath && I_stricmp(fs_basepath->current.string,
                                                                      fs_homepath->current.string)
                                  ? fs_basepath->current.string : NULL };
-    for ( int c = 0; c < count; ++c )
+    int found = 0;
+    for ( int c = 0; c < count && found < max; ++c )
     {
+        bool seen = false;
+        for ( int f = 0; f < found && !seen; ++f )
+            seen = !I_stricmp(zones[f].folder, candidates[c]);
+        if ( seen )
+            continue;
         for ( int r = 0; r < 2; ++r )
         {
             if ( !roots[r] || !*roots[r] )
                 continue;
-            Com_sprintf(filename, size, "%s\\%s\\mod.ff", roots[r], candidates[c]);
-            if ( GetFileAttributesA(filename) != -1 )
+            DBModZoneFile *z = &zones[found];
+            Com_sprintf(z->filename, sizeof(z->filename), "%s\\%s\\mod.ff", roots[r], candidates[c]);
+            if ( GetFileAttributesA(z->filename) == -1 )
+                continue;
+            I_strncpyz(z->folder, candidates[c], sizeof(z->folder));
+            const char *base = candidates[c];
+            for ( const char *p = candidates[c]; *p; ++p )
             {
-                if ( folder )
-                    I_strncpyz(folder, candidates[c], folderSize);
-                return true;
+                if ( *p == '/' || *p == '\\' )
+                    base = p + 1;
             }
+            if ( found )
+                Com_sprintf(z->zoneName, sizeof(z->zoneName), "mod_%s", base);
+            else
+                I_strncpyz(z->zoneName, "mod", sizeof(z->zoneName));
+            ++found;
+            break;
         }
     }
+    return found;
+}
+
+// mod: the file (and folder, when given) of the mod zone named zoneName ("mod" or "mod_<name>"), if it is one
+static bool DB_FindModZoneNamed(const char *zoneName, char *filename, unsigned int size, char *folder,
+                                unsigned int folderSize)
+{
+    if ( I_stricmp(zoneName, "mod") && I_strnicmp(zoneName, "mod_", 4) )
+        return false;
+    DBModZoneFile zones[DB_MAX_MOD_ZONES];
+    const int count = DB_ListModZones(zones, DB_MAX_MOD_ZONES);
+    for ( int i = 0; i < count; ++i )
+    {
+        if ( I_stricmp(zones[i].zoneName, zoneName) )
+            continue;
+        I_strncpyz(filename, zones[i].filename, size);
+        if ( folder )
+            I_strncpyz(folder, zones[i].folder, folderSize);
+        return true;
+    }
     return false;
+}
+
+static bool DB_FindModZone(char *filename, unsigned int size, char *folder, unsigned int folderSize)
+{
+    return DB_FindModZoneNamed("mod", filename, size, folder, folderSize);
 }
 
 void __cdecl DB_ModXFileHandle(const char *zoneName, void **zoneFile, FF_DIR *zoneDir)
@@ -4557,7 +4608,10 @@ void __cdecl DB_ModXFileHandle(const char *zoneName, void **zoneFile, FF_DIR *zo
     char filename[260]; // [esp+8h] [ebp-108h] BYREF
 
     v6 = (fs_gameDirVar && *fs_gameDirVar->current.string) || DB_ModFileExists(); // mod: or fs_mods' mod.ff
-    if ( !v6 || I_stricmp(zoneName, "mod") )
+    char modFile[260];
+    // mod: "mod_<name>", a second stacked mod's mod.ff (DB_ListModZones), opens from its folder as "mod" does
+    const bool modZone = !I_stricmp(zoneName, "mod") || DB_FindModZoneNamed(zoneName, modFile, sizeof(modFile), NULL, 0);
+    if ( !v6 || !modZone )
     {
         if ( fs_usermapDir && *fs_usermapDir->current.string )
         {
@@ -4595,7 +4649,8 @@ void __cdecl DB_BuildOSPath_FromSource(const char *zoneName, FF_DIR source, unsi
     {
         if ( source == FFD_MOD_DIR )
         {
-            v4 = (fs_gameDirVar && *fs_gameDirVar->current.string) || (!I_stricmp(zoneName, "mod") && DB_ModFileExists());
+            v4 = (fs_gameDirVar && *fs_gameDirVar->current.string)
+                || DB_FindModZoneNamed(zoneName, filename, size, NULL, 0); // mod: fs_mods' mod.ff (mod, mod_<name>)
             if ( !v4
                 && !Assert_MyHandler(
                             "C:\\projects_pc\\cod\\codsrc\\src\\database\\db_registry.cpp",
@@ -4606,7 +4661,7 @@ void __cdecl DB_BuildOSPath_FromSource(const char *zoneName, FF_DIR source, unsi
             {
                 __debugbreak();
             }
-            if ( !I_stricmp(zoneName, "mod") && DB_FindModZone(filename, size, NULL, 0) ) // mod: fs_mods' mod.ff
+            if ( DB_FindModZoneNamed(zoneName, filename, size, NULL, 0) ) // mod: fs_mods' mod.ff (mod, mod_<name>)
                 return;
             Com_sprintf(filename, size, "%s\\%s\\%s.ff", fs_homepath->current.string, fs_gameDirVar->current.string, zoneName);
         }
@@ -5455,11 +5510,17 @@ char *__cdecl DB_ReferencedFFNameList()
                 if ( g_zoneNames[i].dir == FFD_MOD_DIR )
                 {
                     char path[256], folder[72];
-                    // mod: the folder whose mod.ff loaded (fs_game's, or a stacked mod's)
-                    I_strncat(g_zoneNameList, 2080,
-                              DB_FindModZone(path, sizeof(path), folder, sizeof(folder)) ? folder
-                                                                                          : fs_gameDirVar->current.string);
+                    // mod: the folder whose mod.ff loaded (fs_game's, or a stacked mod's), and the file's name: a
+                    // "mod_<name>" zone is mods/<name>/mod.ff too
+                    const bool found = DB_FindModZoneNamed(g_zoneNames[i].name, path, sizeof(path), folder,
+                                                           sizeof(folder));
+                    I_strncat(g_zoneNameList, 2080, found ? folder : fs_gameDirVar->current.string);
                     I_strncat(g_zoneNameList, 2080, "/");
+                    if ( found )
+                    {
+                        I_strncat(g_zoneNameList, 2080, "mod");
+                        continue;
+                    }
                 }
                 else if ( g_zoneNames[i].dir == FFD_USER_MAP )
                 {
@@ -5585,7 +5646,7 @@ void __cdecl DB_LoadFastFilesForPC()
 
 void __cdecl DB_LoadGraphicsAssetsForPC()
 {
-    XZoneInfo zoneInfo[6]; // [esp+0h] [ebp-50h] BYREF
+    XZoneInfo zoneInfo[6 + DB_MAX_MOD_ZONES - 1]; // mod: room for the other stacked mods' mod.ff (was 6)
     unsigned int zoneCount; // [esp+4Ch] [ebp-4h]
 
     // zombies: bo1_zombies adds SP's code zones, the two SP's DB_LoadGraphicsAssetsForPC (0x00571DB0) loads:
@@ -5619,13 +5680,20 @@ void __cdecl DB_LoadGraphicsAssetsForPC()
         zoneInfo[zoneCount].allocFlags = 16;
         zoneInfo[zoneCount++].freeFlags = 0;
     }
-    if ( DB_ModFileExists() )
+    // mod: the first mod.ff loads as retail's "mod" zone, the other stacked mods' after it (DB_ListModZones)
+    static DBModZoneFile modZones[DB_MAX_MOD_ZONES];
+    const int modZoneCount = DB_ListModZones(modZones, DB_MAX_MOD_ZONES);
+    // In this batch, never in one of their own: syncing a batch that holds "mod" here crashed in
+    // DB_PostLoadXZone -> RB_UnbindAllImages (R_DisableSampler), and retail never syncs after it at start-up.
+    for ( int m = 0; m < modZoneCount; ++m )
     {
-        zoneInfo[zoneCount].name = "mod";
+        if ( m )
+            Com_Printf(10, "fs_mods: %s/mod.ff loads as zone %s\n", modZones[m].folder, modZones[m].zoneName);
+        zoneInfo[zoneCount].name = modZones[m].zoneName;
         zoneInfo[zoneCount].allocFlags = 64;
         zoneInfo[zoneCount++].freeFlags = 0;
     }
-    if ( zoneCount > 6
+    if ( zoneCount > sizeof(zoneInfo) / sizeof(zoneInfo[0])
         && !Assert_MyHandler(
                     "C:\\projects_pc\\cod\\codsrc\\src\\database\\db_registry.cpp",
                     6304,

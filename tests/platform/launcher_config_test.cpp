@@ -34,7 +34,8 @@ bool SameSettings(const LauncherSettings &a, const LauncherSettings &b)
            a.aimLockon == b.aimLockon && a.aimAutoaim == b.aimAutoaim && a.god == b.god && a.tabInfo == b.tabInfo && a.backend == b.backend &&
            a.maxFps == b.maxFps && a.shadows == b.shadows && a.propDistance == b.propDistance && a.fpsCounter == b.fpsCounter &&
            a.texFilter == b.texFilter && a.startPoints == b.startPoints && a.startPerks == b.startPerks &&
-           a.startPower == b.startPower && a.startPap == b.startPap && a.farRespawn == b.farRespawn && a.lanAuto == b.lanAuto && a.joinBo2Weapons == b.joinBo2Weapons && a.runInfo == b.runInfo && a.height == b.height &&
+           a.startPower == b.startPower && a.startPap == b.startPap && a.farRespawn == b.farRespawn && a.lanAuto == b.lanAuto && a.joinBo2Weapons == b.joinBo2Weapons && a.dualWield == b.dualWield &&
+           a.joinDualWield == b.joinDualWield && a.runInfo == b.runInfo && a.height == b.height &&
            std::memcmp(&a.pad, &b.pad, sizeof(a.pad)) == 0;
 }
 } // namespace
@@ -254,6 +255,26 @@ int main()
     Check(Launcher_BuildLaunchLine(joinBo2, "").find("bo2weapons") == std::string::npos &&
               SameSettings(Launcher_ParseSettings(Launcher_FormatSettings(joinBo2)), joinBo2),
           "the BO2 weapons can be left out of a join, and menu.cfg keeps that");
+    LauncherSettings dual;
+    dual.dualWield = true;
+    const bool dualNoFiles = Launcher_BuildLaunchLine(dual, "").find("dualwield") == std::string::npos;
+    dual.dualWieldInstalled = true;
+    LauncherSettings dualDeadOps = dual;
+    while (std::string(kLauncherMaps[dualDeadOps.map].bsp) != "zombietron")
+        ++dualDeadOps.map;
+    Check(dualNoFiles && Launcher_BuildLaunchLine(dual, "").find(" +set fs_mods zinfo dualwield ") != std::string::npos &&
+              Launcher_BuildLaunchLine(dualDeadOps, "").find("dualwield") == std::string::npos &&
+              SameSettings(Launcher_ParseSettings(Launcher_FormatSettings(dual)), dual),
+          "a solo game stacks the dual-wield weapons when they are on the SD card (not on Dead Ops Arcade); menu.cfg "
+          "keeps the choice");
+    LauncherSettings joinBoth = joinBo2;
+    joinBoth.joinBo2Weapons = true;
+    joinBoth.dualWieldInstalled = true;
+    LauncherSettings joinDualOff = joinBoth;
+    joinDualOff.joinDualWield = false;
+    Check(Launcher_BuildLaunchLine(joinBoth, "").find(" +set fs_mods bo2weapons dualwield ") != std::string::npos &&
+              Launcher_BuildLaunchLine(joinDualOff, "").find("dualwield") == std::string::npos,
+          "a join loads the dual-wield weapons beside the BO2 ones, by default, and can leave them out");
     LauncherSettings run;
     run.runInfo = 2;
     Check(Launcher_BuildLaunchLine(run, "").find(" +set bo1_runinfo 2") != std::string::npos &&

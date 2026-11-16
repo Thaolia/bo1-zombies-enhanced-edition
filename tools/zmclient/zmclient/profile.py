@@ -81,6 +81,9 @@ FAR_RESPAWN_CHOICES = (0, 1500, 2500, 4000)    # mods/admin's zm_farrespawn, in 
 # match: the game goes back to the menu on entering, naming the missing weapon (cg_weapons.cpp).
 BO2_WEAPON_CHOICES = ((0, "non"), (1, "dans la boîte, avec celles de la map"),
                       (2, "seules dans la boîte, + armes spéciales de la map"), (3, "seules dans la boîte"))
+# mods/dualwield (mods/dualwield/README.md): dual-wield weapons after Pack-a-Punch, from the player's own copy of the
+# "Relaxing Dual Wield" mod, in mods/dualwield/mod.ff (tools/dualwield/dualwield_mod.py). The engine loads it beside
+# bo2weapons' (DB_ListModZones). A client joining a server that has them loads it too (join_dual_wield).
 START_PERKS = (("jugg", "Juggernog"), ("revive", "Quick Revive"), ("speed", "Speed Cola"), ("doubletap", "Double Tap"),
                ("staminup", "Stamin-Up"), ("phd", "PhD Flopper"), ("deadshot", "Deadshot Daiquiri"),
                ("mule", "Mule Kick"))
@@ -107,6 +110,7 @@ DEFAULTS = {
     "horde_clear_round": False,
     "difficulty": 0,                    # 0 Normal, 1 Nightmare, 2 Hell
     "bo2_weapons": 0,                   # one of BO2_WEAPON_CHOICES
+    "dual_wield": False,                # mods/dualwield: Ray Gun, Thundergun (and PPSh) doubled by Pack-a-Punch
     "name": "",
     "split": "off",                     # one of SPLIT_MODES
     "split_layout": "side",             # one of SPLIT_LAYOUTS
@@ -129,6 +133,8 @@ DEFAULTS = {
     "host_port": DEFAULT_PORT,
     "host_bo2_weapons": 0,              # the local server's BO2 weapons, one of BO2_WEAPON_CHOICES
     "join_bo2_weapons": False,          # load mods/bo2weapons/mod.ff to join a server that has the BO2 weapons
+    "host_dual_wield": False,           # the local server's dual-wield weapons (mods/dualwield)
+    "join_dual_wield": False,           # load mods/dualwield/mod.ff to join a server that has them
     "extra": [],                        # {"on": bool, "text": "set r_foo 1"}: one + command each
     "favorites": [],                    # {"name", "host", "port", "password"}
     "steam_install": "",                # the Black Ops install the Installation view copies from
@@ -352,21 +358,30 @@ def bo2_weapons_available(bsp):
     return bsp != "zombietron"
 
 
-def add_bo2_weapons(argv, choice=None):
-    """Stacks mods/bo2weapons on the line's fs_mods, or adds one, naming fs_game's mod first as the engine stacks it
-    (fs_mods must name bo2weapons: an empty fs_mods runs no mod's hooks). choice: the solo box choice (1 to 3), which
-    sets bo2weapons_box; None for a client of a server, whose server decides."""
+def dual_wield_installed(dist_root):
+    """mods/dualwield/mod.ff is there: the player built it from their own copy of the mod (mods/dualwield/README.md)."""
+    return bool(dist_root) and os.path.isfile(os.path.join(dist_root, "mods", "dualwield", "mod.ff"))
+
+
+def stack_mod(argv, name):
+    """Stacks mods/<name> on the line's fs_mods, or adds one, naming fs_game's mod first as the engine stacks it
+    (fs_mods must name the mod: an empty fs_mods runs no mod's hooks)."""
     for i in range(1, len(argv)):
         if argv[i] == "fs_mods" and argv[i - 1] == "+set":
             j = i + 1
             while j < len(argv) and not argv[j].startswith("+"):
                 j += 1
-            if "bo2weapons" not in argv[i + 1:j]:
-                argv.insert(j, "bo2weapons")
-            break
-    else:
-        game = next((argv[i + 2] for i in range(len(argv) - 2) if argv[i] == "+set" and argv[i + 1] == "fs_game"), "")
-        argv += ["+set", "fs_mods"] + ([game[len("mods/"):]] if game.startswith("mods/") else []) + ["bo2weapons"]
+            if name not in argv[i + 1:j]:
+                argv.insert(j, name)
+            return
+    game = next((argv[i + 2] for i in range(len(argv) - 2) if argv[i] == "+set" and argv[i + 1] == "fs_game"), "")
+    argv += ["+set", "fs_mods"] + ([game[len("mods/"):]] if game.startswith("mods/") else []) + [name]
+
+
+def add_bo2_weapons(argv, choice=None):
+    """Stacks mods/bo2weapons (stack_mod). choice: the solo box choice (1 to 3), which sets bo2weapons_box; None for a
+    client of a server, whose server decides."""
+    stack_mod(argv, "bo2weapons")
     if choice:
         argv += ["+set", "bo2weapons_box", str(choice - 1)]
 
@@ -417,6 +432,8 @@ def solo_mod_flags(p, dist_root=None):
             argv += ["+set", "zm_startperks", ",".join(k for k, _ in START_PERKS if k in p["start_perks"])]
     if p["bo2_weapons"] and bo2_weapons_available(bsp):
         add_bo2_weapons(argv, p["bo2_weapons"])
+    if p["dual_wield"] and bo2_weapons_available(bsp):
+        stack_mod(argv, "dualwield")
     return argv
 
 
@@ -502,6 +519,14 @@ def wants_bo2_weapons(p, dist_root=None):
     return bool(p["host_bo2_weapons"]) if p["mode"] == "host" else p["join_bo2_weapons"]
 
 
+def wants_dual_wield(p, dist_root=None):
+    """The client loads mods/dualwield/mod.ff: solo with the dual-wield weapons, or a client of a server that has
+    them."""
+    if p["mode"] == "solo":
+        return p["dual_wield"] and bo2_weapons_available(resolve_map(p["map"], dist_root)[0])
+    return p["host_dual_wield"] if p["mode"] == "host" else p["join_dual_wield"]
+
+
 def problems(p, dist_root=None):
     """Why the profile cannot be launched as it is (empty when it can)."""
     out = []
@@ -532,6 +557,9 @@ def problems(p, dist_root=None):
     if wants_bo2_weapons(p, dist_root) and not bo2_weapons_installed(dist_root):
         out.append("armes de Black Ops II : pas de mods/bo2weapons/mod.ff (à construire depuis votre Black Ops II, "
                    "docs/BO2_WEAPONS.md)")
+    if wants_dual_wield(p, dist_root) and not dual_wield_installed(dist_root):
+        out.append("armes doublées : pas de mods/dualwield/mod.ff (à construire depuis le mod « Relaxing Dual "
+                   "Wield », mods/dualwield/README.md)")
     if p["window"] == "window" and not parse_size(p["window_size"]):
         out.append("taille de fenêtre : LARGEURxHAUTEUR, ex. 1280x720")
     for e in p["extra"]:
@@ -566,8 +594,11 @@ def build_command(p, exe, dist_root, launch_cfg="", player=1):
             # not the `god` command, which ClientSpawn clears: this dvar puts the bit back on every playing client
             argv += ["+set", "bo1_testclient_god", "1"]
         argv += solo_mod_flags(p, dist_root)
-    elif wants_bo2_weapons(p, dist_root):
-        add_bo2_weapons(argv)
+    else:
+        if wants_bo2_weapons(p, dist_root):
+            add_bo2_weapons(argv)
+        if wants_dual_wield(p, dist_root):
+            stack_mod(argv, "dualwield")
     if split_on(p):
         argv += split_flags(p, player)
         if player == 2:

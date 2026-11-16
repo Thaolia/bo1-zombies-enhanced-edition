@@ -286,6 +286,37 @@ class CommandLine(unittest.TestCase):
             q = P.Profile(path)
             self.assertEqual((q["bo2_weapons"], q["host_bo2_weapons"]), (0, 2))
 
+    def test_dual_wield(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            p = P.Profile()
+            p["map"], p["dual_wield"] = "zombie_theater", True
+            # mod.ff is the player's own build: without it the line is refused
+            self.assertTrue(any("dualwield/mod.ff" in w for w in P.problems(p, tmp)))
+            os.makedirs(os.path.join(tmp, "mods", "dualwield"))
+            open(os.path.join(tmp, "mods", "dualwield", "mod.ff"), "w").close()
+            self.assertEqual(P.problems(p, tmp), [])
+            self.assertIn("+set fs_mods zinfo dualwield ", " ".join(P.build_command(p, "x", tmp)))
+            # stacked after the BO2 weapons: both mod.ff load (DB_ListModZones)
+            os.makedirs(os.path.join(tmp, "mods", "bo2weapons"))
+            open(os.path.join(tmp, "mods", "bo2weapons", "mod.ff"), "w").close()
+            p["bo2_weapons"] = 1
+            line = " ".join(P.solo_mod_flags(p, tmp))
+            self.assertIn("+set fs_mods zinfo bo2weapons dualwield ", line)
+            p["map"], p["zinfo"], p["bo2_weapons"] = "mapkit:aldric_sanatorium", False, 0
+            self.assertIn("+set fs_mods mapkit dualwield", " ".join(P.solo_mod_flags(p, tmp)))
+            # no box on Dead Ops Arcade
+            p["map"] = "zombietron"
+            self.assertNotIn("dualwield", " ".join(P.solo_mod_flags(p, tmp)))
+            # local server and join
+            p["mode"], p["host_dual_wield"] = "host", True
+            self.assertIn("+set fs_mods dualwield ", " ".join(P.build_command(p, "x", tmp)))
+            p["mode"], p["join_host"] = "join", "192.168.1.20"
+            self.assertNotIn("dualwield", " ".join(P.build_command(p, "x", tmp)))
+            p["join_dual_wield"], p["join_bo2_weapons"] = True, True
+            self.assertIn("+set fs_mods bo2weapons dualwield ", " ".join(P.build_command(p, "x", tmp)))
+            shutil.rmtree(os.path.join(tmp, "mods", "dualwield"))
+            self.assertTrue(any("dualwield/mod.ff" in w for w in P.problems(p, tmp)))
+
     def test_missing_dlc_map(self):
         with tempfile.TemporaryDirectory() as tmp:
             for f in ("Common/zombie_theater.ff", "Common/zombie_coast_patch.ff", "Russian/ru_patch.ff"):

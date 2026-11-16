@@ -258,6 +258,9 @@ ZmClient et ZmAdmin (Nuitka) sous Windows, le programme Linux, `ffconv.exe` et Z
 (`docs/BO2_MAPS.md`, « Running it »). Le script prend `DIR/mods/mapkit/layouts/bo2_*.json` et
 `DIR/mods/mapkit/imports/`, et la vue Solo de ZmClient propose alors « Mapkit : Nuketown (Black Ops II) » et « Mapkit : TranZit (Black Ops II) »
 (qui charge aussi la zone d'Ascension pour le Stamin-Up). Cette
-extraction est une donnée du jeu : `--bo2` ne se combine pas avec `--no-game-data`. Nuketown a plus de 2 000 props :
+extraction est une donnée du jeu : `--bo2` ne se combine pas avec `--no-game-data`. `--dualwield DIR` fait de même,
+dans tous les paquets (Switch comprise), pour votre propre construction de `mods/dualwield` : le Pack-a-Punch double le
+Ray Gun et le Thundergun. `tools/dualwield/dualwield_mod.py` la fait depuis les seules zones de votre jeu, ou depuis
+votre copie du mod « Relaxing Dual Wield », qui ajoute le PPSh (`mods/dualwield/README.md`). Nuketown a plus de 2 000 props :
 dans la vue Lancement de ZmClient, « Modèles affichés par image » à 4096 (`r_mod_sceneModels`) les dessine tous,
 1024 (le jeu d'origine) laisse tomber les plus lointains.

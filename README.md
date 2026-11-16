@@ -170,7 +170,10 @@ any sound driver, as on a PC without a sound device.
 packages. It takes `DIR/mods/mapkit/layouts/bo2_*.json` and `DIR/mods/mapkit/imports/`, and ZmClient's Solo view then
 offers "Mapkit : Nuketown (Black Ops II)" and "Mapkit : TranZit (Black Ops II)" (which also loads Ascension's zone
 for Stamin-Up). The extraction is game data, so `--bo2` cannot be combined with
-`--no-game-data`. Nuketown has over 2 000 props: ZmClient's Lancement view, "Modèles affichés par image" at 4096
+`--no-game-data`. `--dualwield DIR` does the same for your own build of `mods/dualwield` (dual-wield Ray Gun
+and Thundergun after Pack-a-Punch, made by `tools/dualwield/dualwield_mod.py` from your game's zones alone, or from
+your copy of the "Relaxing Dual Wield" mod, which adds the PPSh; see `mods/dualwield/README.md`), in every package,
+Switch included. Nuketown has over 2 000 props: ZmClient's Lancement view, "Modèles affichés par image" at 4096
 (`r_mod_sceneModels`), draws them all; 1024 (retail) drops the farthest.
 
 ### Release on GitHub

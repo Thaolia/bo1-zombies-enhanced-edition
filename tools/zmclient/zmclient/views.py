@@ -13,7 +13,7 @@ from . import help as H
 from .dirbrowser import FolderDialog, start_folder
 from .gamecfg import BY_NAME, SETTINGS, valid_bind_key, validate
 from .profile import (BO2_WEAPON_CHOICES, DEFAULT_PORT, MAP_LABELS, START_PERKS, bo2_weapons_available,
-                      bo2_weapons_installed, FAR_RESPAWN_CHOICES, START_POINT_CHOICES, check_extra, map_installed, map_label, nightmare_available,
+                      bo2_weapons_installed, dual_wield_installed, FAR_RESPAWN_CHOICES, START_POINT_CHOICES, check_extra, map_installed, map_label, nightmare_available,
                       parse_size, quote_command, resolve_map, solo_maps, specials_available, split_on, valid_host,
                       valid_name, valid_password)
 
@@ -226,6 +226,7 @@ class PlayView(RowsView):
                             self.toggle("join_bo2_weapons"),
                             disabled=None if bo2_weapons_installed(app.root) else
                             "pas de mods/bo2weapons/mod.ff : à construire depuis votre Black Ops II"))
+            rows.append(dual_row(self, "join_dual_wield", app.root))
         else:
             rows.append(Row("host_map", "Map du serveur local", MAP_LABELS.get(p["host_map"], p["host_map"]),
                             self.choose("host_map", "Map du serveur local",
@@ -234,6 +235,7 @@ class PlayView(RowsView):
                             self.ask("host_port", "Port du serveur local", "Port", "3074 par défaut",
                                      lambda t: _int(t, 1, 65535))))
             rows.append(bo2_row(self, "host_bo2_weapons", app.root, local_running=app.local.running()))
+            rows.append(dual_row(self, "host_dual_wield", app.root, local_running=app.local.running()))
         rows.append(Row("name", "Nom du joueur", p["name"] or "(celui de config.cfg)",
                         self.ask("name", "Nom du joueur", "Nom", "vide : celui de config.cfg", _name)))
         rows.append(split_row(self))
@@ -494,6 +496,7 @@ class SoloView(RowsView):
             Row("noperks", "Sans machines à atouts", _yes(p["noperks"]), self.toggle("noperks")),
             Row("quickrestart", "R relance après la fin", _yes(p["quickrestart"]), self.toggle("quickrestart")),
             bo2_row(self, "bo2_weapons", root, bsp=bsp),
+            dual_row(self, "dual_wield", root, bsp=bsp),
             section("Départ"),
             Row("start_points", "Points de départ", _points(p["start_points"]),
                 self.choose("start_points", "Points de départ",
@@ -564,6 +567,21 @@ def bo2_row(view, key, root, bsp=None, local_running=False):
                disabled=why, help_text=H.ROW_HELP["bo2_weapons"])
 
 
+def dual_row(view, key, root, bsp=None, local_running=False):
+    """The dual-wield weapons row (solo: dual_wield, local server: host_dual_wield, join: join_dual_wield), greyed
+    without mods/dualwield/mod.ff, on Dead Ops Arcade, or while the local server runs."""
+    if not dual_wield_installed(root):
+        why = "pas de mods/dualwield/mod.ff : à construire depuis le mod « Relaxing Dual Wield » (mods/dualwield)"
+    elif bsp is not None and not bo2_weapons_available(bsp):
+        why = "Dead Ops Arcade n'a pas de boîte"
+    elif local_running:
+        why = "le serveur local tourne déjà : il a pris ses mods au lancement"
+    else:
+        why = None
+    return Row(key, "Armes doublées (Pack-a-Punch)", _yes(view.p[key]), view.toggle(key), disabled=why,
+               help_text=H.ROW_HELP["join_dual_wield" if key == "join_dual_wield" else "dual_wield"])
+
+
 def split_row(view):
     p = view.p
     return Row("split", "Écran partagé (2 joueurs)", H.SPLIT_LABELS[p["split"]],
@@ -631,6 +649,7 @@ class LaunchView(RowsView):
             Row("host_port", "Port", str(p["host_port"]),
                 self.ask("host_port", "Port du serveur local", "Port", "3074 par défaut", lambda t: _int(t, 1, 65535))),
             bo2_row(self, "host_bo2_weapons", app.root, local_running=app.local.running()),
+            dual_row(self, "host_dual_wield", app.root, local_running=app.local.running()),
             Row("host_password", "Mot de passe rcon", "•" * len(password) if password else "(aucun dossier)",
                 self.edit_password, disabled=None if app.dist else "pas de dossier du jeu"),
         ]

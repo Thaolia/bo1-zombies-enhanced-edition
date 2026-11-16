@@ -18,8 +18,8 @@ mods/bo2weapons/mod.ff + mods/bo2weapons/images/*.iwi + the mod's scripts --> th
 ```
 
 The engine loads the zone `mod` at start-up (`DB_LoadGraphicsAssetsForPC`). Retail takes it from
-`<fs_h>/<fs_game>/mod.ff` only; `DB_FindModZone` (`db_registry.cpp`) also takes the `mod.ff` of the first mod of the
-`fs_mods` stack that has one, under `fs_h` then `fs_b`. So `+set fs_mods bo2weapons` is enough, and stacks with
+`<fs_h>/<fs_game>/mod.ff` only; `DB_ListModZones` (`db_registry.cpp`) also takes the `mod.ff` of each mod of the
+`fs_mods` stack that has one, under `fs_h` then `fs_b`: the first is zone `mod`, the others `mod_<name>`. So `+set fs_mods bo2weapons` is enough, and stacks with
 horde, MapKit, nightmare and the others, whose `fs_game` stays theirs. `fs_game mods/bo2weapons` still works for one
 machine, but a server's `fs_game` is sent to its clients, which then restart and reload without `mod.ff` (an assert in
 the script parser, or `Weapon index mismatch`): `fs_mods` avoids that path. `fs_b` matters for the dedicated server,
@@ -185,8 +185,8 @@ The HAMR (proof of concept):
 - Scripted weapons (Jet Gun, staffs, Blundergat, Slowgun, Sliquifier, tomahawk, ballistic knife), equipment, the
   shields and Origins' extended-clip / stalker copies are left out (`SKIP`, or not a primary weapon). Weapons BO1
   already has under the same name (`m14_zm`, `mp5k_zm`, `ray_gun_zm`...) keep BO1's.
-- One `mod.ff` loads: fs_game's, else the first stacked mod's. Two mods each shipping one would need distinct zone
-  names.
+- Since 2026-11-16 every stacked mod's `mod.ff` loads (`DB_ListModZones`): the first as zone `mod`, the next ones
+  as `mod_<name>`, all in the batch that loads `mod` (`mods/dualwield/README.md`).
 
 ## Inventory
 

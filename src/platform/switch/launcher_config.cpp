@@ -218,6 +218,10 @@ void Apply(LauncherSettings *s, const std::string &key, const std::string &value
         ParseBool(value, &s->lanAuto);
     else if (key == "join_bo2weapons")
         ParseBool(value, &s->joinBo2Weapons);
+    else if (key == "dualwield")
+        ParseBool(value, &s->dualWield);
+    else if (key == "join_dualwield")
+        ParseBool(value, &s->joinDualWield);
     else if (key == "start_pap")
         ParseBool(value, &s->startPap);
     else if (key == "far_respawn")
@@ -310,6 +314,8 @@ std::string Launcher_FormatSettings(const LauncherSettings &s)
     out += std::string("start_pap=") + (s.startPap ? "1" : "0") + "\n";
     out += std::string("lan_auto=") + (s.lanAuto ? "1" : "0") + "\n";
     out += std::string("join_bo2weapons=") + (s.joinBo2Weapons ? "1" : "0") + "\n";
+    out += std::string("dualwield=") + (s.dualWield ? "1" : "0") + "\n";
+    out += std::string("join_dualwield=") + (s.joinDualWield ? "1" : "0") + "\n";
     out += "far_respawn=" + std::to_string(s.farRespawn) + "\n";
     out += "resolution=" + std::to_string(s.height) + "\n";
     out += "maxfps=" + std::to_string(s.maxFps) + "\n";
@@ -347,9 +353,11 @@ std::string Launcher_BuildLaunchLine(const LauncherSettings &s, const std::strin
     const bool mapkit = !join && map.mapkit;
     if (mapkit)
         line += std::string(" +set fs_game mods/mapkit +set bo1_mod_mapkit ") + map.mapkit;
-    if (!join && (s.tabInfo || kit))
+    // mods/dualwield needs a box: Dead Ops Arcade has none (ZmClient's bo2_weapons_available)
+    const bool dual = !join && s.dualWield && s.dualWieldInstalled && strcmp(map.bsp, "zombietron") != 0;
+    if (!join && (s.tabInfo || kit || dual))
         line += std::string(" +set fs_mods") + (mapkit ? " mapkit" : "") + (s.tabInfo ? " zinfo" : "") +
-                (kit ? " admin" : "");
+                (kit ? " admin" : "") + (dual ? " dualwield" : "");
     if (mapkit && map.zone)
         // `set` takes the rest of its line as the value (ZmClient passes the zones the same way)
         line += std::string(" +set bo1_mod_zones ") + map.zone + (map.extraZone ? std::string(" ") + map.extraZone : "") +
@@ -376,9 +384,12 @@ std::string Launcher_BuildLaunchLine(const LauncherSettings &s, const std::strin
     line += " +set r_texFilterMipMode " + std::to_string(filter.mipMode);
     if (join && Launcher_ValidPlayerName(s.playerName))
         line += " +set name " + s.playerName;
-    // as ZmClient's join_bo2_weapons: fs_mods names the mod, so the engine loads its mod.ff (DB_FindModZone)
-    if (join && s.joinBo2Weapons && s.bo2WeaponsInstalled)
-        line += " +set fs_mods bo2weapons";
+    // as ZmClient's join_bo2_weapons and join_dual_wield: fs_mods names the mods, so the engine loads their mod.ff
+    // (DB_ListModZones)
+    const bool joinBo2 = join && s.joinBo2Weapons && s.bo2WeaponsInstalled;
+    const bool joinDual = join && s.joinDualWield && s.dualWieldInstalled;
+    if (joinBo2 || joinDual)
+        line += std::string(" +set fs_mods") + (joinBo2 ? " bo2weapons" : "") + (joinDual ? " dualwield" : "");
     if (!extra.empty())
         line += " " + extra;
     if (join)
