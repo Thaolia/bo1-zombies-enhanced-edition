@@ -237,6 +237,18 @@ class CommandLine(unittest.TestCase):
             line = " ".join(P.build_command(p, "x", tmp))
             self.assertIn("+set bo1_mod_zones zombie_bo2transit zombie_cosmodrome"
                           " +set bo1_bspworld maps/zombie_bo2transit.d3dbsp ", line)
+            # the native Mob of the Dead: its zone alone
+            with open(os.path.join(layouts, "bo2_zm_prison_bsp.json"), "w") as f:
+                json.dump({"name": "bo2_zm_prison_bsp", "base": "zombie_pentagon", "edits": []}, f)
+            os.makedirs(os.path.join(tmp, "usermaps", "zombie_bo2prison"))
+            open(os.path.join(tmp, "usermaps", "zombie_bo2prison", "zombie_bo2prison.ff"), "w").close()
+            open(os.path.join(tmp, "main", "maps", "zombie_bo2prison.d3dbsp"), "w").close()
+            P.mapkit_layouts.cache_clear()
+            self.assertIn("Mapkit : Mob of the Dead native (Black Ops II, monde BSP)",
+                          [m[1] for m in P.solo_maps(tmp) if m[3] == "bo2_zm_prison_bsp"])
+            p["map"] = "mapkit:bo2_zm_prison_bsp"
+            line = " ".join(P.build_command(p, "x", tmp))
+            self.assertIn("+set bo1_mod_zones zombie_bo2prison +set bo1_bspworld maps/zombie_bo2prison.d3dbsp ", line)
 
     def test_bo2_weapons(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -44,10 +44,12 @@ int main()
 {
     const LauncherSettings defaults;
     Check(std::string(kLauncherMaps[defaults.map].bsp) == "zombie_theater", "the default map is Kino");
-    Check(kLauncherMapCount == 13, "the ten zombies maps, Dead Ops Arcade, the native Nuketown and TranZit are listed");
+    Check(kLauncherMapCount == 14,
+          "the ten zombies maps, Dead Ops Arcade, the native Nuketown, TranZit and Mob of the Dead are listed");
     Check(std::string(kLauncherMaps[10].bsp) == "zombietron", "Dead Ops Arcade follows the ten zombies maps");
-    const int nuketown = kLauncherMapCount - 2;
-    const int transit = kLauncherMapCount - 1;
+    const int nuketown = kLauncherMapCount - 3;
+    const int transit = kLauncherMapCount - 2;
+    const int prison = kLauncherMapCount - 1;
     Check(Launcher_MapKey(nuketown) == "mapkit:bo2_zm_nuked_bsp" && Launcher_MapKey(1) == "zombie_pentagon",
           "the native Nuketown's menu.cfg key is not Five's, whose bsp it shares");
     Check(Launcher_MapFileCount(0) == 0 && Launcher_MapFileCount(nuketown) == 3 &&
@@ -144,6 +146,16 @@ int main()
                                                      " +set bo1_mod_zones zombie_bo2transit zombie_cosmodrome"
                                                      " +set bo1_bspworld maps/zombie_bo2transit.d3dbsp ") != std::string::npos,
           "the native TranZit loads its zone, then Ascension's for Stamin-Up, as ZmClient does");
+    LauncherSettings motd;
+    motd.map = prison;
+    Check(Launcher_ParseSettings(Launcher_FormatSettings(motd)).map == prison &&
+              Launcher_MapKey(prison) == "mapkit:bo2_zm_prison_bsp" && Launcher_MapFileCount(prison) == 3 &&
+              Launcher_MapFile(prison, 2) == "main/maps/zombie_bo2prison.d3dbsp",
+          "menu.cfg keeps the native Mob of the Dead, which needs its layout, zone and BSP");
+    Check(Launcher_BuildLaunchLine(motd, "").find(" +set bo1_mod_mapkit bo2_zm_prison_bsp +set fs_mods mapkit zinfo"
+                                                  " +set bo1_mod_zones zombie_bo2prison"
+                                                  " +set bo1_bspworld maps/zombie_bo2prison.d3dbsp ") != std::string::npos,
+          "the native Mob of the Dead loads its zone and BSP world");
     nuke.tabInfo = false;
     nuke.startPoints = 5000;
     const std::string nukeKit = Launcher_BuildLaunchLine(nuke, "");

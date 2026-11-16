@@ -492,6 +492,11 @@ bo2_note() {
         if [ -f "$BO2/main/maps/zombie_bo2transit.d3dbsp" ]; then
             echo "            « Mapkit : TranZit native (Black Ops II, monde BSP) » : la même, sur son propre monde BO1."
         fi
+        if [ -f "$BO2/main/maps/zombie_bo2prison.d3dbsp" ]; then
+            echo "MOB OF THE  zmclient, vue Solo : « Mapkit : Mob of the Dead native (Black Ops II, monde BSP) », de votre"
+            echo "DEAD        propre Black Ops II : l'île sans l'après-vie ni l'avion, le Pack-a-Punch dans le bloc des"
+            echo "            cellules."
+        fi
     fi
     if [ $BO2_WEAPONS = 1 ]; then
         echo "ARMES BO2   zmclient, vue Solo : « Armes de Black Ops II » (ou zmadmin au lancement du serveur), tirées"
