@@ -140,7 +140,8 @@ SETTINGS_HELP = {
         "Les mods du dossier mods/ chargés avec la map, séparés par des espaces. Le serveur ajoute toujours",
         "mods/admin (les commandes zm_*), inutile de le cocher.",
         "bo2weapons (armes de Black Ops II) ne marche que si le serveur a été lancé avec : son mod.ff se charge au",
-        "démarrage ; le retirer remet la boîte d'origine.",
+        "démarrage ; le retirer remet la boîte d'origine. De même pour dualwield (armes doublées après le",
+        "Pack-a-Punch).",
         "Valeurs : cocher les mods avec Espace, ou les taper si le serveur est distant.",
         "Effet : appliqué par zm_mods, qui recharge la map tout de suite : la partie en cours est perdue.",
     ),
@@ -161,6 +162,12 @@ BO2_BOX_CHOICES = [
     (0, "Armes BO2 dans la boîte, avec celles de la map", "bo2weapons_box 0"),
     (1, "Seulement les armes BO2 + les armes spéciales de la map", "bo2weapons_box 1 : Ray Gun, Thundergun, singe..."),
     (2, "Seulement les armes BO2", "bo2weapons_box 2"),
+]
+
+# The local server's launch choice when the folder has mods/dualwield/mod.ff
+DUAL_CHOICES = [
+    (0, "Sans armes doublées", "le Pack-a-Punch donne les armes d'origine"),
+    (1, "Armes doublées après le Pack-a-Punch", "Ray Gun et Thundergun doublés (et le PPSh avec le mod.ff fait depuis l'archive)"),
 ]
 
 PLAYER_ACTIONS = [

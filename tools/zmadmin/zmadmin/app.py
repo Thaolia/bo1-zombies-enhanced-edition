@@ -160,9 +160,9 @@ class App:
             self.msg(f"Mot de passe changé, mais servers.json n'a pas pu être écrit : {e}", C_ERR)
 
     # ------------------------------------------------------------------------------------------- local server
-    def launch_local(self, map_name, port, password, bo2_box=None):
+    def launch_local(self, map_name, port, password, bo2_box=None, dual_wield=False):
         try:
-            self.local.start(map_name, port, password, bo2_box)
+            self.local.start(map_name, port, password, bo2_box, dual_wield)
         except (OSError, RuntimeError) as e:
             return f"lancement impossible : {e}"
         self.console.add(f"--- serveur local lancé : {H.map_label(map_name)}, port {port}, PID {self.local.pid} ---",

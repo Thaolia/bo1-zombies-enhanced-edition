@@ -29,6 +29,11 @@
 #                    the 64-bit DIR/mods/bo2weapons/mod.ff and DIR/mods/bo2weapons/images/), either or both. They
 #                    go into the windows and linux packages, where ZmClient's Solo view offers them ("Mapkit :
 #                    Nuketown (Black Ops II)", "Armes de Black Ops II"); game data, so not with --no-game-data
+#   --dualwield DIR  your own build of mods/dualwield (tools/dualwield/dualwield_mod.py, from your copy of the
+#                    "Relaxing Dual Wield" mod or from your game's zones alone): the 64-bit DIR/mod.ff (ffconv) and
+#                    DIR/images/ (empty for the --retail build). It goes into every
+#                    package's mods/dualwield, where ZmClient and the Switch menu offer it ("Armes doublées"); game
+#                    data, so not with --no-game-data
 #   --openbsd-cross DIR  the OpenBSD cross toolchain's prefix (github.com/Thaolia/cross-compiler-openbsd: its
 #                    install.sh, with the 8.0 and current sysroots and their sdl2 package in DIR/sysroot/<flavor>)
 #                                                                    default: $OPENBSD_CROSS, else /opt/openbsd-cross
@@ -56,6 +61,7 @@ ARCHIVE=auto
 BUILD=1
 GAME_DATA=1
 BO2=""
+DUALWIELD=""
 JOBS="$(nproc)"
 OPENBSD_CROSS="${OPENBSD_CROSS:-/opt/openbsd-cross}"
 # The release and -current: -current breaks the ABI between releases, so each gets its own program.
@@ -82,6 +88,7 @@ while [ $# -gt 0 ]; do
     --no-build) BUILD=0 ;;
     --no-game-data) GAME_DATA=0 ;;
     --bo2) BO2="$2"; shift ;;
+    --dualwield) DUALWIELD="$2"; shift ;;
     --openbsd-cross) OPENBSD_CROSS="$2"; shift ;;
     --jobs) JOBS="$2"; shift ;;
     -h | --help) usage ;;
@@ -106,6 +113,14 @@ if [ -n "$BO2" ]; then
     if [ -f "$BO2/mods/bo2weapons/mod.ff" ] && [ -d "$BO2/mods/bo2weapons/images" ]; then BO2_WEAPONS=1; fi
     [ $BO2_MAPS = 1 ] || [ $BO2_WEAPONS = 1 ] ||
         die "--bo2: neither mods/mapkit/layouts/bo2_*.json with mods/mapkit/imports/ (docs/BO2_MAPS.md) nor mods/bo2weapons/mod.ff with mods/bo2weapons/images/ (docs/BO2_WEAPONS.md) in $BO2"
+fi
+if [ -n "$DUALWIELD" ]; then
+    [ "$GAME_DATA" = 1 ] || die "--dualwield is game data (the mod's weapons, rebuilt): not with --no-game-data"
+    DUALWIELD="$(cd "$DUALWIELD" && pwd)" || die "--dualwield: no folder $DUALWIELD"
+    [ -f "$DUALWIELD/mod.ff" ] && [ -d "$DUALWIELD/images" ] ||
+        die "--dualwield: no mod.ff with images/ in $DUALWIELD (mods/dualwield/README.md)"
+    head -c 8 "$DUALWIELD/mod.ff" | grep -q IWffs100 ||
+        die "--dualwield: $DUALWIELD/mod.ff is not ffconv's 64-bit zone (IWffs100)"
 fi
 
 OUT="$(abspath "$OUT")"
@@ -423,6 +438,15 @@ bo2_data() { # <dest>
     fi
 }
 
+# The player's own build of the dual-wield weapons (mods/dualwield/README.md), on every platform: its scripts come
+# from the repository's mods/dualwield, already copied.
+dualwield_data() { # <dest>
+    [ -n "$DUALWIELD" ] || return 0
+    mkdir -p "$1/mods/dualwield"
+    rsync -a "$DUALWIELD/mod.ff" "$1/mods/dualwield/"
+    rsync -a --delete "$DUALWIELD/images/" "$1/mods/dualwield/images/"
+}
+
 # The Switch's share of the player's Black Ops II extraction: the weapons (mod.ff and images, as on PC), and of the maps
 # the native ones only (the start menu offers those, not the MapKit meshes): each <layout>_bsp.json with its zone, BSP
 # and colour maps, and of its imports/<map>/ the node links, the blockers' props and their images, and the props
@@ -547,7 +571,7 @@ package_windows() {
         "$d/switch-tools/"
     rsync -a --delete "$ROOT/mods/" "$d/mods/"
     rsync -a "$ROOT/data/main/" "$d/main/"
-    if [ "$GAME_DATA" = 1 ]; then game_data "$d" video; bo2_data "$d"; fi
+    if [ "$GAME_DATA" = 1 ]; then game_data "$d" video; bo2_data "$d"; dualwield_data "$d"; fi
     cat > "$d/Play.bat" << 'EOF'
 @echo off
 rem Black Ops 1 Zombies, 64-bit. "Play.bat" opens the game's menu (Zombies, Solo, a map).
@@ -659,6 +683,7 @@ package_linux() {
     if [ "$GAME_DATA" = 1 ]; then
         game_data "$d" video
         bo2_data "$d"
+        dualwield_data "$d"
         cp "$ZONES/shaders.pack" "$d/"
     fi
     cat > "$d/play.sh" << 'EOF'
@@ -801,7 +826,7 @@ EOF
         return
     fi
     game_data "$sd"
-    if [ "$GAME_DATA" = 1 ]; then bo2_switch_data "$sd"; fi
+    if [ "$GAME_DATA" = 1 ]; then bo2_switch_data "$sd"; dualwield_data "$sd"; fi
     cp "$ZONES/shaders.pack" "$WORK/dksh/shaders.dksh" "$sd/"
     # Bring-up switches (no menu, debug dumps, applet mode) never belong in a package.
     rm -f "$sd/skip_menu" "$sd/deko3d_debug" "$sd/allow_applet"
@@ -833,6 +858,9 @@ MENU DE DÉPART
   Les serveurs du réseau local s'y affichent tout seuls (« Recherche auto ») ou avec « Chercher maintenant » :
   A sur l'un d'eux remplit son adresse et son port. « Armes BO2 » (Oui par défaut) charge vos armes Black Ops II pour
   rejoindre un serveur qui les a ; sans elles, le jeu plante sur un tel serveur.
+  « Armes doublées » (écran Départ en solo, écran Serveur pour rejoindre) : quand ce paquet contient votre propre
+  mods/dualwield (make_dist.sh --dualwield), le Pack-a-Punch double le Ray Gun et le Thundergun (et le PPSh,
+  si ce mod a été fait avec l'archive « Relaxing Dual Wield »).
   « Infos speedrun » : les réglages de la partie et un hash SHA-512 du programme et des zones chargées, en bas de
   l'écran de chargement (par défaut), ou aussi dans un coin en jeu ; le hash complet est dans boot.log (runinfo:).
 
@@ -854,6 +882,7 @@ package_openbsd() {
     if [ "$GAME_DATA" = 1 ]; then
         game_data "$d" video
         bo2_data "$d"
+        dualwield_data "$d"
         cp "$ZONES/shaders.pack" "$d/"
     fi
     # OpenBSD's base system has no bash: both scripts are POSIX sh (ksh).

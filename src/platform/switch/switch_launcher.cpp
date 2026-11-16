@@ -142,6 +142,7 @@ enum Item
     ITEM_NET_PORT,
     ITEM_NET_NAME,
     ITEM_NET_BO2W,
+    ITEM_NET_DUAL,
     ITEM_NET_LANAUTO,
     ITEM_NET_SCAN,
     ITEM_NET_FOUND_FIRST,
@@ -159,6 +160,7 @@ enum Item
     ITEM_KIT_PERK_FIRST,
     ITEM_KIT_PERK_LAST = ITEM_KIT_PERK_FIRST + 7,
     ITEM_KIT_FAR,
+    ITEM_KIT_DUAL,
     ITEM_KIT_BACK,
     ITEM_COUNT
 };
@@ -208,6 +210,7 @@ const ItemInfo kItems[ITEM_COUNT] = {
     {VIEW_SERVER, 10, "Port", "A: le port UDP du serveur, 3074 par defaut."},
     {VIEW_SERVER, 11, "Nom du joueur", "A: votre nom sur le serveur (lettres, chiffres, _ - .), vide: celui du jeu."},
     {VIEW_SERVER, 14, "Armes BO2", "Oui: charge vos armes Black Ops II (mods/bo2weapons), pour un serveur qui les a."},
+    {VIEW_SERVER, 21, "Armes doublees", "Oui: charge les armes doublees (mods/dualwield), pour un serveur qui les a."},
     {VIEW_SERVER, 12, "Recherche auto", "Oui: cherche les serveurs du reseau local a l'ouverture de cet ecran."},
     {VIEW_SERVER, 13, "Chercher maintenant", "A: cherche les serveurs du reseau local (une seconde)."},
 #define NET_FOUND(row) {VIEW_SERVER, row, nullptr, "A: rejoindre ce serveur (adresse et port remplis, connexion activee)."}
@@ -227,7 +230,8 @@ const ItemInfo kItems[ITEM_COUNT] = {
     KIT_PERK(9), KIT_PERK(10), KIT_PERK(11), KIT_PERK(12), KIT_PERK(13), KIT_PERK(14), KIT_PERK(15), KIT_PERK(16),
 #undef KIT_PERK
     {VIEW_KIT, 17, "Zombies eloignes", "Gauche/Droite: un zombie plus loin que ca de tous et non vu est remplace."},
-    {VIEW_KIT, 18, "RETOUR", "Revient au menu (aussi: bouton B)."},
+    {VIEW_KIT, 18, "Armes doublees", "Oui: le Pack-a-Punch double Ray Gun et Thundergun (et PPSh) (mods/dualwield)."},
+    {VIEW_KIT, 19, "RETOUR", "Revient au menu (aussi: bouton B)."},
 };
 static_assert(ITEM_KIT_PERK_LAST - ITEM_KIT_PERK_FIRST + 1 == 8, "one kit line per kLauncherPerks entry");
 static_assert(sizeof(kItems) / sizeof(kItems[0]) == ITEM_COUNT, "one kItems line per Item");
@@ -263,6 +267,8 @@ bool Selectable(const LauncherSettings &s, View view, int item)
         return size_t(item - ITEM_NET_FOUND_FIRST) < s_found.size();
     if (item == ITEM_NET_BO2W)
         return s.bo2WeaponsInstalled;
+    if (item == ITEM_NET_DUAL || item == ITEM_KIT_DUAL)
+        return s.dualWieldInstalled;
     return true;
 }
 
@@ -321,8 +327,9 @@ std::string ValueText(const LauncherSettings &s, int item)
         int perks = 0;
         for (int i = 0; i < kLauncherPerkCount; ++i)
             perks += (s.startPerks >> i) & 1;
+        const std::string dual = s.dualWield && s.dualWieldInstalled ? ", armes doublees" : "";
         if (!s.startPoints && !perks && !s.startPower && !s.startPap && !s.farRespawn)
-            return "Celui du jeu";
+            return "Celui du jeu" + dual;
         std::string text = s.startPoints ? std::to_string(s.startPoints) + " points" : "500 points";
         if (perks)
             text += ", " + std::to_string(perks) + (perks > 1 ? " atouts" : " atout");
@@ -332,7 +339,7 @@ std::string ValueText(const LauncherSettings &s, int item)
             text += ", Pack-a-Punch";
         if (s.farRespawn > 0)
             text += ", rapproches";
-        return text;
+        return text + dual;
     }
     case ITEM_KIT_POINTS:
         return s.startPoints ? std::to_string(s.startPoints) : "Ceux du jeu (500)";
@@ -364,6 +371,10 @@ std::string ValueText(const LauncherSettings &s, int item)
         return YesNo(s.lanAuto);
     case ITEM_NET_BO2W:
         return s.bo2WeaponsInstalled ? YesNo(s.joinBo2Weapons) : "absentes de la carte SD";
+    case ITEM_NET_DUAL:
+        return s.dualWieldInstalled ? YesNo(s.joinDualWield) : "absentes de la carte SD";
+    case ITEM_KIT_DUAL:
+        return s.dualWieldInstalled ? YesNo(s.dualWield) : "absentes de la carte SD";
     case ITEM_NET_SCAN:
         if (!s_searched)
             return "pas encore lancee";
@@ -402,6 +413,12 @@ void Change(LauncherSettings *s, int item, int dir)
         break;
     case ITEM_NET_BO2W:
         s->joinBo2Weapons = !s->joinBo2Weapons;
+        break;
+    case ITEM_NET_DUAL:
+        s->joinDualWield = !s->joinDualWield;
+        break;
+    case ITEM_KIT_DUAL:
+        s->dualWield = !s->dualWield;
         break;
     case ITEM_MAP:
         do
@@ -865,10 +882,13 @@ LauncherResult Launcher_Run(const char *buildStamp, char *line, size_t lineSize,
     }
     struct stat bo2weapons;
     s.bo2WeaponsInstalled = stat("sdmc:/switch/bo1zm/mods/bo2weapons/mod.ff", &bo2weapons) == 0;
-    Log("menu.cfg read: map %s, backend %s, server %s (%s), BO2 weapons %s", Launcher_MapKey(s.map).c_str(),
+    s.dualWieldInstalled = stat("sdmc:/switch/bo1zm/mods/dualwield/mod.ff", &bo2weapons) == 0;
+    Log("menu.cfg read: map %s, backend %s, server %s (%s), BO2 weapons %s, dual wield %s",
+        Launcher_MapKey(s.map).c_str(),
         Launcher_BackendName(s.backend),
         s.serverHost.empty() ? "-" : Launcher_ServerAddress(s).c_str(), s.join ? "join" : "solo",
-        !s.bo2WeaponsInstalled ? "not on the SD card" : s.joinBo2Weapons ? "loaded to join" : "off");
+        !s.bo2WeaponsInstalled ? "not on the SD card" : s.joinBo2Weapons ? "loaded to join" : "off",
+        !s.dualWieldInstalled ? "not on the SD card" : s.dualWield ? "solo on" : "solo off");
     Screen screen;
     screen.buildStamp = buildStamp;
     // The first battery query logs through stdout (switch_main.cpp's BootLog), which the console would print over the
