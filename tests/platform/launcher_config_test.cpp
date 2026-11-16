@@ -44,12 +44,13 @@ int main()
 {
     const LauncherSettings defaults;
     Check(std::string(kLauncherMaps[defaults.map].bsp) == "zombie_theater", "the default map is Kino");
-    Check(kLauncherMapCount == 14,
-          "the ten zombies maps, Dead Ops Arcade, the native Nuketown, TranZit and Mob of the Dead are listed");
+    Check(kLauncherMapCount == 15,
+          "the ten zombies maps, Dead Ops Arcade, the native Nuketown, TranZit, Mob of the Dead and Buried are listed");
     Check(std::string(kLauncherMaps[10].bsp) == "zombietron", "Dead Ops Arcade follows the ten zombies maps");
-    const int nuketown = kLauncherMapCount - 3;
-    const int transit = kLauncherMapCount - 2;
-    const int prison = kLauncherMapCount - 1;
+    const int nuketown = kLauncherMapCount - 4;
+    const int transit = kLauncherMapCount - 3;
+    const int prison = kLauncherMapCount - 2;
+    const int buried = kLauncherMapCount - 1;
     Check(Launcher_MapKey(nuketown) == "mapkit:bo2_zm_nuked_bsp" && Launcher_MapKey(1) == "zombie_pentagon",
           "the native Nuketown's menu.cfg key is not Five's, whose bsp it shares");
     Check(Launcher_MapFileCount(0) == 0 && Launcher_MapFileCount(nuketown) == 3 &&
@@ -156,6 +157,15 @@ int main()
                                                   " +set bo1_mod_zones zombie_bo2prison"
                                                   " +set bo1_bspworld maps/zombie_bo2prison.d3dbsp ") != std::string::npos,
           "the native Mob of the Dead loads its zone and BSP world");
+    LauncherSettings town;
+    town.map = buried;
+    Check(Launcher_ParseSettings(Launcher_FormatSettings(town)).map == buried &&
+              Launcher_MapKey(buried) == "mapkit:bo2_zm_buried_bsp" && Launcher_MapFileCount(buried) == 3 &&
+              Launcher_MapFile(buried, 2) == "main/maps/zombie_bo2buried.d3dbsp",
+          "menu.cfg keeps the native Buried, which needs its layout, zone and BSP");
+    Check(Launcher_BuildLaunchLine(town, "").find(" +set bo1_mod_zones zombie_bo2buried zombie_cosmodrome"
+                                                  " +set bo1_bspworld maps/zombie_bo2buried.d3dbsp ") != std::string::npos,
+          "the native Buried loads its zone, then Ascension's for Stamin-Up");
     nuke.tabInfo = false;
     nuke.startPoints = 5000;
     const std::string nukeKit = Launcher_BuildLaunchLine(nuke, "");

@@ -249,6 +249,19 @@ class CommandLine(unittest.TestCase):
             p["map"] = "mapkit:bo2_zm_prison_bsp"
             line = " ".join(P.build_command(p, "x", tmp))
             self.assertIn("+set bo1_mod_zones zombie_bo2prison +set bo1_bspworld maps/zombie_bo2prison.d3dbsp ", line)
+            # the native Buried: its zone, then Ascension's for Stamin-Up
+            with open(os.path.join(layouts, "bo2_zm_buried_bsp.json"), "w") as f:
+                json.dump({"name": "bo2_zm_buried_bsp", "base": "zombie_pentagon", "edits": []}, f)
+            os.makedirs(os.path.join(tmp, "usermaps", "zombie_bo2buried"))
+            open(os.path.join(tmp, "usermaps", "zombie_bo2buried", "zombie_bo2buried.ff"), "w").close()
+            open(os.path.join(tmp, "main", "maps", "zombie_bo2buried.d3dbsp"), "w").close()
+            P.mapkit_layouts.cache_clear()
+            self.assertIn("Mapkit : Buried native (Black Ops II, monde BSP)",
+                          [m[1] for m in P.solo_maps(tmp) if m[3] == "bo2_zm_buried_bsp"])
+            p["map"] = "mapkit:bo2_zm_buried_bsp"
+            line = " ".join(P.build_command(p, "x", tmp))
+            self.assertIn("+set bo1_mod_zones zombie_bo2buried zombie_cosmodrome"
+                          " +set bo1_bspworld maps/zombie_bo2buried.d3dbsp ", line)
 
     def test_bo2_weapons(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -1,18 +1,148 @@
-# BO1 Zombies — portage Nintendo Switch 1
+# BO1 Zombies
+
+Black Ops 1 Zombies avec son moteur décompilé : les mods peuvent changer le moteur lui-même, pas seulement les
+scripts et les cartes. Ce fork (branche `switch`) le fait aussi tourner en 64 bits sur Windows, Linux, OpenBSD et
+Nintendo Switch, ajoute un serveur dédié et y apporte des cartes et des armes de Black Ops II.
+
+![](images/1.webp)
+
+![](images/2.webp)
+
+> **Aucune donnée du jeu n'est fournie.** Chaque paquet se construit à partir de *votre* Black Ops (et de votre Black
+> Ops II pour le contenu BO2). Gardez les paquets pour vos propres appareils et ne les publiez jamais.
+
+Version anglaise : `README.md`. La référence complète et détaillée se trouve [plus bas](#référence-détaillée-readme-dorigine).
+
+## Sommaire
+
+- [Ce que vous obtenez](#ce-que-vous-obtenez)
+- [Plateformes](#plateformes)
+- [Pour commencer](#pour-commencer)
+- [Contenu Black Ops II](#contenu-black-ops-ii)
+- [Outils](#outils)
+- [Compiler](#compiler)
+- [Documentation](#documentation)
+- [Référence détaillée (README d'origine)](#référence-détaillée-readme-dorigine)
+
+## Ce que vous obtenez
+
+- **Les dix cartes zombies et Dead Ops Arcade**, en solo ou en ligne.
+- **Un serveur dédié** pour Windows et Linux. Les joueurs peuvent rejoindre une partie en cours, et jusqu'à 32
+  peuvent jouer. Il a des commandes d'admin (`zm_god`, `zm_points`, `zm_perk`, `zm_round`...) et une console
+  d'administration (`zmadmin`).
+- **Un lanceur pour les joueurs** (`zmclient`). Il lance une partie solo avec des mods, rejoint des serveurs, ouvre
+  un écran partagé en deux fenêtres et installe les fichiers du jeu depuis votre propre copie.
+- **Des mods** qui se cumulent : horde, nightmare, MapKit, sans atouts, compteur de zombies, les armes de BO2, les
+  armes doublées après le Pack-a-Punch.
+- **Des cartes de Black Ops II** : Nuketown, TranZit, Mob of the Dead et Buried, en cartes BO1 natives.
+- **Infos speedrun** : les réglages qui changent une partie et un SHA-512 du programme et de ses zones, affichés à
+  l'écran.
+
+## Plateformes
+
+| Plateforme | État | Notes |
+|---|---|---|
+| Windows 64 bits | jouable | le renderer D3D9 d'origine ; `Play.bat`, `zmclient.exe` |
+| Windows 32 bits | build de référence | la disposition du jeu d'origine ; `Play.bat offline` sans Steam |
+| Linux x86-64 | en cours | client OpenGL 4.3, serveur dédié et client sans affichage ; pas encore de son ni de manette |
+| OpenBSD/amd64 | compile | compilé depuis Linux ; pas encore lancé sur une vraie machine |
+| Nintendo Switch 1 | homebrew jouable | `.nro` pour Atmosphère, deko3d ou OpenGL, menu de démarrage sur la console |
+
+## Pour commencer
+
+1. **Procurez-vous un paquet.** Construisez-le avec `tools/make_dist.sh` (voir [Paquets prêts à
+   copier](#paquets-prêts-à-copier) plus bas). Une release GitHub contient les mêmes paquets, sans fichiers du jeu.
+2. **Ajoutez vos fichiers du jeu.** Avec un paquet sans fichiers du jeu, la vue *Installation* de ZmClient les copie
+   depuis votre installation de Black Ops et convertit les zones. Sur Switch, `Setup-Switch.bat` (Windows) ou
+   `./setup_switch.sh` (Linux) complète le dossier de la carte SD.
+3. **Jouez.**
+   - **Windows / Linux** : lancez `zmclient`, ou `Play.bat` / `play.sh`.
+   - **Switch** : lancez le `.nro` en mode application (gardez R appuyé en lançant un jeu). Le menu de démarrage
+     choisit la carte, le serveur à rejoindre, l'aide à la visée, le mode dieu, le kit de départ (points, courant,
+     Pack-a-Punch, atouts), les graphismes, les commandes et les manettes. **+** lance la partie.
+   - **Serveur** : `Server.bat [carte] [port]` ou `./server.sh [carte] [port]`. Les joueurs le rejoignent avec
+     `Play.bat net <adresse>:<port>`, depuis ZmClient ou depuis l'écran **Serveur** de la Switch.
+
+## Contenu Black Ops II
+
+Extrait de votre propre Black Ops II avec `tools/bo2` (OpenAssetTools et un extracteur de monde) et mis dans les
+paquets par `make_dist.sh --bo2` :
+
+| Carte | Ce qui marche | Absent |
+|---|---|---|
+| Nuketown | toute la carte, ses props et la lumière précalculée de BO2 ; self-test 106/106 | — |
+| TranZit (classique) | portes, courant, atouts, Pack-a-Punch, barricades, le pont, le bus et la banque | les Denizens, les objets à construire |
+| Mob of the Dead | les blocs de cellules, les portes, les atouts, le Pack-a-Punch, la nacelle (en marche dès le début) | l'au-delà, l'avion, Brutus |
+| Buried | la ville, la grotte et le manoir, les atouts, le Pack-a-Punch ; le courant est allumé dès le début | Leroy, les fantômes, les énigmes du labyrinthe, les objets à construire |
+
+Les armes de BO2 (les 36 armes de la boîte et leurs versions Pack-a-Punch) forment le mod `bo2weapons`. Dans la vue
+Solo de ZmClient, les cartes s'appellent « Mapkit : … native (Black Ops II, monde BSP) ». Détails :
+`docs/BO2_MAPS.md`, `docs/BO2_WEAPONS.md`.
+
+## Outils
+
+| Outil | Rôle |
+|---|---|
+| `tools/ffconv` | convertit les fastfiles de votre installation au format 64 bits et traduit les shaders (`--verify` vérifie chaque zone) |
+| `tools/zmclient` | lanceur des joueurs : solo avec mods, serveurs, écran partagé, installation |
+| `tools/zmadmin` | console d'administration du serveur : joueurs, partie, réglages, rcon, journal |
+| `tools/make_dist.sh` | construit les paquets prêts à copier de chaque plateforme |
+| `tools/bo2` | transforme une carte de Black Ops II en disposition MapKit et en carte BO1 native |
+| `tools/dualwield` | construit le mod des armes doublées à partir de vos zones |
+| `tools/switch_setup` | complète le dossier de la carte SD de la Switch depuis votre installation |
+| `tools/server_status.py`, `tools/server_rcon.py` | interrogent un serveur, envoient des commandes rcon |
+
+## Compiler
+
+```sh
+# zones : lues dans votre installation, jamais écrites dedans
+build\ffconv\ffconv.exe --verify --game "C:\...\Call of Duty Black Ops" --out build\zones64
+
+# Windows 64 bits
+cmake --preset win64-msvc && cmake --build --preset win64-msvc-release      # puis Play.bat x64
+
+# Linux
+cmake --preset linux64-clang -DDXSDK_DIR=<SDK DirectX de juin 2010> && cmake --build --preset linux64-clang
+
+# tous les paquets (bash, depuis WSL)
+tools/make_dist.sh
+```
+
+La Switch se compile avec devkitPro (devkitA64, libnx), piloté par `make_dist.sh`. Les prérequis et toutes les
+options sont dans la [référence détaillée](#référence-détaillée-readme-dorigine) et dans `docs/PORTING.md`.
+
+## Documentation
+
+| Question | À lire |
+|---|---|
+| Plan du portage, état, décisions | `docs/PORTING.md` |
+| Organisation du portage en couches | `docs/ARCHITECTURE.md` |
+| Backends du renderer | `docs/RENDERER.md` |
+| Serveur dédié | `docs/SERVER.md` |
+| Cartes / armes de Black Ops II | `docs/BO2_MAPS.md`, `docs/BO2_WEAPONS.md` |
+| Mods | `mods/*/README.md`, `mods/mapkit/MAPKIT.md` |
+
+---
+
+## Référence détaillée (README d'origine)
+
+Le README tel qu'il était avant ce résumé, conservé en entier.
+
+### BO1 Zombies — portage Nintendo Switch 1
 
 Ce dépôt est un fork de [`MisaDev4/bo1-zombies-decompiled`](https://github.com/MisaDev4/bo1-zombies-decompiled),
 le moteur décompilé de Black Ops 1 Zombies sur PC. La branche `switch` le porte en homebrew Switch 1 (`.nro`,
 AArch64, libnx).
 
-## Objectif v1
+#### Objectif v1
 Zombies en solo hors-ligne sur les maps de base, sans mods ni réseau.
 
-## État
+#### État
 Travail en cours. Le plan par phases, l'avancement et les décisions sont dans `docs/PORTING.md`. L'architecture du
 portage est dans `docs/ARCHITECTURE.md`, et le contrat du renderer (GL maintenant, deko3d possible plus tard) dans
 `docs/RENDERER.md`.
 
-## Données du jeu
+#### Données du jeu
 Aucun fichier du jeu n'est distribué. Il faut posséder Call of Duty: Black Ops sur Steam. Un convertisseur lancé
 sur ton PC (`tools/ffconv`) transforme les fastfiles de ton install en format 64-bit pour le port, et traduit leurs
 shaders en GLSL :
@@ -24,7 +154,7 @@ Il lit les zones de toutes les maps zombies (environ 3 Go) et écrit `zone\` et 
 dans l'install. `--verify` relit chaque zone écrite et la compare à l'originale. Tu copies ensuite le résultat sur la
 carte SD, dans `sdmc:/switch/bo1zm/`.
 
-## Lancement sur Switch
+#### Lancement sur Switch
 Le jeu doit être lancé en mode application (title takeover : maintenir R en lançant un jeu). Le mode applet,
 c'est-à-dire l'album, ne donne qu'environ 400 Mo de RAM.
 
@@ -65,20 +195,20 @@ menu écrit `launch.cfg` (la ligne de commande du moteur) et `gfx.cfg` (le rendu
 vide `skip_menu` dans le même dossier, le jeu démarre sans menu, sur `launch.cfg` et `gfx.cfg` tels quels. C'est
 pratique sur un émulateur.
 
-## Build PC d'origine
+#### Build PC d'origine
 Les instructions upstream (Windows, MSVC x86, D3D9) sont dans `README.md`, `setup.ps1` et `Play.bat`.
 
-## Build hors-ligne sur PC
+#### Build hors-ligne sur PC
 La build hors-ligne du port, sans Steam, Bink, NVAPI, DemonWare ni chat vocal, se joue déjà sur Windows avec les
 fichiers copiés par `setup.ps1` : `cmake --preset win32-msvc-offline`, `cmake --build --preset
 win32-msvc-offline-release`, puis `Play.bat offline`.
 
-## Build 64 bits (en cours)
+#### Build 64 bits (en cours)
 Kino der Toten se charge et se joue une minute ; les parties plus longues ne sont pas encore testées. Cette build lit
 des zones converties : `ffconv --verify --game <install> --out build\zones64`, puis `cmake --preset win64-msvc`,
 `cmake --build --preset win64-msvc-release` et `Play.bat x64`.
 
-## Build Linux (en cours)
+#### Build Linux (en cours)
 Sur Linux x86-64, le moteur tourne en serveur dédié, en client headless qui ne dessine rien, ou en client fenêtré
 qui rend en OpenGL 4.3 core (clavier et souris ; pas encore de son ni de manette). `cmake --preset linux64-clang
 -DDXSDK_DIR=<SDK DirectX de juin 2010>` puis `cmake --build --preset linux64-clang` (clang, Ninja, les fichiers de
@@ -98,7 +228,7 @@ Les différences d'OS sont sous `#if defined(__OpenBSD__)` dans `src/platform/po
 `funopen`, `getthrid`, pas d'affinité CPU) ; `src/platform/openbsd/include` remplace les en-têtes glibc absents
 d'OpenBSD.
 
-## Serveur dédié zombies (en cours, branche `server`)
+#### Serveur dédié zombies (en cours, branche `server`)
 C'est le même programme lancé avec `+set bo1_server 1`, sous Windows ou Linux : pas de fenêtre, écoute UDP sur toutes
 les interfaces, réglages dans `server.cfg`. `Server.bat [map] [port]` et `./Server.sh [map] [port]` en lancent un
 (chemins de `Server.sh` : variables `BO1_EXE`, `BO1_INSTALL`, `BO1_ZONES`, `BO1_SERVER` ; `Server.bat` et `Play.bat` lisent
@@ -190,7 +320,7 @@ vérifications sur 106 ; les modèles ne sont pas encore éclairés). `make_dist
 ZmClient la propose sous « Mapkit : Nuketown native (Black Ops II, monde BSP) ».
 
 
-## Paquets prêts à copier
+#### Paquets prêts à copier
 `tools/make_dist.sh` (bash, depuis WSL) part d'un arbre de sources où `setup.ps1` a copié le jeu. Il produit dans
 `build/dist` un dossier prêt à copier et une archive par plateforme :
 - `BO1Zombies_windows/` (`.zip`) : le client et le serveur 64 bits, `zmclient.exe`, `zmadmin.exe`, `ffconv.exe` et `switch-tools\uam.exe` (plus bas). `Play.bat` lance le jeu, `Play.bat net
@@ -242,7 +372,7 @@ Sous wine, si le jeu plante ou reste sur un écran noir au démarrage dans le `x
 expérimental d'OpenBSD), un `launch.cfg` à côté de `BO1Zombies.exe` contenant `nosnd` l'évite : cet interrupteur
 d'origine du jeu le fait démarrer sans aucun pilote son, comme un PC sans carte son.
 
-### Release sur GitHub
+##### Release sur GitHub
 
 `.github/workflows/release.yml` compile les programmes des quatre plateformes sur les machines de GitHub et publie une release, « BO1 Zombies
 Enhanced edition version <tag> », avec une archive par plateforme (`BO1Zombies_<tag>_windows.zip`, `_linux`,

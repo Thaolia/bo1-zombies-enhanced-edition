@@ -34,7 +34,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import d3dbsp  # noqa: E402
 from bo2_layout import Collision, read_entities, zone_edits  # noqa: E402
-from bo2_bsp_props import PropModels, place_props, prop_collision  # noqa: E402
+from bo2_bsp_props import PropModels, clip_ramps, place_props, prop_collision  # noqa: E402
 from bo2_mesh import (FLAG_ALPHA_TEST, FLAG_BLEND, FLAG_DECAL, blend_flags, dds_to_iwi, image_name,  # noqa: E402
                       read_mtl, read_obj, skipped)
 from bo2_props_collision import PROP_CONTENTS  # noqa: E402
@@ -417,7 +417,8 @@ def main(argv=None):
     prop_stats = None
     if args.models:
         overflow = [] if args.props_collision else None
-        prop_stats = prop_collision(bsp, args.dump, base, col_material(PROP_CONTENTS, 0), len(coll_verts), overflow)
+        prop_stats = prop_collision(bsp, args.dump, base, col_material(PROP_CONTENTS, 0), len(coll_verts), overflow,
+                                    clip_ramps(brushes))
         if overflow is not None:
             # a BO2COL2 file of brushes only: no materials, the brushes, no terrain (cm_mapkit_import.cpp)
             path = os.path.join(args.out, os.path.basename(args.props_collision))
@@ -485,12 +486,13 @@ def main(argv=None):
           f"tree {nodes} nodes, {leafs} leaves, {leafbrushes} leaf brushes, {aabbs} leaf partitions"
           + (f"; brush models *1..*{window_models} from {os.path.basename(args.window_models)}" if window_models else ""))
     if props:
-        boxes, piles, rocks, tri_props, tri_count, fallback, spilled = prop_stats
+        boxes, piles, rocks, tri_props, tri_count, fallback, spilled, hanging, covered = prop_stats
         print(f"props: {placed[0]} placements as static models ({placed[1]} left out), "
               f"{sum(1 for m in props.models.values() if m)} xmodels, "
               f"{sum(1 for m in props.materials.values() if m)} materials; collision: {boxes} boxes, "
-              f"{piles} piles as {rocks} rocks, {tri_props} meshes as {tri_count} triangles, {fallback} meshes as boxes "
-              f"(no collision vertices left)" + (f", {spilled} meshes as {len(overflow)} prisms in "
+              f"{piles} piles as {rocks} rocks, {tri_props} meshes as {tri_count} triangles ({hanging} of them piles "
+              f"hanging or under a player clip, {covered} of their triangles left under it), {fallback} meshes as "
+              f"boxes (no collision vertices left)" + (f", {spilled} meshes as {len(overflow)} prisms in "
                                                  f"{os.path.basename(args.props_collision)}" if overflow is not None
                                                  else ""))
         for note in props.notes[:20]:

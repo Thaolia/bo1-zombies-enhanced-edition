@@ -7,9 +7,10 @@ materials copies of BO1 model templates (mc/, colour map only) with BO2's colour
 Collision: the engine only gives a static model collision from its xmodel's collision surfaces, which OAT's Linker does
 not build, so the props collide through the BSP itself (as bo2_props_collision.py does for MapKit): a small box-like
 model as an oriented box brush; each rock of a rock or rubble pile as a brush (rock_brushes: Nuketown's 99 rubble
-clumps alone held 67 000 triangle vertices); any other larger one as its collision LOD's triangles, while the BSP's
-16-bit collision vertices last (largest models last), then as an oriented box. Only the props inside the map's zones
-collide (the rest lies past its invisible walls); lights do not (they caught a player's head).
+clumps alone held 67 000 triangle vertices), except a pile hanging from a ceiling or under a player clip, which is
+taken as below; any other larger one as its collision LOD's triangles, while the BSP's 16-bit collision vertices
+last (largest models last), then as an oriented box. Only the props inside the map's zones collide (the rest lies past
+its invisible walls); lights do not (they caught a player's head).
 """
 import csv
 import json
@@ -21,7 +22,8 @@ import shutil
 from bo2_layout import Collision, read_entities, zone_edits
 from bo2_mesh import FLAG_ALPHA_TEST, FLAG_BLEND, FLAG_DECAL, blend_flags, dds_to_iwi, image_name, material_colour, \
     skipped
-from bo2_props_collision import BOX_MAX, LIGHTS, MIN_HALF, PLAY_PAD, PROP_CONTENTS, box_like, collision_lod, prism_brush
+from bo2_props_collision import BOX_MAX, LIGHTS, MIN_HALF, PLAY_PAD, PROP_CONTENTS, box_like, collision_lod, \
+    prism_brush, prism_depths
 
 MODEL_TEMPLATES = {0: "mtl_dest_glo_paper_01", FLAG_ALPHA_TEST: "mtl_filament", FLAG_DECAL: "mtl_theater_paper_scrawl",
                    FLAG_BLEND: "mtl_theater_paper_scrawl"}
@@ -34,6 +36,10 @@ SKY_BRIGHTNESS = 0.5
 COLLISION_VERTS = 0x10000
 ROCKS = re.compile(r"rock|rubble")  # piles: a brush per rock instead of triangles
 ROCK_MIN = 16.0  # a stone smaller than this across is stepped over: no brush
+# model-space x range of a frame's doorway whose door is a script model left out with its game: the frame's collision
+# keeps the closed door's rails across it (Buried's jail: Leroy's cell, open without him)
+DOORWAYS = {"p6_zm_bu_jailcell_door_frame": (-42.0, 12.0)}
+RAMP_COVER = 36.0  # a rock this far over a player clip's floor is under it all the same (Buried's slide: 22)
 ROCK_CUTS = [(sx / math.sqrt(3), sy / math.sqrt(3), 1 / math.sqrt(3)) for sx in (-1, 1) for sy in (-1, 1)]
 MODEL_FALLBACK = "mc/" + MODEL_TEMPLATES[0]  # a name for a glTF material entry no surface uses any more
 
@@ -277,11 +283,57 @@ def rock_brushes(points, tris):
     return out
 
 
-def prop_collision(bsp, dump, base, material, verts_used, overflow=None):
-    """The props' collision (module docstring). A mesh past the BSP's 16-bit collision vertices becomes a box, or,
-    with overflow (a list), BO2COL2 prism brushes appended to it, for a MapKit collision edit: TranZit's meshes want
-    far more vertices than its terrain leaves. Returns (boxes, piles, rock brushes, triangle props, triangles,
-    fallback boxes, overflow meshes)."""
+def clip_ramps(brushes):
+    """The world brushes (bo2_bsp.read_collision) that only clip players, with a side a player stands on (BO1's
+    walkable normal, 0.7): the floors laid over rocks and rubble (Buried's slide). Each as (mins, maxs, its upward
+    planes (normal, dist), its axial top among them)."""
+    return [(mins, maxs, [(n, d) for n, d, _, _ in sides if n[2] >= 0.7] + [((0.0, 0.0, 1.0), maxs[2])])
+            for mins, maxs, contents, owner, _, sides in brushes
+            if owner == 0 and contents & 0x10000 and not contents & 1 and any(n[2] >= 0.7 for n, _, _, _ in sides)]
+
+
+def cut_doorway(tris, lo, hi):
+    """The triangles with what lies between x = lo and x = hi (model space) cut away, the rest as triangles."""
+    def split(poly, x, keep_below):
+        out = []
+        for i, p in enumerate(poly):
+            q = poly[(i + 1) % len(poly)]
+            if (p[0] <= x) == keep_below:
+                out.append(p)
+            if (p[0] < x) != (q[0] < x) and p[0] != q[0]:
+                t = (x - p[0]) / (q[0] - p[0])
+                out.append(tuple(p[k] + t * (q[k] - p[k]) for k in range(3)))
+        return out
+    kept = []
+    for tri in tris:
+        for poly in (split([tuple(p) for p in tri], lo, True), split([tuple(p) for p in tri], hi, False)):
+            kept += [(poly[0], poly[i], poly[i + 1]) for i in range(1, len(poly) - 1)]
+    return kept
+
+
+def world_bounds(origin, axes, scale, bounds):
+    """The world bounds of a placement's model-space bounds."""
+    corners = [[origin[k] + scale * sum(bounds[c >> j & 1][j] * axes[j][k] for j in range(3)) for k in range(3)]
+               for c in range(8)]
+    return [min(p[k] for p in corners) for k in range(3)], [max(p[k] for p in corners) for k in range(3)]
+
+
+def overlaps(ramp, lo, hi, pad=0.0):
+    return all(ramp[0][k] - pad < hi[k] and lo[k] < ramp[1][k] + pad for k in range(3))
+
+
+def under_clip(p, ramps):
+    """Whether a point lies under a clip_ramps floor, at most RAMP_COVER over it."""
+    return any(all(r[0][k] - RAMP_COVER <= p[k] <= r[1][k] + RAMP_COVER for k in range(3))
+               and all(n[0] * p[0] + n[1] * p[1] + n[2] * p[2] <= d + RAMP_COVER for n, d in r[2]) for r in ramps)
+
+
+def prop_collision(bsp, dump, base, material, verts_used, overflow=None, ramps=()):
+    """The props' collision (module docstring). A mesh past the BSP's 16-bit collision vertices becomes a box (a
+    hanging pile: its rock_brushes), or, with overflow (a list), BO2COL2 prism brushes appended to it, for a MapKit
+    collision edit: TranZit's meshes want far more vertices than its terrain leaves. ramps: the (mins, maxs) of the
+    world's player clips with a floor a player walks on (clip_ramps). Returns (boxes, piles, rock brushes, triangle
+    props, triangles, fallback boxes, overflow meshes, piles kept as meshes, their triangles left under a clip)."""
     placements = {}
     with open(base + ".smodels.csv", encoding="latin-1") as f:
         for row in csv.DictReader(f):
@@ -291,6 +343,10 @@ def prop_collision(bsp, dump, base, material, verts_used, overflow=None):
 
     def in_play(o):
         return any(all(z["mins"][k] - PLAY_PAD <= o[k] <= z["maxs"][k] + PLAY_PAD for k in range(3)) for z in zones)
+
+    def under_ramp(origin, axes, scale, bounds):
+        lo, hi = world_bounds(origin, axes, scale, bounds)
+        return any(overlaps(r, lo, hi) for r in ramps)
 
     cache, boxes, piles, meshes = {}, [], [], []
     with open(base + ".smodelcoll.csv", encoding="latin-1") as f:
@@ -309,15 +365,22 @@ def prop_collision(bsp, dump, base, material, verts_used, overflow=None):
             if not lod:
                 continue
             tris, bounds = lod
+            if name in DOORWAYS:
+                tris = cut_doorway(tris, *DOORWAYS[name])
             axes = [[float(place[f"a{a}{i}"]) for i in range(3)] for a in "xyz"]
             scale = float(place["scale"])
             entry = (origin, axes, scale, tris, bounds)
             if max(bounds[1][k] - bounds[0][k] for k in range(3)) * scale <= BOX_MAX and box_like(tris, bounds):
                 boxes.append(entry)
-            elif ROCKS.search(name):
+            elif ROCKS.search(name) and axes[2][2] >= 0 and not under_ramp(origin, axes, scale, bounds):
                 piles.append(entry)
             else:
-                meshes.append(entry)
+                # A pile's boxes fill what its rocks leave free: under a pile turned over (its up axis points down),
+                # which hangs from a ceiling, and above one a player clip covers, whose floor the player walks on
+                # instead of the rocks. On Buried's slide the boxes stood up to 40 units over the clip, and the
+                # player, on them, was stopped by the boxes of the rocks above (BO2's rocks leave 84 units). Such a
+                # pile keeps its triangles, and becomes rock brushes only once the collision vertices run out.
+                meshes.append(entry + (bool(ROCKS.search(name)),))
 
     def add_box(origin, axes, scale, bounds):
         mins, maxs, sides = box_sides(origin, axes, scale, bounds[0], bounds[1])
@@ -325,8 +388,8 @@ def prop_collision(bsp, dump, base, material, verts_used, overflow=None):
 
     for origin, axes, scale, _, bounds in boxes:
         add_box(origin, axes, scale, bounds)
-    rock_count = 0
-    for origin, axes, scale, tris, _ in piles:
+
+    def add_pile(origin, axes, scale, tris):
         index = {}
         for tri in tris:
             for p in tri:
@@ -334,26 +397,53 @@ def prop_collision(bsp, dump, base, material, verts_used, overflow=None):
         world = [None] * len(index)
         for p, i in index.items():
             world[i] = [origin[k] + scale * sum(p[j] * axes[j][k] for j in range(3)) for k in range(3)]
+        count = 0
         for mins, maxs, sides in rock_brushes(world, [[index[tuple(p)] for p in tri] for tri in tris]):
             bsp.add_collision_brush(mins, maxs, material, [material] * 6, [(n, d, material) for n, d in sides])
-            rock_count += 1
+            count += 1
+        return count
+
+    rock_count, pile_count = 0, len(piles)
+    for origin, axes, scale, tris, _ in piles:
+        rock_count += add_pile(origin, axes, scale, tris)
     # Triangles while the 16-bit collision vertices last, smallest meshes first; the rest as boxes.
     meshes.sort(key=lambda e: len(e[3]))
-    tri_props = tri_count = fallback = spilled = 0
-    for origin, axes, scale, tris, bounds in meshes:
+    tri_props = tri_count = fallback = spilled = hanging = 0
+    covered, depth_cache = 0, {}
+    for origin, axes, scale, tris, bounds, rock in meshes:
+        hanging += rock
+        near = [r for r in ramps if overlaps(r, *world_bounds(origin, axes, scale, bounds), RAMP_COVER)] if rock else []
+        if near:
+            # the rock faces under a player clip's floor: BO2's level designer laid the clip over them as the floor
+            # (they rise up to 22 units through Buried's slide, under rocks hanging 47 units over them)
+            kept = [t for t in tris if not all(
+                under_clip([origin[k] + scale * sum(p[j] * axes[j][k] for j in range(3)) for k in range(3)], near)
+                for p in t)]
+            covered += len(tris) - len(kept)
+            tris = kept
+            if not tris:
+                continue
         local = {}
         for tri in tris:
             for p in tri:
                 local.setdefault(tuple(p), len(local))
         if verts_used + len(local) > COLLISION_VERTS:
+            if overflow is None and rock:
+                pile_count += 1
+                rock_count += add_pile(origin, axes, scale, tris)
+                continue
             if overflow is None:
                 add_box(origin, axes, scale, bounds)
                 fallback += 1
                 continue
-            # as bo2_props_collision.py writes them for MapKit: model_tris' winding, a prism behind each face
-            for tri in tris:
+            # as bo2_props_collision.py writes them for MapKit: model_tris' winding, a prism behind each face, no
+            # deeper than the model behind it (prism_depths, once per collision LOD: the cache keeps each list alive)
+            cached = depth_cache.get(id(tris))
+            if cached is None or cached[0] is not tris:
+                cached = depth_cache[id(tris)] = (tris, prism_depths(tris))
+            for tri, depth in zip(tris, cached[1]):
                 brush = prism_brush([[origin[k] + scale * sum(p[j] * axes[j][k] for j in range(3)) for k in range(3)]
-                                     for p in tri], PROP_CONTENTS)
+                                     for p in tri], PROP_CONTENTS, scale * depth)
                 if brush is not None:
                     overflow.append(brush)
             spilled += 1
@@ -368,5 +458,5 @@ def prop_collision(bsp, dump, base, material, verts_used, overflow=None):
         verts_used += len(local)
         tri_props += 1
         tri_count += len(out)
-    return len(boxes), len(piles), rock_count, tri_props, tri_count, fallback, spilled
+    return len(boxes), pile_count, rock_count, tri_props, tri_count, fallback, spilled, hanging, covered
 

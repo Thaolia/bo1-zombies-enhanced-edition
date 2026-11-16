@@ -42,6 +42,7 @@ OPEN_MIN = 24.0    # an opening must be this wide and high to let a player throu
 STAIR_LEVELS = 4   # box_like: upward face heights in a climbable run that make stairs
 STEP = 18.0        # BO1's step height
 PRISM_DEPTH = 16.0
+PRISM_MIN = 1.0    # prism_depths: a face whose back is closer (a two-sided sheet) still gets this thickness
 PLAY_PAD = 64.0
 PROP_CONTENTS = 0x10000 | 0x2000 | 0x80  # player clip; stops shots (BO1 bits, docs/BO2_MAPS.md)
 LIGHTS = re.compile(r"light|lamp")
@@ -141,15 +142,52 @@ def dot(a, b):
     return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
 
 
-def prism_brush(v, contents):
-    """A world triangle as a prism PRISM_DEPTH deep behind its face (its own winding's normal), None if degenerate."""
+def prism_depths(tris):
+    """How deep each triangle's prism may go behind its face (model space): the distance from its centre, along its
+    inward normal, to the model's next face, at most PRISM_DEPTH, at least PRISM_MIN. A full-depth prism of a part
+    thinner than PRISM_DEPTH (a railing's spindle, a door frame's trim) came out of its other side, up to 13 units into
+    the room: Buried's general store stairs and the doorway at their top stopped a standing player."""
+    import numpy as np
+    t = np.asarray(tris, dtype=np.float64)
+    if not len(t):
+        return []
+    e1, e2 = t[:, 1] - t[:, 0], t[:, 2] - t[:, 0]
+    n = np.cross(e1, e2)
+    length = np.linalg.norm(n, axis=1)
+    ok = length > 1e-9
+    n[ok] /= length[ok, None]
+    centre = t.mean(axis=1)
+    depths = np.full(len(t), PRISM_DEPTH)
+    for start in range(0, len(t), 256):
+        rows = slice(start, start + 256)
+        d = -n[rows]  # inward
+        o = centre[rows]
+        # Moller-Trumbore, every ray of the chunk against every triangle
+        p = np.cross(d[:, None, :], e2[None, :, :])
+        det = np.einsum("ijk,jk->ij", p, e1)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            inv = 1.0 / det
+            s = o[:, None, :] - t[None, :, 0, :]
+            u = np.einsum("ijk,ijk->ij", s, p) * inv
+            q = np.cross(s, e1[None, :, :])
+            v = np.einsum("ik,ijk->ij", d, q) * inv
+            dist = np.einsum("jk,ijk->ij", e2, q) * inv
+            hit = (np.abs(det) > 1e-9) & (u >= 0) & (v >= 0) & (u + v <= 1) & (dist > 1e-3)
+        hit[np.arange(dist.shape[0]), np.arange(start, start + dist.shape[0])] = False
+        nearest = np.where(hit, dist, np.inf).min(axis=1)
+        depths[rows] = np.clip(nearest, PRISM_MIN, PRISM_DEPTH)
+    return depths.tolist()
+
+
+def prism_brush(v, contents, depth=PRISM_DEPTH):
+    """A world triangle as a prism depth units deep behind its face (its own winding's normal), None if degenerate."""
     n = cross([v[1][k] - v[0][k] for k in range(3)], [v[2][k] - v[0][k] for k in range(3)])
     length = math.sqrt(dot(n, n))
     if length < 1e-4:
         return None
     n = [x / length for x in n]
     d = dot(n, v[0])
-    sides = [(n, d), ([-x for x in n], -(d - PRISM_DEPTH))]
+    sides = [(n, d), ([-x for x in n], -(d - depth))]
     centre = [sum(p[k] for p in v) / 3 for k in range(3)]
     for e in range(3):
         a, b = v[e], v[(e + 1) % 3]
@@ -162,7 +200,7 @@ def prism_brush(v, contents):
         if dot(en, centre) > ed:
             en, ed = [-x for x in en], -ed
         sides.append((en, ed))
-    corners = list(v) + [[p[k] - PRISM_DEPTH * n[k] for k in range(3)] for p in v]
+    corners = list(v) + [[p[k] - depth * n[k] for k in range(3)] for p in v]
     return brush_record([min(c[k] for c in corners) for k in range(3)], [max(c[k] for c in corners) for k in range(3)],
                         contents, sides)
 
