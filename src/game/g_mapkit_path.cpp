@@ -477,6 +477,11 @@ void G_Mapkit_LinkPathnodes()
         Com_Printf(18, "mapkit: node %u in solid at (%g %g %g), moved to (%g %g %g)\n", i, src->origin[0], src->origin[1],
             src->origin[2], node->constant.vOrigin[0], node->constant.vOrigin[1], node->constant.vOrigin[2]);
     }
+    // spawnflags 2 keeps a node left bad out of the friendly chains: on a BSP world Path_InitPaths builds them after
+    // this, and Path_BuildChains drops the map ("bad node in friendly chain") for a bad node in one (zm_prison: 2)
+    for (unsigned int i = first; i < path->nodeCount; ++i)
+        if (path->nodes[i].constant.type == NODE_BADNODE)
+            path->nodes[i].constant.spawnflags |= 2;
     if (moved && first == 0)
     {
         // the tree split the nodes by their old origins

@@ -469,6 +469,71 @@ from `bo2_layout.py`; `mods/mapkit/MAPKIT.md` has the `bus` and `bank` edits.
 - Not done: zombies chasing and boarding the bus, its roof hatch, ladder, horn, lights and driver, the bus's own wall
   buy, BO2's sounds.
 
+### Mob of the Dead's world as a native map (2026-11-16)
+
+`zm_prison` goes through the same tools as TranZit, as `zombie_bo2prison` with the layout `bo2_zm_prison_bsp`: the
+island without its afterlife, plane, bridge or Brutus. 209 895 world triangles in 3 125 surfaces, 15 818 placed props of
+415 models, 15 120 brushes, 18 659 terrain triangles, 198 lamps; BSP 99 MB, zone 6 MB, 338 colour maps, props collision
+43 MB; hunk 69.0 MB after the render world, 71.6 at most (Windows). What it needed:
+
+- **The DLC's images.** The zone reads `dlc2.ipak`, the install has `dlczm2.ipak`: without a link under the zone's name
+  (`tools/bo2/oat/README.md`) 850 images had no data, 507 of the world's materials were left out and 10 969 placements
+  drew nothing (their models' materials were gone).
+- **A layout node left in solid.** On a BSP world `Path_InitPaths` builds the friendly chains after MapKit added its
+  nodes, and `Path_BuildChains` drops the map for a bad node in one ("bad node [1211] in friendly chain"); two of the
+  cell block's nodes find no free spot within 16 units. MapKit gives a node left bad `spawnflags` 2, which keeps it out
+  of the chains (zombies do not use them; `g_mapkit_path.cpp`).
+- **Spawners named Mob of the Dead's way.** A zone's volume targets its spawn structs (`spawner_shower`,
+  `zone_cafetaria_spawner`); `bo2_layout.py` took only `<zone>_spawners` (Nuketown, TranZit) and found 13 of them: now
+  47 risers and 68 spawners. A spawn_location names no barricade there: it targets the pathnode its zombies go to first,
+  100 to 120 units outside the barricade they come in by, which makes it that window's spawner. A spawner added for a
+  window stands 128 units out unless no pathnode is near there (the cells behind the corridor's barricades): then 48.
+- **Climbs.** The zombies reach the upper barricades and roofs by `zm_alcatraz_*` climbs: a jump down, MapKit's jump up
+  or a mantle by the pair's own height (51 pairs; the jump to the bridge is left out).
+- **Pack-a-Punch.** Classic's stands on the Golden Gate Bridge, a zone of its own 8 000 units under the island that only
+  the plane reaches: a Pack-a-Punch out of the zones a player walks to from the start (boxes touching) gives way to
+  another mode's, Grief's in the cell block (888, 9057, 1544).
+- **Doors.** The afterlife doors (`afterlife_door`, cost 0) are bought for 750. The cell doors round the players' start
+  (`cellblock_start_door`, one blocker from x 535 to 2113 over the whole corridor) open by script at the start: as a door
+  to buy, its box held the player in solid (the user's first game). A door whose box holds a start point is a free power
+  door, open at once on a layout without a power switch.
+- **Machines and props.** A floor lamp 55 units in front of Juggernog kept the player out of its trigger: a machine's
+  side is free only without a colliding prop taller than a step (24 units, OAT's OBJ) whose origin lies within 20 units
+  of its front. Juggernog faces +x. Deadshot and Electric Cherry have no BO1 machine on Five; the Thompson and Uzi wall
+  buys no BO1 equivalent.
+
+- **The gondola** (`zipline_gondola`, asked by the user): MapKit's bus on a two-stop line, the cell block's roof
+  (901, 8231, floor 1543) to the docks (901.6, 5983, floor 265), 2 586 units at 150 a second, 20 s at each station,
+  running from the start (BO2 powers it from afterlife). Its heading stays fixed, so the cabin never turns; floor,
+  side walls and ends with a doorway each that shuts on the way (`GONDOLA_*` in `bo2_layout.py`, BO2's cabin turned 180
+  degrees: each end against its station's gates). The cabin `p6_zm_al_gondola` is the mesh edit's mover
+  (`bo2_mesh.py --mover p6_zm_al_gondola`); a lever box on each station calls it ("noun": the levers say gondola). No
+  button in it (the bus's opens its doors on the way). With `mapkit_bus_log 2` (Linux) the client put on its floor at
+  the roof stays at (0, 0, 8.1) in its space down to the docks and back, on the ground throughout; Windows screenshots
+  from the roof's platform show the cabin docked, leaving downwards, then gone.
+
+Each change leaves Nuketown's and TranZit's layouts and blocker meshes byte for byte as they were.
+
+Checked: Windows client (D3D9): spawn in the cell block, the round starts, the cell doors open at 0:00, `+forward` walks
+423 units down the corridor, clean exit. Self-test (Linux, timescale 4), last full run before the start door and the
+near spawners: pass 166 fail 43; the doors, the three perks, the box, the Pack-a-Punch (MP5K upgraded), 6 of 7 wall buys,
+the 29 zones and 30 of 47 risers pass, the rounds go on (16 in 18 minutes). Failing: 17 of 22 windows ("zombies got
+spawned outside only": they walk into the room by another way, or none comes), 17 risers whose zombies do not reach the
+client, the CZ75 wall buy on the cell block's second tier (the client stays on the floor below). Not yet run by the
+user after the start door fix, nor on the console.
+
+    tools/bo2/bo2_layout.py $D/zm_prison zm_prison --out bo2_zm_prison.json --links-out zm_prison.links.txt
+    tools/bo2/bo2_mesh.py $D/zm_prison zm_prison --out $OUT/imports/zm_prison --blockers-only --mover p6_zm_al_gondola
+    tools/bo2/bo2_bsp.py $D/zm_prison zm_prison --name zombie_bo2prison --templates <wc> --models $D/prisongltf/zm_prison \
+        --layout bo2_zm_prison.json --blocker-mesh imports/zm_prison/zm_prison.blockers.mesh.bin \
+        --props-collision imports/zm_prison/zm_prison.props.collision.bin --window-models $D/five_bmodels.json --out $OUT
+
+    +set fs_game mods/mapkit +set fs_mods mapkit +set bo1_mod_mapkit bo2_zm_prison_bsp +set bo1_mod_zones zombie_bo2prison \
+    +set bo1_bspworld maps/zombie_bo2prison.d3dbsp +devmap zombie_pentagon
+
+ZmClient offers it as « Mapkit : Mob of the Dead native (Black Ops II, monde BSP) », the Switch start menu as « Mob of
+the Dead (BO2, natif) »; `make_dist.sh --bo2` packages it as TranZit.
+
 ## What comes out of `zm_nuked`
 
 With [OpenAssetTools](https://github.com/Laupetin/OpenAssetTools) 0.34.0 (GPL v3) and a world dumper written for it

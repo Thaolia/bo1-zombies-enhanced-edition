@@ -81,6 +81,17 @@ TRAVERSES = {
     "zm_jump_up_127": "mapkit_jump_up",
     "zm_jump_up_154": "mapkit_jump_up",
     "zm_jump_up_222": "mapkit_jump_up",
+    # Mob of the Dead's climbs (the zombies reach its upper barricades and roofs by them): up, down or across, by the
+    # pair's own height (BY_HEIGHT)
+    "zm_alcatraz_base_to_roof_climb": "by_height",
+    "zm_alcatraz_cellblock_climbdown": "by_height",
+    "zm_alcatraz_cellblock_climbup": "by_height",
+    "zm_alcatraz_dock_fence_climb": "by_height",
+    "zm_alcatraz_dock_mid_climb_up": "by_height",
+    "zm_alcatraz_dock_tommygun_drop": "by_height",
+    "zm_alcatraz_dock_water_jump_up": "by_height",
+    "zm_alcatraz_gondola_climb": "by_height",
+    "zm_prison_jump_up_to_climb": "by_height",
 }
 # BO1's jump downs by height: BO2's animscript names do not give the drop (TranZit's "zm_jump_down_48" off a roof falls
 # 102 units), so a jump down takes the BO1 one nearest the pair's own drop
@@ -95,6 +106,13 @@ CLASSIC = "zclassic"  # the gametype whose machines, power switch and wall buys 
 # that takes hours, so the layout limits it to node pairs within NODE_VIS_RANGE ("nodeVisRange"); a smaller map keeps
 # every pair, as BO1 does
 BIG_MAP_NODES = 2000
+# a spawner whose first pathnode is this close to a barricade (horizontally, within FIRST_NODE_RISE in height) comes in
+# by that barricade (Mob of the Dead: 100 to 120 units out)
+FIRST_NODE_REACH = 160.0
+PROP_BLOCK = 20.0  # a colliding prop's origin this close to a machine's front keeps the player out of its trigger
+AFTERLIFE_DOOR_COST = 750  # Mob of the Dead's cheapest door
+PROP_TALL = 24.0   # ... when it is taller than a step (18 units): OAT's OBJ has y up
+FIRST_NODE_RISE = 64.0
 NODE_VIS_RANGE = 1024  # 2048 cost 55 s of TranZit's load on Linux (actor navigation looks at near node pairs)
 # TranZit's bus (script_vehicle "zombie_bus", model veh_t6_civ_bus_zombie): model space x -96..449 rear to front
 # bumper, the windshield at x 368, y -74..81, z 0..156, its two doors on the right side (-y) at x 58 and 334, the floor
@@ -103,6 +121,21 @@ NODE_VIS_RANGE = 1024  # 2048 cost 55 s of TranZit's load on Linux (actor naviga
 # MapKit carries players on layout brush models moved by _mapkit.gsc: the floor, a step outside each door (the floor is
 # two player steps up) and walls and roof, with the door openings left in the right wall.
 BUS_MODEL = "veh_t6_civ_bus_zombie"
+# Mob of the Dead's gondola, in its travel space (x towards the docks, y left, z up from its floor): the cabin model
+# (OAT's bounds: 172 wide, 173 long, 200 tall) hangs from its struct, its floor 165 units under it at the stations'
+# floors (roof 1544, docks 264); BO2 turns it 180 degrees, so it reaches from 93 units on the roof's side to 80 on the
+# docks' (each end against its station's gates: roof y 8325, docks 5905). Side walls, the two ends with a doorway each
+# (BO2's doors at y +-36), shut on the way
+GONDOLA_MODEL = "p6_zm_al_gondola"
+GONDOLA_FLOOR_DROP = 165.0
+GONDOLA_FLOOR = ((-93.0, -86.0, -16.0), (80.0, 86.0, 0.0))
+GONDOLA_PARTS = [((-93.0, 80.0, 0.0), (80.0, 86.0, 150.0)), ((-93.0, -86.0, 0.0), (80.0, -80.0, 150.0)),
+                 ((74.0, 48.0, 0.0), (80.0, 80.0, 150.0)), ((74.0, -80.0, 0.0), (80.0, -48.0, 150.0)),
+                 ((-93.0, 48.0, 0.0), (-87.0, 80.0, 150.0)), ((-93.0, -80.0, 0.0), (-87.0, -48.0, 150.0))]
+GONDOLA_DOORS = [((74.0, -48.0, 0.0), (80.0, 48.0, 150.0)), ((-93.0, -48.0, 0.0), (-87.0, 48.0, 150.0))]
+GONDOLA_SPEED = 150.0  # units a second: 2 586 units of cable in 17 s
+GONDOLA_WAIT = 20.0    # seconds at each station
+GONDOLA_CALLS = [(1005.0, 8380.0), (1005.0, 5840.0)]  # a lever box at the roof's and the docks' station, east side
 BUS_FLOOR = ((-90.0, -70.0, 20.0), (366.0, 77.0, 36.0))
 BUS_PARTS = [((34.0, -94.0, 0.0), (82.0, -70.0, 18.0)), ((310.0, -94.0, 0.0), (358.0, -70.0, 18.0)),
              ((-96.0, -76.0, 36.0), (34.0, -70.0, 148.0)), ((82.0, -76.0, 36.0), (310.0, -70.0, 148.0)),
@@ -143,6 +176,7 @@ NODE_REACH = 8.0  # a node may sit this far under the surface it belongs to
 WINDOW_MANTLE = 64.0  # a mantle whose middle lies this close to a boarded window is that window's traversal
 WINDOW_WALL_REACH = 80  # a zbarrier's wall lies within this many units in front of it
 WINDOW_SPAWNER = 128.0  # a spawner added for a window stands this far outside it
+WINDOW_SPAWNER_NEAR = 48.0  # ... or this far, when no pathnode lies out there
 # BO2's TranZit replaces zombies far from every player (its distance tracking); a map whose zones span more than
 # FAR_MAP gets MapKit's far respawn at FAR_RESPAWN ("farrespawn" edit), or a round could wait for minutes on zombies
 # walking across it or stuck there while no other zombie spawned (native TranZit self-test: 24 minutes on round 2)
@@ -279,14 +313,19 @@ class Collision:
                 return True
         return False
 
-    def free_side(self, origin, yaws, skip=()):
+    def free_side(self, origin, yaws, skip=(), props=()):
         """The first of yaws whose front (24 to 56 units out, at knee and chest height) is free and has a floor
         within 24 units of origin's height: where a player can stand to use the thing; yaws[0] when none is. Tested
-        every 4 units: TranZit's depot walls are 3 units thick, and every 8 Quick Revive faced one."""
+        every 4 units: TranZit's depot walls are 3 units thick, and every 8 Quick Revive faced one. props: the
+        origins of placed props that collide, which the clipMap does not hold (Mob of the Dead's floodlight 55 units
+        in front of Juggernog kept the player out of its trigger)."""
+        near = [p for p in props if math.dist(p[:2], origin[:2]) < 56 + PROP_BLOCK and abs(p[2] - origin[2]) <= 16]
         for angle in yaws:
             f = (math.cos(math.radians(angle)), math.sin(math.radians(angle)))
             clear = all(not self.solid_at((origin[0] + f[0] * d, origin[1] + f[1] * d, origin[2] + h), skip)
                         for d in range(24, 57, 4) for h in (16, 48))
+            clear = clear and not any(math.dist((origin[0] + f[0] * d, origin[1] + f[1] * d), p[:2]) < PROP_BLOCK
+                                      for d in range(24, 57, 4) for p in near)
             stand = (origin[0] + f[0] * 40, origin[1] + f[1] * 40, origin[2] + 24)
             ground = self.floor(stand)
             if clear and ground is not None and abs(ground - origin[2]) <= 24:
@@ -337,12 +376,30 @@ def zones_beside(zones, mins, maxs, reach=BESIDE_REACH):
     return (near[0], near[1]) if len(near) >= 2 else (None, None)
 
 
+def walkable_zones(zones, start_zones, reach=BESIDE_REACH):
+    """The zones a player reaches on foot from the start zones: two zones are neighbours when their boxes touch or come
+    within reach (a door stands between zones beside each other). BO2's other ways in are scripts MapKit does not have:
+    Mob of the Dead's plane flies to the Golden Gate Bridge, a zone of its own 8 000 units below the island."""
+    def gap(a, b):
+        return sum(max(a["mins"][k] - b["maxs"][k], 0, b["mins"][k] - a["maxs"][k]) ** 2 for k in range(3)) ** 0.5
+    reached = set(start_zones)
+    todo = [z for z in zones if z["name"] in reached]
+    while todo:
+        z = todo.pop()
+        for other in zones:
+            if other["name"] not in reached and gap(z, other) <= reach:
+                reached.add(other["name"])
+                todo.append(other)
+    return reached
+
+
 def blocker_edits(ents, submodels, zones, start_zones):
     """Door and debris edits for BO2's zombie_door / zombie_debris triggers, one per group of triggers sharing a target."""
     by_name = {}
     for e in ents:
         by_name.setdefault(e.get("targetname"), []).append(e)
     bases = {z["name"][: -len("_zone")] if z["name"].endswith("_zone") else z["name"]: z for z in zones}
+    starts = [vec(e["origin"]) for e in ents if e.get("targetname") == "initial_spawn_points"]
 
     def box_of(entity):
         model = entity.get("model", "")
@@ -392,6 +449,15 @@ def blocker_edits(ents, submodels, zones, start_zones):
                  "zones": (a, b), "cost": int(float(trigger.get("zombie_cost", 1000))), "meshGroup": target}
         if kind == "door" and trigger.get("script_noteworthy") == "local_electric_door":
             # TranZit's doors that the power opens by itself (MapKit's electric_door)
+            group["power"], group["cost"] = 1, 0
+        elif kind == "door" and trigger.get("script_noteworthy") == "afterlife_door" and not group["cost"]:
+            # Mob of the Dead's doors that a player opens in afterlife, which MapKit does not have: bought instead
+            group["cost"] = AFTERLIFE_DOOR_COST
+        if kind == "door" and any(all(mins[k] <= p[k] <= maxs[k] for k in range(3)) for p in starts):
+            # Mob of the Dead's cell doors round its players' start points, which its script opens as the game starts:
+            # as a door to buy, its box held every player in solid. A free power door opens when the power comes on,
+            # at the start on a layout without a power switch
+            print(f"blocker {target}: around the players' start, opened by the power")
             group["power"], group["cost"] = 1, 0
         groups.append(group)
 
@@ -616,6 +682,66 @@ def bus_edits(ents, col):
     return edits, mover
 
 
+def gondola_edits(ents, col):
+    """Mob of the Dead's gondola (script_model "zipline_gondola", model GONDOLA_MODEL) as MapKit's bus: two stops, the
+    cell block's roof and the docks, its cabin's brush models where it hangs at the roof, the mesh edit's mover fields.
+    BO2 powers it from afterlife and sends it by its triggers; here it runs from the start, waiting at each station."""
+    cabin = next((e for e in ents if e.get("targetname") == "zipline_gondola"), None)
+    stations = {e["targetname"]: vec(e["origin"]) for e in ents
+                if e.get("targetname") in ("gondola_struct_roof", "gondola_struct_docks")}
+    if not cabin or len(stations) != 2:
+        return [], {}
+    # the cabin's floor is GONDOLA_FLOOR_DROP under the struct it hangs from; the path runs on that floor
+    path = [[round(o[0], 2), round(o[1], 2), round(o[2] - GONDOLA_FLOOR_DROP, 2)]
+            for o in (stations["gondola_struct_roof"], stations["gondola_struct_docks"])]
+    heading = math.atan2(path[1][1] - path[0][1], path[1][0] - path[0][0])
+    c, s_ = math.cos(heading), math.sin(heading)
+
+    def world_box(lo, hi):
+        corners = [(x, y) for x in (lo[0], hi[0]) for y in (lo[1], hi[1])]
+        xs = [path[0][0] + x * c - y * s_ for x, y in corners]
+        ys = [path[0][1] + x * s_ + y * c for x, y in corners]
+        return ([round(min(xs), 2), round(min(ys), 2), round(path[0][2] + lo[2], 2)],
+                [round(max(xs), 2), round(max(ys), 2), round(path[0][2] + hi[2], 2)])
+
+    edits = []
+    lo, hi = world_box(*GONDOLA_FLOOR)
+    edits.append({"kind": "ent", "keys": {"classname": "script_brushmodel", "targetname": "mapkit_gondola_floor"},
+                  "bmodel": {"mins": lo, "maxs": hi}})
+    for part in GONDOLA_PARTS:
+        lo, hi = world_box(*part)
+        edits.append({"kind": "ent", "keys": {"classname": "script_brushmodel", "targetname": "mapkit_gondola_part"},
+                      "bmodel": {"mins": lo, "maxs": hi}})
+    doors = []
+    for index, door in enumerate(GONDOLA_DOORS):
+        lo, hi = world_box(*door)
+        doors.append(f"mapkit_gondola_door{index}")
+        edits.append({"kind": "ent", "keys": {"classname": "script_brushmodel", "targetname": doors[-1]},
+                      "bmodel": {"mins": lo, "maxs": hi}})
+    pivot = [round((GONDOLA_FLOOR[0][k] + GONDOLA_FLOOR[1][k]) / 2, 2) for k in range(3)]
+    first = round(math.degrees(heading), 2)
+    calls = []
+    for index, (x, y) in enumerate(GONDOLA_CALLS):
+        ground = col.floor([x, y, path[index][2] + 64])
+        calls.append({"origin": [x, y, round(ground if ground is not None else path[index][2], 2)], "yaw": 180.0,
+                      "wall": 0})
+    edits.append({"kind": "bus", "name": "gondola", "noun": "gondola", "floor": "mapkit_gondola_floor",
+                  "parts": "mapkit_gondola_part", "doors": doors, "pivot": pivot, "speed": GONDOLA_SPEED,
+                  "path": path, "yaws": [first, first], "stops": [[0, GONDOLA_WAIT, 0], [1, GONDOLA_WAIT, 0]],
+                  "calls": calls})
+    # the cabin keeps BO2's yaw (the floor never turns): its origin (the struct) GONDOLA_FLOOR_DROP over the floor's
+    # top; the engine places it at the floor's centre less moverOffset turned by moverYaw (r_mapkit_mesh.cpp)
+    o = vec(cabin["origin"])
+    centre = [(lo_ + hi_) / 2 for lo_, hi_ in zip(*world_box(*GONDOLA_FLOOR))]
+    d = [centre[0] - o[0], centre[1] - o[1], centre[2] - (path[0][2] + GONDOLA_FLOOR_DROP)]
+    a = math.radians(yaw(cabin))
+    mover = {"moverModel": GONDOLA_MODEL, "moverEntity": "mapkit_gondola_floor",
+             "moverOffset": [round(d[0] * math.cos(a) + d[1] * math.sin(a), 2),
+                             round(-d[0] * math.sin(a) + d[1] * math.cos(a), 2), round(d[2], 2)],
+             "moverYaw": round(yaw(cabin), 2)}
+    return edits, mover
+
+
 def loop_headings(points, reach=HEADING_REACH):
     """The bus's heading (degrees) at each point of the closed loop: from the point reach units back along the loop to
     the one reach units ahead."""
@@ -664,6 +790,26 @@ def call_spot(col, point, heading):
     return {"origin": [round(spot[0], 2), round(spot[1], 2), round(z, 2)], "yaw": facing, "wall": 0}
 
 
+def colliding_props(props, dump):
+    """The origins of the props whose xmodel collides (OAT's xmodel JSON has a collLod)."""
+    solid = {}
+    for model, origin, _ in props:
+        if model not in solid:
+            solid[model] = False
+            try:
+                with open(os.path.join(dump, "xmodel", model + ".json"), encoding="utf-8") as f:
+                    collides = "collLod" in json.load(f)
+                if collides:
+                    # only a prop a player cannot step over: Nuketown's bucket (15) and bench (21) by its machines
+                    # did not stop him, Mob of the Dead's floodlight (32) did
+                    with open(os.path.join(dump, "model_export", model + "_lod0.obj"), encoding="latin-1") as f:
+                        heights = [float(line.split()[2]) for line in f if line.startswith("v ")]
+                    solid[model] = bool(heights) and max(heights) - min(heights) >= PROP_TALL
+            except (OSError, ValueError, IndexError):
+                pass
+    return [origin for model, origin, _ in props if solid[model]]
+
+
 def read_props(path):
     """The placed props of the dump's <map>.d3dbsp.smodels.csv as (model, origin, forward axis), [] without the file."""
     props = []
@@ -702,7 +848,7 @@ def bank_edit(props, col):
     return edit
 
 
-def build(ents, col, name, collision, links_file=None, props=()):
+def build(ents, col, name, collision, links_file=None, props=(), solid_props=()):
     submodels = col.submodels
     folder = os.path.dirname(collision)
     edits = [{"kind": "collision", "file": collision},
@@ -746,20 +892,36 @@ def build(ents, col, name, collision, links_file=None, props=()):
             origin, facing = vec(starts[0]["origin"]), yaw(starts[0])
         edits.append({"kind": "spawn", "origin": origin, "yaw": facing, "zone": zone})
 
+    # a zone's volume targets its spawn structs (Nuketown, TranZit: "<zone>_spawners"; Mob of the Dead names them
+    # its own way: "spawner_shower", "zone_cafetaria_spawner")
+    spawn_zones = {e["target"]: e["targetname"] for e in ents
+                   if e.get("classname") == "info_volume" and e.get("script_noteworthy") == "player_volume"
+                   and e.get("target") and e.get("targetname") in zone_names}
+
+    def spawn_zone(target):
+        if target in spawn_zones:
+            return spawn_zones[target]
+        return target[: -len("_spawners")] if target.endswith("_spawners") else None
+
+    # Mob of the Dead's spawn_location names no barricade: it targets the pathnode its zombies go to first, outside
+    # the barricade they come in by
+    first_nodes = {e["targetname"]: vec(e["origin"]) for e in ents
+                   if e.get("classname") == "node_pathnode" and e.get("targetname")}
+
     risers = 0
     for e in ents:
         target = e.get("targetname", "")
-        if e.get("script_noteworthy") == "riser_location" and target.endswith("_spawners"):
-            zone = target[: -len("_spawners")]
+        if e.get("script_noteworthy") == "riser_location" and spawn_zone(target):
+            zone = spawn_zone(target)
             if zone not in zone_names:
                 continue
             risers += 1
             edits.append({"kind": "riser", "name": f"riser{risers}", "origin": vec(e["origin"]), "yaw": yaw(e),
                           "zone": zone})
-        elif e.get("script_noteworthy") == "spawn_location" and target.endswith("_spawners"):
+        elif e.get("script_noteworthy") == "spawn_location" and spawn_zone(target):
             # TranZit's zombies also come from behind its barricades (script_string "depot_baricade4"): a spawner
             # there, on the floor, whose zombies walk in over the barricade's traversal
-            zone = target[: -len("_spawners")]
+            zone = spawn_zone(target)
             if zone not in zone_names:
                 continue
             p = vec(e["origin"])
@@ -770,6 +932,8 @@ def build(ents, col, name, collision, links_file=None, props=()):
                 spawner["chaser"] = 1  # its zombies go for the players at once, no barricade (MkE_Spawner)
             elif e.get("script_string"):
                 spawner["window"] = e["script_string"]  # kept below only when that window exists
+            elif e.get("target") in first_nodes:
+                spawner["first"] = first_nodes[e["target"]]  # the window near it is found below, then dropped
             edits.append(spawner)
 
     # BO2's compiler drops the pathnodes into its own path data (gameworldmp); the entities keep them where they were
@@ -801,6 +965,12 @@ def build(ents, col, name, collision, links_file=None, props=()):
         # a begin dropped onto the ground under it (no collision at a roof's edge: 0 units of drop) keeps the name's
         if anim.startswith("zombie_jump_down_") and drop >= 20:
             anim = JUMP_DOWNS[min(JUMP_DOWNS, key=lambda h: abs(h - drop))]
+        elif anim == "by_height":
+            # BY_HEIGHT: a jump down by the drop, MapKit's jump up (any height) by the rise, a mantle when level
+            if drop >= 20:
+                anim = JUMP_DOWNS[min(JUMP_DOWNS, key=lambda h: abs(h - drop))]
+            else:
+                anim = "mapkit_jump_up" if drop <= -20 else "mapkit_mantle"
         edits.append({"kind": "traverse", "begin": pair[0], "end": pair[1], "yaw": yaw(e), "anim": anim})
 
     # BO2's boarded windows (zbarrier_zmcore_BasicWoodBarrier: TranZit's 38) become MapKit windows: Five's prefab, six
@@ -867,6 +1037,13 @@ def build(ents, col, name, collision, links_file=None, props=()):
         return min(holding, key=lambda z: math.prod(z["maxs"][k] - z["mins"][k] for k in range(3)))["name"]
     by_window = {w["name"]: w for w in windows}
     fed = set()
+    for sp in [t for t in edits if t["kind"] == "spawner" and "first" in t]:
+        first = sp.pop("first")
+        near = [(math.dist(first[:2], w["origin"][:2]), w["name"]) for w in windows
+                if abs(first[2] - w["origin"][2]) <= FIRST_NODE_RISE]
+        near = [n for n in near if n[0] <= FIRST_NODE_REACH]
+        if near:
+            sp["window"] = min(near)[1]
     for sp in [t for t in edits if t["kind"] == "spawner"]:
         if sp.get("window") in by_window:
             fed.add(sp["window"])
@@ -874,11 +1051,18 @@ def build(ents, col, name, collision, links_file=None, props=()):
         else:
             sp.pop("window", None)
     added = 0
+    node_spots = [t["origin"] for t in edits if t["kind"] == "node"]
     for w in windows:
         if w["name"] in fed:
             continue
         r = math.radians(w["yaw"])
         out = [w["origin"][0] - math.cos(r) * WINDOW_SPAWNER, w["origin"][1] - math.sin(r) * WINDOW_SPAWNER]
+        outside = [n for n in node_spots if abs(n[2] - w["origin"][2]) < 64 and math.dist(out, n[:2]) < 64
+                   and (n[0] - w["origin"][0]) * -math.cos(r) + (n[1] - w["origin"][1]) * -math.sin(r) > 16]
+        if not outside:
+            # no pathnode out there (Mob of the Dead's cells behind its corridor barricades): its zombies had no path
+            # to the window, so the spawner stands just behind the boards, by the window's own outside node
+            out = [w["origin"][0] - math.cos(r) * WINDOW_SPAWNER_NEAR, w["origin"][1] - math.sin(r) * WINDOW_SPAWNER_NEAR]
         ground = col.floor([out[0], out[1], w["origin"][2] + 64])
         if ground is None:
             continue
@@ -907,7 +1091,7 @@ def build(ents, col, name, collision, links_file=None, props=()):
         # a yaw off the right angles it reaches out in front of the machine (37 units at Pack-a-Punch's 105) and a
         # player standing to use it is caught inside. A right angle keeps the clip on the model, BO2's yaw within 45.
         angle = round(angle / 90.0) * 90
-        return spot, round(col.free_side(spot, [angle + d for d in yaws], cut), 1)
+        return spot, round(col.free_side(spot, [angle + d for d in yaws], cut, solid_props), 1)
 
     # BO2's box (a zbarrier) is oriented along its length; BO1's chest faces its yaw
     for chest in chests:
@@ -951,10 +1135,28 @@ def build(ents, col, name, collision, links_file=None, props=()):
         origin, angle = machines[len(PERKS)]
         edits.append({"kind": "pap", "name": "pap", "origin": origin, "yaw": angle})
     # TranZit places its machines per gametype (zm_perk_machine structs, script_string "zclassic_perks_transit ...")
+    paps = [e for e in ents if e.get("targetname") == "zm_perk_machine"
+            and e.get("script_noteworthy") == "specialty_weapupgrade"]
+    if paps:
+        # classic's Pack-a-Punch where a player walks to it, else another mode's that is (Mob of the Dead's classic one
+        # is on the bridge: Grief's Cell Block one instead)
+        walk = walkable_zones(zones, start_zones)
+        reach = [e for e in paps if zone_of(vec(e["origin"])) in walk]
+        classic = [e for e in reach if CLASSIC in e.get("script_string", "")]
+        pap = (classic or reach or [e for e in paps if CLASSIC in e.get("script_string", "")] or [None])[0]
+    else:
+        pap = None
+    if pap is not None and CLASSIC not in pap.get("script_string", ""):
+        print(f"pap: classic's is out of reach on foot, {pap.get('script_string', '').strip()}'s at {pap['origin']} "
+              "instead")
+        origin, angle = place(vec(pap["origin"]), yaw(pap), (0, 180, 90, -90))
+        edits.append({"kind": "pap", "name": "pap", "origin": origin, "yaw": angle})
     for e in ents:
         if e.get("targetname") != "zm_perk_machine" or CLASSIC not in e.get("script_string", ""):
             continue
         perk = e.get("script_noteworthy", "")
+        if perk == "specialty_weapupgrade" and e is not pap:
+            continue
         origin, angle = place(vec(e["origin"]), yaw(e), (0, 180, 90, -90))
         if perk == "specialty_weapupgrade":
             edits.append({"kind": "pap", "name": "pap", "origin": origin, "yaw": angle})
@@ -972,6 +1174,8 @@ def build(ents, col, name, collision, links_file=None, props=()):
                           "origin": [o[0], o[1], round(ground, 2) if ground is not None else o[2]], "yaw": yaw(e)})
             break
     bus, mover = bus_edits(ents, col)
+    if not bus:
+        bus, mover = gondola_edits(ents, col)
     edits += bus
     edits[1].update(mover)
     bank = bank_edit(props, col)
@@ -1032,9 +1236,10 @@ def main(argv=None):
         print(f"{base}.paths.csv not found (dump the gameworldmp asset): no node links file")
     drop_ids = {id(placed[n]) for n in dropped}
     ents = [e for e in ents if id(e) not in drop_ids]
+    props = read_props(base + ".smodels.csv")
     layout, counts, skipped, traverse_skipped, machines_skipped = build(ents, col, name, collision,
                                                                         links_out and os.path.basename(links_out),
-                                                                        read_props(base + ".smodels.csv"))
+                                                                        props, colliding_props(props, args.dump))
     out = args.out or f"{name}.json"
     with open(out, "w", encoding="utf-8") as f:
         json.dump(layout, f, indent=1)

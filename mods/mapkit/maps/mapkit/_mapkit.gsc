@@ -203,6 +203,8 @@ mapkit_bus( i )
 		+ "\n" );
 	level.mapkit_bus_floor = floor;
 	level.mapkit_bus_doors = doors;
+	// what the call levers name it ("noun", optional: Mob of the Dead's gondola)
+	level.mapkit_bus_noun = mapkit_get_or( i, "noun", "bus" );
 	level.mapkit_bus_heading = heading;
 	level thread mapkit_bus_calls( i );
 	level thread mapkit_bus_button( i );
@@ -398,12 +400,12 @@ mapkit_bus_call_think( s )
 {
 	if ( IsDefined( level.flag ) && IsDefined( level.flag[ "power_on" ] ) && !flag( "power_on" ) )
 	{
-		self SetHintString( "The bus can be called once the power is on" );
+		self SetHintString( "The " + level.mapkit_bus_noun + " can be called once the power is on" );
 		flag_wait( "power_on" );
 	}
 	while ( true )
 	{
-		self SetHintString( "Hold ^3[{+activate}]^7 to call the bus" );
+		self SetHintString( "Hold ^3[{+activate}]^7 to call the " + level.mapkit_bus_noun );
 		self waittill( "trigger", player );
 		if ( IsDefined( level.mapkit_bus_stop ) && level.mapkit_bus_stop == s )
 		{
@@ -415,7 +417,7 @@ mapkit_bus_call_think( s )
 			self.mapkit_lever RotateRoll( -90, 0.3 );
 			self.mapkit_lever PlaySound( "zmb_switch_flip" );
 		}
-		self SetHintString( "The bus is on its way" );
+		self SetHintString( "The " + level.mapkit_bus_noun + " is on its way" );
 		while ( IsDefined( level.mapkit_bus_call ) && level.mapkit_bus_call == s )
 		{
 			level waittill_any( "mapkit_bus_called", "mapkit_bus_stop" );
@@ -3413,6 +3415,13 @@ mapkit_check_progression( player )
 		if ( !IsDefined( yaw ) )
 		{
 			yaw = 0;
+		}
+		// an imported blocker's yaw is 0 whichever way its doorway runs: walk across its thin side (Mob of the Dead's
+		// cafeteria door lies along x, and the client went for its end, inside the wall)
+		hi = bo1_mapkit_get( i, "maxs" );
+		if ( yaw == 0 && IsDefined( lo ) && IsDefined( hi ) && hi[1] - lo[1] < hi[0] - lo[0] )
+		{
+			yaw = 90;
 		}
 		f = AnglesToForward( ( 0, yaw, 0 ) );
 		// walk through into the zone it opens: an imported blocker's yaw does not say which side that is (TranZit's

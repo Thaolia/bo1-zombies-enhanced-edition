@@ -21,6 +21,8 @@ const LauncherMap kLauncherMaps[] = {
     {"zombie_pentagon", "Nuketown (BO2, natif)", "bo2_zm_nuked_bsp", "zombie_bo2nuked", nullptr},
     // ZmClient's "TranZit native", with Ascension's zone for the Stamin-Up machine (_mapkit.gsc mapkit_marathon_perk)
     {"zombie_pentagon", "TranZit (BO2, natif)", "bo2_zm_transit_bsp", "zombie_bo2transit", "zombie_cosmodrome"},
+    // ZmClient's "Mob of the Dead native": the island's world alone (tools/bo2/bo2_bsp.py)
+    {"zombie_pentagon", "Mob of the Dead (BO2, natif)", "bo2_zm_prison_bsp", "zombie_bo2prison", nullptr},
 };
 const int kLauncherMapCount = int(sizeof(kLauncherMaps) / sizeof(kLauncherMaps[0]));
 

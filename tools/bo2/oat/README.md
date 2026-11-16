@@ -57,6 +57,16 @@ After editing a `.template` file (the image loader patch is one), run `make` twi
 
 The output is the player's own game data: keep it outside the repository (`build/` or another folder), never commit it.
 
+A DLC map's images are in a `dlc<N>.ipak` that the zone names in its `ipak_read` key-value pairs (`zm_prison`: `dlc2`),
+while the Steam install calls it `dlczm<N>.ipak`: OAT then finds no data for them ("Could not find data for image",
+850 of `zm_prison`'s), and a map's world loses most of its colour maps. Give OAT a folder of links under the zone's
+names (never rename the install's files):
+
+    A=~/bo2tools/ipakalias; mkdir -p $A
+    for i in 0 1 2 3 4; do ln -sfn "$Z/dlczm$i.ipak" $A/dlc$i.ipak; done
+    oat-src/build/bin/Release_x64/Unlinker --search-path "$A" --include-assets xmodel,image,material \
+        --model-format OBJ --image-format DDS -o out/?zone? "$Z/zm_prison.ff"
+
 ## The vertex format it relies on
 
 OAT keeps `GfxWorldDraw::vd0` as raw bytes. Read from `zm_nuked`'s buffer (2026-11-09): 36 bytes per vertex, xyz (3
