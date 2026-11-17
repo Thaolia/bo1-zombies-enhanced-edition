@@ -153,6 +153,23 @@ EFFECTS = {
     "fx_buried_smk_plume_lg": "env/smoke/fx_smk_plume_lg_blk",
     "fx_buried_ash_blowing": "env/fire/fx_ash_embers_light",
     "fx_buried_fireplace": "env/fire/fx_fire_md",
+    # the lamps, as glows without a dynamic light: the caged ones (tinhats) with their beam down along BO2's angles,
+    # the others as a round glow seen from anywhere (BO1's ceiling and desk lamps lay theirs flat along the effect's
+    # axis, so a can light seen from below the ceiling showed nothing; fx_mp_light_bulb_sm_no_eo was too faint to see)
+    "fx_zmb_tranzit_light_street_tinhat": "env/light/fx_light_tinhat_cage_yellow",
+    "fx_zmb_tranzit_light_depot_cans": "env/light/fx_light_incandescent",
+    "fx_zmb_tranzit_light_town_cans": "env/light/fx_light_incandescent",
+    "fx_zmb_tranzit_light_town_cans_sm": "env/light/fx_light_incandescent",
+    "fx_zmb_tranzit_light_desklamp": "env/light/fx_light_incandescent",
+    "fx_zmb_tranzit_light_glow_xsm": "env/light/fx_light_incandescent",
+    "fx_zmb_tranzit_light_bulb_xsm": "env/light/fx_light_incandescent",
+    "fx_zmb_tranzit_light_glow_fog": "env/light/fx_light_incandescent",
+    "fx_zmb_tranzit_bar_glow": "env/light/fx_light_incandescent",
+    "fx_alcatraz_light_tinhat": "env/light/fx_light_tinhat_cage",
+    "fx_alcatraz_light_tinhat_oo": "env/light/fx_light_tinhat_cage",
+    "fx_alcatraz_light_round_oo": "maps/zombie/fx_mp_light_corona_bulb_ceiling",
+    "fx_buried_glow_kerosene_lamp": "env/light/fx_light_incandescent",
+    "fx_buried_glow_sconce": "env/light/fx_light_incandescent",
 }
 # exploders placed all the same: they are lit for the whole game (Nuketown's clouds)
 EXPLODERS_KEPT = {"fx_cloud_cover_flat", "fx_cloud_cover_volume"}
@@ -161,7 +178,8 @@ ORIENTED = {"env/electrical/fx_elec_wire_sparks", "env/electrical/fx_elec_burst_
             "env/electrical/fx_elec_short_random", "env/light/fx_light_godray_md_white", "env/light/fx_ray_md_1sd",
             "env/light/fx_ray_sm_1sd", "env/light/fx_light_godray_sm_warm", "env/light/fx_light_fluorescent",
             "env/light/fx_light_godray_md_warm", "env/light/fx_light_godray_lrg_warm", "env/light/fx_light_godray_md_cool",
-            "env/light/fx_light_godray_sm_white", "env/smoke/fx_pipe_steam_md"}
+            "env/light/fx_light_godray_sm_white", "env/smoke/fx_pipe_steam_md", "env/light/fx_light_tinhat_cage",
+            "env/light/fx_light_tinhat_cage_yellow"}
 
 GSC_MAGIC = b"\x80GSC\r\n\x00\x06"  # T6 (PC)
 OP_GET_ZERO, OP_GET_BYTE, OP_GET_NEG_BYTE, OP_GET_USHORT, OP_GET_NEG_USHORT = 0x03, 0x04, 0x05, 0x06, 0x07

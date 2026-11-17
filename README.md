@@ -69,9 +69,9 @@ Extracted from your own Black Ops II with `tools/bo2` (OpenAssetTools plus a wor
 | Map | What works | Not there |
 |---|---|---|
 | Nuketown | the whole map, its props and BO2's baked light, embers, fires, smoke, sparks, light rays, fog and clouds (BO1 effects on BO2's spots); self-test 107/107 | the meteors' impacts, the water |
-| TranZit (classic) | doors, power, perks, Pack-a-Punch, barricades, the bridge, the bus and the bank; ash, fires, smoke, fog and light rays (BO1 effects) | Denizens, buildables, the lava's glow |
-| Mob of the Dead | cell blocks, doors, perks, Pack-a-Punch, the gondola (running from the start); fires, embers, fog, steam, light rays, sparks (BO1 effects) | afterlife, the plane, Brutus, the candles |
-| Buried | town, cave and mansion, perks, Pack-a-Punch; the power is on from the start; fog, light rays and their dust, steam, smoke (BO1 effects) | Leroy, ghosts, the maze puzzles, buildables, the lamps' glow |
+| TranZit (classic) | doors, power, perks, Pack-a-Punch, barricades, the bridge, the bus and the bank; ash, fires, smoke, fog, light rays and the lamps' glow (BO1 effects) | Denizens, buildables, the lava's glow |
+| Mob of the Dead | cell blocks, doors, perks, Pack-a-Punch, the gondola (running from the start); fires, embers, fog, steam, light rays, sparks, the lamps' glow (BO1 effects) | afterlife, the plane, Brutus, the candles |
+| Buried | town, cave and mansion, perks, Pack-a-Punch; the power is on from the start; fog, light rays and their dust, steam, smoke, the lamps' glow (BO1 effects) | Leroy, ghosts, the maze puzzles, buildables |
 
 The BO2 weapons (36 box weapons and their Pack-a-Punch versions) come as the `bo2weapons` mod. In ZmClient's Solo view
 the maps are listed as « Mapkit : … native (Black Ops II, monde BSP) ». Details: `docs/BO2_MAPS.md`,

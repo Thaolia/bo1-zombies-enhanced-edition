@@ -16,6 +16,7 @@ struct GfxSModelSurfStats // sizeof=0x10
 
 void __cdecl R_AssignSModelCacheResources(GfxWorld *world);
 bool __cdecl R_SModelLodTrianglesEven(const XModel *model, unsigned int lod);
+bool __cdecl R_SModelLodSetBaseIndices(const XModel *model, unsigned int lod);
 unsigned __int8 __cdecl R_AssignSModelCacheIndex(
                 char smcAllocBits,
                 unsigned int maxEntryCount,

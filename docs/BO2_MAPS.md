@@ -321,6 +321,13 @@ triangles, 10 835 placed props of 509 models, 140 lamps, 26 000 x 18 000 units. 
   `p_glo_electrical_pipes_short`), whose lods carry the cache indices Treyarch's linker gave them; a world read from
   a BSP assigns its own (`R_AssignSModelCacheResources`) and asserted on them (`smcIndexPlusOne == 0`). It now clears
   the indices of the lods it assigns.
+- **Props missing faces (2026-11-17, a user's screenshot of Nuketown's garage).** The cache lays a lod's surfaces one
+  after the other, each at its `baseTriIndex` / `baseVertIndex`. Treyarch's linker sums them (as
+  `XModelReadSurfaces` does for a raw xmodel); OAT's T5 loader leaves every surface at 0. A BO2 prop of two surfaces
+  then had its second one written over the first: `p6_zm_nuked_cardboard_box04` (a box of 12 triangles and labels of
+  6) lost three sides to its labels. `R_SModelLodSetBaseIndices` gives each lod the cache takes its sums; a retail lod
+  holds them already and is not written. Nuketown: 73 of its 214 cached lods rebased. Windows screenshots of the
+  garage: the boxes whole, as with `r_smc_enable 0`.
 - **Windows: Five's board models in the BSP.** MapKit's boarded window is the base map's own brush models (Five's
   `*7`..`*19`: boards, clip, repair boards, `MkE_Window`), which a BSP world did not have: the window entities got
   MapKit's own layout brush models at those indices (zone volumes), bounds thousands of units wide, which put 3 172 of
@@ -654,8 +661,10 @@ TranZit's createfx script (`zm_transit_patch.ff`, `clientscripts/mp/createfx/zm_
 `_pit` 2 as white plumes and smoulder), fog (the closets' 15 as `fx_fog_interior_md`, `fx_zmb_fog_low_300x300` 12 as
 `fx_fog_low`, `fx_zmb_fog_thick_*` 9 as `fx_fog_rolling_thick_600x600`, the fog between the areas,
 `fx_zmb_fog_transition_*` 17, as `fx_fog_large_slow`), the light rays (depot, interiors, tunnel, power station, bank
-vault: 71, as BO1's godrays), fluorescent tubes (16) and sparks (2). Left out: the lava's glows, edges and heat
-distortion (the lava itself is in the world), the Avogadro's storm, insects, papers, lamps and the exploders.
+vault: 71, as BO1's godrays), fluorescent tubes (16), sparks (2) and, since the lamps (below), 56 lamps: the street
+tinhats (10, as `fx_light_tinhat_cage_yellow`, beam down) and the cans, bulbs and desk lamps (46, as
+`fx_light_incandescent`). Left out: the lava's glows, edges and heat distortion (the lava itself is in the world),
+the Avogadro's storm, insects, papers and the exploders (the lamps the power or the alarm lights among them).
 
 Mob of the Dead's script (`zm_prison_patch.ff`) places 724 effects, 28 of them exploders; 345 get a BO1 effect: the
 fires (47: `fx_alcatraz_fire_xsm` 31 as the small flames, `_fire_sm` and the fire works 12, `_fire_md` and the ceiling
@@ -664,13 +673,21 @@ tunnel's, 9), the ground fog (60 as `fx_fog_low`), the fog over the bay (25 as `
 closets' and the docks' (9), smoke (4), steam (the pipes' 5 as `fx_pipe_steam_md`, turned, and one more), the light
 rays through the cells and grilles (114, as BO1's white godrays) and sparks (the panels' and ceilings', 20). Left
 out: the 59 candles (BO1's candle carries a dynamic light), papers, flies, blood and water drips, the falling fire
-(BO1's falling debris does not loop), the lamps and the exploders.
+(BO1's falling debris does not loop) and the exploders. Its lamps: the tinhats (92, as `fx_light_tinhat_cage`, beam
+down) and the round ceiling lamps (47, as `fx_mp_light_corona_bulb_ceiling`).
 
 Buried's (`zm_buried_patch.ff`) places 629, 24 of them exploders; 153 get a BO1 effect: fog (49, as `fx_fog_low` and
 `_sm`) and the low cloud (2, as `fx_fog_large_slow`), the light rays outside, through the church and the town (38),
 the dust in the light (`fx_buried_dust_motes_*` 42, as BO1's dust motes), steam (9), the smoke plumes over the cave (3,
-as `fx_smk_plume_lg_blk`), ash (9) and the fireplace. Left out: the 144 lamps' glows, the tunnels' falling dust, sand
-and the sandstorm, insects, bats, water and the exploders (the meteors, the barriers breaking).
+as `fx_smk_plume_lg_blk`), ash (9), the fireplace and the lamps (the 93 kerosene lamps and 51 sconces, as
+`fx_light_incandescent`). Left out: the tunnels' falling dust, sand and the sandstorm, insects, bats, water and the
+exploders (the meteors, the barriers breaking).
+
+The lamps (2026-11-17, asked by the user): 339 glows, none with a dynamic light. The caged lamps keep BO2's angles
+(their beam points down); the others are a round glow seen from anywhere. Tried and dropped on Windows screenshots:
+BO1's ceiling and desk lamps (`fx_zombie_light_overhead_amber`, `fx_light_desk_lamp`) lay their glow flat along the
+effect's axis, so a can light seen from below its ceiling showed nothing, and `fx_mp_light_bulb_sm_no_eo` was too
+faint to see on a lantern. Effects placed: TranZit 327, Mob of the Dead 484, Buried 297 (Nuketown unchanged, 214).
 
 The fires are point fires without a dynamic light (none of these BO1 effects has a light element): a BO2 fire line
 runs along its angles, which are not kept, so a BO1 line fire would point anywhere. The rays and sparks keep BO2's
@@ -684,8 +701,8 @@ The BO1 effects are none of the zones a BO2 map loads, so they get a zone of the
 Mod Tools' `linker_pc` from their `raw/fx/*.efx` (it builds any zone but a map): a zone source of `fx,` lines (the
 ones `bo2_createfx.py` prints), the effects' images copied from the player's own `.iwd` files into the tool copy's
 `raw/images/` (the zone then holds no image: they load from the `.iwd` in play; the linker names each missing image, and the
-player's `.iwd` files held every one the 46 effects of the four maps use), widened by `ffconv --verify`. One zone
-serves the four maps (the union of their effects, 68 assets). It is loaded after the map's zones (`bo1_mod_zones
+player's `.iwd` files held every one the 50 effects of the four maps use), widened by `ffconv --verify`. One zone
+serves the four maps (the union of their effects, 73 assets). It is loaded after the map's zones (`bo1_mod_zones
 zombie_bo2nuked zombie_bo2fx`, `zombie_bo2transit zombie_cosmodrome zombie_bo2fx`, `zombie_bo2prison zombie_bo2fx`,
 `zombie_bo2buried zombie_cosmodrome zombie_bo2fx`: ZmClient's `MAPKIT_FX_ZONES`, the Switch menu's `fxZone`, both of
 which also require its file).
@@ -715,8 +732,10 @@ taken). Cost on a PC (win64, headless client, the camera still before the burnin
 windows after 40 s): 136 and 142 fps without the effects, 116 and 128 with them (frame 6.1 / 6.2 ms against 7.0 / 6.9
 ms), about 0.8 ms, measured with the 172 ambient ones; `+set mapkit_fx 0` leaves them out (a console's GPU may pay more for the smoke). Linux self-tests (the server's side: every effect loaded):
 Nuketown 107/0 (`check fx all PASS 214 edits, 28 effects loaded`), TranZit 297/5 (271 edits, 20 effects; the five risers that fail without the effects too), Mob of the Dead 168/41 (345 edits, 16 effects; the same windows and risers as before), Buried 247/12 (153 edits, 13 effects; the candy store, Quick Revive, the upper Ithaca, windows and risers as before); 106/0 and `SKIP` with `mapkit_fx 0`. Not done: the water streams, the arc, the lens
-flare, the other exploders (Nuketown's meteor impacts), TranZit's lava glows and storm, the candles and lamps (the
-same route: an `EFFECTS` entry and its BO1 effect in the zone).
+flare, the other exploders (Nuketown's meteor impacts), TranZit's lava glows and storm, the candles (the same route:
+an `EFFECTS` entry and its BO1 effect in the zone). The lamps: Windows client with the new zone, `mapkit_fx_placed`
+327, 484 and 297, no effect error; screenshots of each kind lit (the farm's tinhat lights its door, the cell block's
+tinhat its beam). Not run: the Linux self-tests and a frame-time measure with the lamps.
 
 ### Mob of the Dead's self-test failures (2026-11-17)
 
