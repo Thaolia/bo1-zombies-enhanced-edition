@@ -218,13 +218,20 @@ class CommandLine(unittest.TestCase):
             open(os.path.join(tmp, "usermaps", "zombie_bo2nuked", "zombie_bo2nuked.ff"), "w").close()
             os.makedirs(os.path.join(tmp, "main", "maps"))
             open(os.path.join(tmp, "main", "maps", "zombie_bo2nuked.d3dbsp"), "w").close()
+            # and its zone of BO1 effects (the embers and ash its fx edits place)
+            self.assertNotIn("bo2_zm_nuked_bsp", [m[3] for m in P.solo_maps(tmp)])
+            self.assertTrue(any("zombie_bo2fx.ff" in w for w in P.problems(p, tmp)))
+            os.makedirs(os.path.join(tmp, "usermaps", "zombie_bo2fx"))
+            open(os.path.join(tmp, "usermaps", "zombie_bo2fx", "zombie_bo2fx.ff"), "w").close()
             self.assertIn("Mapkit : Nuketown native (Black Ops II, monde BSP)",
                           [m[1] for m in P.solo_maps(tmp) if m[3] == "bo2_zm_nuked_bsp"])
             line = " ".join(P.build_command(p, "x", tmp))
             self.assertIn("+set bo1_mod_mapkit bo2_zm_nuked_bsp ", line)
-            self.assertIn("+set bo1_mod_zones zombie_bo2nuked +set bo1_bspworld maps/zombie_bo2nuked.d3dbsp ", line)
+            self.assertIn("+set bo1_mod_zones zombie_bo2nuked zombie_bo2fx +set bo1_bspworld maps/zombie_bo2nuked.d3dbsp ",
+                          line)
             self.assertTrue(line.endswith("+devmap zombie_pentagon"), line)
-            # the native TranZit: its zone, then Ascension's for Stamin-Up, in the self-tests' order
+            # the native TranZit: its zone, Ascension's for Stamin-Up, then the effects (their zone is there since
+            # Nuketown's check above), in the self-tests' order
             with open(os.path.join(layouts, "bo2_zm_transit_bsp.json"), "w") as f:
                 json.dump({"name": "bo2_zm_transit_bsp", "base": "zombie_pentagon", "edits": []}, f)
             os.makedirs(os.path.join(tmp, "usermaps", "zombie_bo2transit"))
@@ -235,7 +242,7 @@ class CommandLine(unittest.TestCase):
                           [m[1] for m in P.solo_maps(tmp) if m[3] == "bo2_zm_transit_bsp"])
             p["map"] = "mapkit:bo2_zm_transit_bsp"
             line = " ".join(P.build_command(p, "x", tmp))
-            self.assertIn("+set bo1_mod_zones zombie_bo2transit zombie_cosmodrome"
+            self.assertIn("+set bo1_mod_zones zombie_bo2transit zombie_cosmodrome zombie_bo2fx"
                           " +set bo1_bspworld maps/zombie_bo2transit.d3dbsp ", line)
             # the native Mob of the Dead: its zone alone
             with open(os.path.join(layouts, "bo2_zm_prison_bsp.json"), "w") as f:
@@ -248,7 +255,8 @@ class CommandLine(unittest.TestCase):
                           [m[1] for m in P.solo_maps(tmp) if m[3] == "bo2_zm_prison_bsp"])
             p["map"] = "mapkit:bo2_zm_prison_bsp"
             line = " ".join(P.build_command(p, "x", tmp))
-            self.assertIn("+set bo1_mod_zones zombie_bo2prison +set bo1_bspworld maps/zombie_bo2prison.d3dbsp ", line)
+            self.assertIn("+set bo1_mod_zones zombie_bo2prison zombie_bo2fx"
+                          " +set bo1_bspworld maps/zombie_bo2prison.d3dbsp ", line)
             # the native Buried: its zone, then Ascension's for Stamin-Up
             with open(os.path.join(layouts, "bo2_zm_buried_bsp.json"), "w") as f:
                 json.dump({"name": "bo2_zm_buried_bsp", "base": "zombie_pentagon", "edits": []}, f)
@@ -260,7 +268,7 @@ class CommandLine(unittest.TestCase):
                           [m[1] for m in P.solo_maps(tmp) if m[3] == "bo2_zm_buried_bsp"])
             p["map"] = "mapkit:bo2_zm_buried_bsp"
             line = " ".join(P.build_command(p, "x", tmp))
-            self.assertIn("+set bo1_mod_zones zombie_bo2buried zombie_cosmodrome"
+            self.assertIn("+set bo1_mod_zones zombie_bo2buried zombie_cosmodrome zombie_bo2fx"
                           " +set bo1_bspworld maps/zombie_bo2buried.d3dbsp ", line)
 
     def test_bo2_weapons(self):
