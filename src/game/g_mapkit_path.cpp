@@ -548,7 +548,10 @@ void G_Mapkit_LinkPathnodes()
             const float dx = other->constant.vOrigin[0] - node->constant.vOrigin[0];
             const float dy = other->constant.vOrigin[1] - node->constant.vOrigin[1];
             const float dz = other->constant.vOrigin[2] - node->constant.vOrigin[2];
-            if (dx * dx + dy * dy > 256.0f * 256.0f || fabsf(dz) > 128.0f)
+            // Path_CanLinkNodes links a negotiation pair at any distance; without this exception every traverse
+            // taller than 128 (Mob of the Dead's 240-unit climbs to its start barricades) stayed unlinked
+            if ((dx * dx + dy * dy > 256.0f * 256.0f || fabsf(dz) > 128.0f)
+                && !Path_IsNegotiationLink(node, other) && !Path_IsNegotiationLink(other, node))
                 continue;
             if (j >= first && s_mkFileNode[i - first] && s_mkFileNode[j - first])
                 continue;

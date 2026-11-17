@@ -1954,7 +1954,9 @@ mapkit_window_track( i, name, id )
 	maxs = undefined;
 	for ( e = 0; IsDefined( room ) && e < bo1_mapkit_editcount(); e++ )
 	{
-		if ( mapkit_name( e ) == room )
+		// the room's box only: MotD names 8 windows after their zone (zone_cafeteria), and the window edit, listed
+		// after the zone, left mins undefined, so its zombies never counted as inside (FAIL "spawned outside only")
+		if ( mapkit_name( e ) == room && IsDefined( bo1_mapkit_get( e, "mins" ) ) )
 		{
 			mins = bo1_mapkit_get( e, "mins" );
 			maxs = bo1_mapkit_get( e, "maxs" );
@@ -2374,6 +2376,13 @@ mapkit_check_wallbuys( player )
 		if ( floor_trace["fraction"] < 1 )
 		{
 			stand_z = floor_trace["position"][2];
+		}
+		// what a player stands on: a bullet passes through player clip, and Mob of the Dead's cz75 hangs over a
+		// clip catwalk 58 units under it; the client stood on the floor 104 units lower (FAIL "not bought")
+		stood = PlayerPhysicsTrace( stand, stand - ( 0, 0, 256 ) );
+		if ( mapkit_imported() && stood[2] < stand[2] - 1 && stood[2] > stand_z )
+		{
+			stand_z = stood[2];
 		}
 		mapkit_test_place( ( stand[0], stand[1], stand_z ) );
 		SetDvar( "bo1_testclient_goto", stand[0] + "," + stand[1] + "," + stand_z );
@@ -3712,6 +3721,14 @@ mapkit_riser_track()
 		wait( 0.05 );
 	}
 	underground = IsDefined( self.in_the_ground ) && self.in_the_ground;
+	// where it rises: do_zombie_rise moves it under the spot (0.05 s), then the climb carries it about 45 units on, onto
+	// the next spot of Mob of the Dead's pairs 46 units apart (riser4 counted as riser8, riser43 as riser44)
+	spot = undefined;
+	if ( underground )
+	{
+		wait( 0.2 );
+		spot = self.origin;
+	}
 	// +set mapkit_risershots 1 (-Client 1x): the first climb-out seen while the self-test client stands at a riser is
 	// photographed twice (mid-climb, out), from the client's view of the spot
 	if ( underground && GetDvar( "mapkit_risershots" ) == "1" && IsDefined( level.mapkit_riser_checking ) && !IsDefined( level.mapkit_risershot ) )
@@ -3728,9 +3745,23 @@ mapkit_riser_track()
 	best = 128 * 128;
 	for ( e = 0; e < bo1_mapkit_editcount(); e++ )
 	{
-		if ( bo1_mapkit_get( e, "kind" ) == "riser" && DistanceSquared( o, bo1_mapkit_get( e, "origin" ) ) < best )
+		if ( bo1_mapkit_get( e, "kind" ) != "riser" )
 		{
-			best = DistanceSquared( o, bo1_mapkit_get( e, "origin" ) );
+			continue;
+		}
+		ro = bo1_mapkit_get( e, "origin" );
+		d = DistanceSquared( o, ro );
+		if ( IsDefined( spot ) && abs( spot[2] - ro[2] ) < 96 )
+		{
+			d = DistanceSquared( ( spot[0], spot[1], 0 ), ( ro[0], ro[1], 0 ) );
+		}
+		else if ( IsDefined( spot ) )
+		{
+			continue;
+		}
+		if ( d < best )
+		{
+			best = d;
 			r = e;
 		}
 	}
