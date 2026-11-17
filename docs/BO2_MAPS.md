@@ -155,6 +155,15 @@ Build it (paths of this machine; the output is the player's own game data, kept 
     ffconv --verify zombie_bo2nuked.ff <game>/usermaps/zombie_bo2nuked/zombie_bo2nuked.ff
     cp $OUT/zombie_bo2nuked.d3dbsp <game>/main/maps/; cp $OUT/images/*.iwi <game>/main/images/
 
+The packages carry the colour maps of every native map as one IWD instead of loose files (2026-11-18, asked by the
+user): `make_dist.sh --bo2` packs `DIR/main/images/bo2_*.iwi` into `main/iw_bo2maps.iwd` (`tools/bo2/bo2_iwd.py`:
+deflated, 1 292 images in 214 MB against 283 MB, sorted with fixed dates so the same images give the same bytes)
+and removes the loose ones an older package holds. In `main/` the engine opens only an IWD whose name starts with
+`iw_` (`com_files.cpp`, "Invalid IWD"). Loose files still load, which a run folder for development keeps. Windows
+client, native Nuketown, the loose images moved away: `main/iw_bo2maps.iwd (1292 files)` in the search path, the
+garage view the same as from loose files but for the effects' flicker (377 pixels). A Switch's SD card that held an
+older package keeps its `main/images/bo2_*.iwi`: delete them (both load the same pictures, but the copy is longer).
+
 The props, the gameplay and the lighting followed (next section).
 
 ### Props, gameplay and lighting on the native world (2026-11-12)
@@ -462,8 +471,16 @@ from `bo2_layout.py`; `mods/mapkit/MAPKIT.md` has the `bus` and `bank` edits.
   the bus edit's `button`. Self-test `bus_button` (once the bus has left a stop, the client holds use toward the
   button from beside the driver's seat: the doorway must open, then shut before the next stop): native TranZit (Linux,
   focused windows and risers as above) 125/0.
-- **Bank.** Deposit (1 000 points, account at most 250 000) and withdrawal (1 000 back less a 100-point fee) at the first
-  two intact teller windows (`p6_zm_bank_teller_window`, lobby side), the weapon locker in front of BO2's
+- **Bank.** Deposit (1 000 points, account at most 250 000) and withdrawal (1 000 back less a 100-point fee) at the
+  vault's deposit boxes, as in BO2: the withdrawal at the box the keys hang from (`p6_zm_keys`), the deposit at the
+  box farthest from it on the same wall whose trigger stays 64 units off a door's use volume (the last one, by the
+  lab hatch, took that door's prompt: "You must turn on the power first!"). BO2's own `bank_withdraw` /
+  `bank_deposit` structs are not in TranZit's dump (Buried's are). The first version stood them at the teller windows
+  in the lobby, where a player looking for them in the vault found nothing (a user's report, 2026-11-18). Both
+  triggers stand on the floor, on the vault side of the wall (toward the nearest pathnode), with BO2's prompts
+  ("Hold [use] to withdraw from deposit box [Amount: 1000] [Fee: 100]"). Windows client, native TranZit, the account
+  seeded with 5 000: a withdrawal at the keys (500 to 1 400 points, account 4 000), then a deposit (1 400 to 400,
+  account 5 000). The weapon locker stands in front of BO2's
   `p6_zm_weapon_locker` (the farmhouse's fridge): it keeps the weapon in hand (not the last one) with its ammo and gives
   it back on a later use when the map's zones hold it. The engine keeps them by player name in
   `<fs_homepath>/main/mapkit_bank.txt` (`bo1_mapkit_bank_get` / `_set`, `g_mapkit.cpp`), read at each call and
