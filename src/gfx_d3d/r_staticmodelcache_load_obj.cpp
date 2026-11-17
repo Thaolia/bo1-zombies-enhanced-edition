@@ -44,6 +44,7 @@ void __cdecl R_AssignSModelCacheResources(GfxWorld *world)
     for ( i = 0; i < v7; ++i )
         stats[i].model->lodInfo[stats[i].lod].smcIndexPlusOne = 0;
     unsigned int oddLods = 0;
+    unsigned int rebasedLods = 0;
     for ( i = 0; i < v7; ++i )
     {
         model = stats[i].model;
@@ -56,6 +57,8 @@ void __cdecl R_AssignSModelCacheResources(GfxWorld *world)
             ++oddLods;
             continue;
         }
+        if ( R_SModelLodSetBaseIndices(model, lod) )
+            ++rebasedLods;
         maxEntryCount = R_GetEntryCount(&stats[i]);
         v1 = R_AssignSModelCacheIndex(stats[i].smcAllocBits, maxEntryCount, smcUseCount);
         XModelSetSModelCacheForLod(model, lod, v1, stats[i].smcAllocBits);
@@ -63,6 +66,34 @@ void __cdecl R_AssignSModelCacheResources(GfxWorld *world)
     if ( oddLods )
         Com_Printf(8, "static model cache: %u of %u model lods left out (a surface with an odd triangle count)\n",
             oddLods, v7);
+    if ( rebasedLods )
+        Com_Printf(8, "static model cache: %u model lods given their surfaces' base indices\n", rebasedLods);
+}
+
+bool __cdecl R_SModelLodSetBaseIndices(const XModel *model, unsigned int lod)
+{
+    // mod (bspworld): the cache lays a lod's surfaces one after the other, each at its baseTriIndex / baseVertIndex.
+    // Treyarch's linker sums them (as XModelReadSurfaces does for a raw xmodel); OAT's leaves every surface at 0, so a
+    // BO2 prop's second surface overwrote the first one's triangles (Nuketown's cardboard boxes lost three sides to
+    // their labels). A retail lod already holds these values and is left as it is.
+    XSurface *surfs;
+    XModelGetSurfaces(model, &surfs, lod);
+    const unsigned int count = XModelGetSurfCount(model, lod);
+    unsigned int baseTriIndex = 0;
+    unsigned int baseVertIndex = 0;
+    bool changed = false;
+    for ( unsigned int s = 0; s < count; ++s )
+    {
+        if ( surfs[s].baseTriIndex != baseTriIndex || surfs[s].baseVertIndex != baseVertIndex )
+        {
+            surfs[s].baseTriIndex = truncate_cast<unsigned short>(baseTriIndex);
+            surfs[s].baseVertIndex = truncate_cast<unsigned short>(baseVertIndex);
+            changed = true;
+        }
+        baseTriIndex += surfs[s].triCount;
+        baseVertIndex += surfs[s].vertCount;
+    }
+    return changed;
 }
 
 bool __cdecl R_SModelLodTrianglesEven(const XModel *model, unsigned int lod)
