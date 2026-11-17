@@ -25,7 +25,7 @@
 #                    (Setup-Switch.bat on Windows, setup_switch.sh on Linux: ffconv, uam, make_dksh_pack)
 #   --bo2 DIR        your own Black Ops II extraction: its maps (docs/BO2_MAPS.md, "Running it": DIR/mods/mapkit/
 #                    layouts/bo2_*.json and DIR/mods/mapkit/imports/; a native map also DIR/usermaps/<zone>/,
-#                    DIR/main/maps/<zone>.d3dbsp and DIR/main/images/bo2_*.iwi), its weapons (docs/BO2_WEAPONS.md:
+#                    DIR/main/maps/<zone>.d3dbsp and DIR/main/images/bo2_*.iwi, packed as main/iw_bo2maps.iwd), its weapons (docs/BO2_WEAPONS.md:
 #                    the 64-bit DIR/mods/bo2weapons/mod.ff and DIR/mods/bo2weapons/images/), either or both. They
 #                    go into the windows and linux packages, where ZmClient's Solo view offers them ("Mapkit :
 #                    Nuketown (Black Ops II)", "Armes de Black Ops II"); game data, so not with --no-game-data
@@ -420,6 +420,25 @@ game_data() { # <dest> [video]: the game files every platform reads, from the in
 # links, mesh and images under imports/ (docs/BO2_MAPS.md).
 # The weapons' mod.ff must be ffconv's 64-bit one (both packages run x86-64 builds); the scripts come from the
 # repository's mods/bo2weapons.
+# The native maps' colour maps (DIR/main/images/bo2_*.iwi) go in as one IWD, main/iw_bo2maps.iwd
+# (tools/bo2/bo2_iwd.py), and the loose copies an older package holds are removed.
+bo2_images() { # <dest>
+    mkdir -p "$1/main"
+    python3 "$ROOT/tools/bo2/bo2_iwd.py" "$BO2/main/images" "$1/main/iw_bo2maps.iwd" > /dev/null || return 1
+    rm -f "$1"/main/images/bo2_*.iwi
+    rmdir "$1/main/images" 2> /dev/null || true
+}
+
+# The BO2 weapons' images (DIR/mods/bo2weapons/images/*.iwi) go in as one IWD beside their mod.ff: a mod folder's
+# IWDs load under any name (FS_AddGameDirectory); the loose copies an older package holds are removed.
+bo2_weapons() { # <dest>
+    mkdir -p "$1/mods/bo2weapons"
+    rsync -a "$BO2/mods/bo2weapons/mod.ff" "$1/mods/bo2weapons/"
+    python3 "$ROOT/tools/bo2/bo2_iwd.py" --pattern '*.iwi' "$BO2/mods/bo2weapons/images" \
+        "$1/mods/bo2weapons/bo2weapons.iwd" > /dev/null || return 1
+    rm -rf "$1/mods/bo2weapons/images"
+}
+
 bo2_data() { # <dest>
     [ -n "$BO2" ] || return 0
     if [ $BO2_MAPS = 1 ]; then
@@ -429,12 +448,11 @@ bo2_data() { # <dest>
         if [ -d "$BO2/usermaps" ] && ls "$BO2"/main/maps/*.d3dbsp > /dev/null 2>&1; then
             rsync -a "$BO2/usermaps/" "$1/usermaps/"
             rsync -a --include='*.d3dbsp' --exclude='*' "$BO2/main/maps/" "$1/main/maps/"
-            rsync -a --include='bo2_*.iwi' --exclude='*' "$BO2/main/images/" "$1/main/images/"
+            bo2_images "$1"
         fi
     fi
     if [ $BO2_WEAPONS = 1 ]; then
-        rsync -a "$BO2/mods/bo2weapons/mod.ff" "$1/mods/bo2weapons/"
-        rsync -a --delete "$BO2/mods/bo2weapons/images/" "$1/mods/bo2weapons/images/"
+        bo2_weapons "$1"
     fi
 }
 
@@ -455,13 +473,11 @@ bo2_switch_data() { # <dest>
     [ -n "$BO2" ] || return 0
     # the weapons, for a join to a server that has them (the start menu loads them by default, "Armes BO2")
     if [ $BO2_WEAPONS = 1 ]; then
-        mkdir -p "$1/mods/bo2weapons"
-        rsync -a "$BO2/mods/bo2weapons/mod.ff" "$1/mods/bo2weapons/"
-        rsync -a --delete "$BO2/mods/bo2weapons/images/" "$1/mods/bo2weapons/images/"
+        bo2_weapons "$1"
     fi
     [ $BO2_MAPS = 1 ] || return 0
     [ -d "$BO2/usermaps" ] && ls "$BO2"/main/maps/*.d3dbsp > /dev/null 2>&1 || return 0
-    mkdir -p "$1/mods/mapkit/layouts" "$1/mods/mapkit/imports" "$1/usermaps" "$1/main/maps" "$1/main/images"
+    mkdir -p "$1/mods/mapkit/layouts" "$1/mods/mapkit/imports" "$1/usermaps" "$1/main/maps"
     rsync -a --include='bo2_*_bsp.json' --exclude='*' "$BO2/mods/mapkit/layouts/" "$1/mods/mapkit/layouts/"
     local layout map
     for layout in "$BO2"/mods/mapkit/layouts/bo2_*_bsp.json; do
@@ -475,7 +491,7 @@ bo2_switch_data() { # <dest>
     done
     rsync -a "$BO2/usermaps/" "$1/usermaps/"
     rsync -a --include='*.d3dbsp' --exclude='*' "$BO2/main/maps/" "$1/main/maps/"
-    rsync -a --include='bo2_*.iwi' --exclude='*' "$BO2/main/images/" "$1/main/images/"
+    bo2_images "$1"
 }
 
 # The LISEZMOI.txt line of a package with the player's Black Ops II maps.

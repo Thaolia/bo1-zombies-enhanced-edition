@@ -31,7 +31,7 @@ imports/<map>/<map>.collision.bin: copy the .bin there in the run folder) and it
   - mesh: the drawable world, <folder of the collision>/<map>.mesh.bin and images/ (tools/bo2/bo2_mesh.py writes them).
   - bus (TranZit): the vehicle loop with its stops, smoothed headings, doors and the levers that call it, and the
     layout brush models it carries players on;
-  - bank (TranZit): the teller windows' deposit and withdrawal and the weapon locker, from the placed props;
+  - bank (TranZit): the vault's deposit and withdrawal boxes and the weapon locker, from the placed props;
   - fx (--createfx): the map's placed ambient effects that have a BO1 equivalent (tools/bo2/bo2_createfx.py).
 Not converted: dog spawns, BO2-only mechanics (the garage-door crawl becomes a mantle).
 docs/BO2_MAPS.md has the whole procedure.
@@ -834,29 +834,62 @@ def read_props(path):
     return props
 
 
-def bank_edit(props, col):
-    """TranZit's bank (BO2 _zm_banking, _zm_weapon_locker) as a MapKit "bank" edit: "deposit" and "withdraw" in front
-    of the first two intact teller windows (a model faces its +x: the lobby), "locker" in front of the weapon locker
-    (the farmhouse's fridge); None when the map has neither. Each is {"origin", "yaw"}: the use trigger's centre at the
-    counter's height and the way a player there looks."""
+BANK_DOOR_CLEAR = 64.0  # a bank trigger's reach (40) plus half a player (16) and a margin, kept off a door's use volume
+
+
+def bank_edit(props, col, nodes=(), doors=()):
+    """TranZit's bank (BO2 _zm_banking, _zm_weapon_locker) as a MapKit "bank" edit; None when the map has neither.
+    "withdraw" stands in front of the vault's deposit box with the keys hanging on it (p6_zm_keys) and "deposit" in
+    front of the box farthest from it on the same wall, as BO2's bank_withdraw / bank_deposit structs do (those are not
+    in the dump; Buried's, which are, stand 257 units apart on one wall); "locker" in front of the weapon locker (the
+    farmhouse's fridge). Each is {"origin", "yaw"}: the use trigger's foot on the floor and the way a player there
+    looks. The vault side of the wall is the one toward the nearest pathnode (nodes: the layout's "node" origins). A box
+    whose trigger would reach a door's or debris's use volume (doors: their (mins, maxs); MapKit widens that volume 48
+    units across, cm_mapkit.cpp) is passed over: there the door's prompt took the use (TranZit's lab hatch beside the
+    vault's last box, "You must turn on the power first!")."""
     def front(origin, axis, reach, up):
         yaw_deg = math.degrees(math.atan2(axis[1], axis[0]))
         spot = [origin[0] + axis[0] * reach, origin[1] + axis[1] * reach, origin[2] + up]
         return {"origin": [round(v, 2) for v in spot], "yaw": round((yaw_deg + 180.0) % 360.0, 2)}
 
-    windows = sorted((p for p in props if p[0] == "p6_zm_bank_teller_window"), key=lambda p: (p[1][0], p[1][1]))
-    lockers = [p for p in props if p[0] == "p6_zm_weapon_locker"]
-    if len(windows) < 2 and not lockers:
-        return None
     edit = {"kind": "bank", "name": "bank"}
-    if len(windows) >= 2:
-        edit["deposit"] = front(windows[0][1], windows[0][2], 32.0, 0.0)
-        edit["withdraw"] = front(windows[1][1], windows[1][2], 32.0, 0.0)
+    boxes = [p for p in props if p[0].startswith("p6_zm_bank_deposit_box")]
+    keys = [p for p in props if p[0] == "p6_zm_keys"]
+    if boxes and keys and nodes:
+        key = min(keys, key=lambda k: min(math.dist(k[1], b[1]) for b in boxes))
+        o = key[1]
+        node = min(nodes, key=lambda n: math.dist(n[:2], o[:2]))
+        to_room = (node[0] - o[0], node[1] - o[1])
+        ax = key[2]
+        # the wall's normal is one of the model's horizontal axes (or its perpendicular): the one facing the room
+        normal = max([(ax[0], ax[1]), (-ax[0], -ax[1]), (-ax[1], ax[0]), (ax[1], -ax[0])],
+                     key=lambda d: d[0] * to_room[0] + d[1] * to_room[1])
+        size = math.hypot(*normal)
+        normal = (normal[0] / size, normal[1] / size)
+        def clear(p):
+            spot = (p[0] + normal[0] * 32.0, p[1] + normal[1] * 32.0)
+            for mins, maxs in doors:
+                dx = max(mins[0] - 48.0 - spot[0], 0.0, spot[0] - maxs[0] - 48.0)
+                dy = max(mins[1] - 48.0 - spot[1], 0.0, spot[1] - maxs[1] - 48.0)
+                if math.hypot(dx, dy) < BANK_DOOR_CLEAR and mins[2] < p[2] + 72.0 and maxs[2] > p[2] - 72.0:
+                    return False
+            return True
+        wall = [b for b in boxes if abs((b[1][0] - o[0]) * normal[0] + (b[1][1] - o[1]) * normal[1]) < 8.0
+                and clear(b[1])]
+        far = max(wall, key=lambda b: math.dist(b[1][:2], o[:2]))
+
+        def at_floor(p):
+            spot = [p[0] + normal[0] * 32.0, p[1] + normal[1] * 32.0, p[2]]
+            ground = col.floor(spot)
+            return front([p[0], p[1], ground if ground is not None else node[2]], normal, 32.0, 0.0)
+        edit["withdraw"] = at_floor(o)
+        edit["deposit"] = at_floor(far[1])
+    lockers = [p for p in props if p[0] == "p6_zm_weapon_locker"]
     if lockers:
         o = lockers[0][1]
         ground = col.floor([o[0], o[1], o[2] + 16])
         edit["locker"] = front([o[0], o[1], ground if ground is not None else o[2]], lockers[0][2], 32.0, 48.0)
-    return edit
+    return edit if len(edit) > 2 else None
 
 
 def build(ents, col, name, collision, links_file=None, props=(), solid_props=()):
@@ -1209,7 +1242,8 @@ def build(ents, col, name, collision, links_file=None, props=(), solid_props=())
         bus, mover = gondola_edits(ents, col)
     edits += bus
     edits[1].update(mover)
-    bank = bank_edit(props, col)
+    bank = bank_edit(props, col, [e["origin"] for e in edits if e["kind"] == "node"],
+                     [(e["mins"], e["maxs"]) for e in edits if e["kind"] in ("door", "debris") and "mins" in e])
     if bank:
         edits.append(bank)
     if cuts:

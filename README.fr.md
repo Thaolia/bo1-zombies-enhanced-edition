@@ -311,7 +311,7 @@ bus, qui fait la boucle par le dépôt, le diner, la ferme, la centrale et la vi
 tiennent, attend à chaque arrêt portes ouvertes, sonne avant de repartir, roule portes fermées (un bouton gratuit près du
 siège du chauffeur les ouvre quelques secondes, pour sauter entre deux arrêts) et vient à l'arrêt dont un joueur tire le
 levier une fois le courant mis (les zombies n'y montent pas, et ses props ne sont pas encore éclairés),
-et sa banque : dépôts et retraits aux guichets et casier à arme de la ferme, gardés d'une partie à l'autre. Détails :
+et sa banque : dépôts et retraits aux coffres de la salle forte et casier à arme de la ferme, gardés d'une partie à l'autre. Détails :
 `docs/BO2_MAPS.md`.
 Nuketown tourne aussi comme une map BO1 native (expérimental, branche `bspnuked`) : `tools/bo2/bo2_bsp.py` écrit
 son monde, ses props, sa collision et la lumière précalculée de BO2 dans une BSP de BO1, et

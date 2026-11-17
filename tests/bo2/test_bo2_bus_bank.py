@@ -82,19 +82,33 @@ class CallSpotTest(unittest.TestCase):
 
 
 class BankEditTest(unittest.TestCase):
-    def test_windows_and_locker(self):
-        props = [("p6_zm_bank_teller_window", [773.0, 161.0, 4.0], [1.0, 0.0, 0.0]),
+    def test_boxes_and_locker(self):
+        # TranZit's vault wall at x 596 (its boxes' +x axis runs along the wall, -y), the vault toward -x
+        props = [("p6_zm_bank_deposit_box_open_02", [596.0, 416.0, 45.0], [0.0, -1.0, 0.0]),
+                 ("p6_zm_bank_deposit_box_open_02", [596.0, 704.0, 58.0], [0.0, -1.0, 0.0]),
+                 ("p6_zm_bank_deposit_box_open_02b", [596.0, 736.0, 10.0], [0.0, -1.0, 0.0]),
+                 ("p6_zm_bank_deposit_box_open_02", [428.0, 900.0, 45.0], [0.0, 1.0, 0.0]),  # the facing wall
+                 ("p6_zm_keys", [592.0, 446.0, 11.0], [0.0, -1.0, 0.0]),
+                 ("p6_zm_keys", [761.0, 456.0, 30.0], [0.0, -1.0, 0.0]),  # behind the counter, no box near
                  ("p6_zm_bank_teller_window", [773.0, 74.0, 4.0], [1.0, 0.0, 0.0]),
-                 ("p6_zm_bank_teller_window_d1", [773.0, 415.0, 4.0], [1.0, 0.0, 0.0]),
                  ("p6_zm_weapon_locker", [100.0, 0.0, 20.0], [0.0, 1.0, 0.0])]
-        edit = bo2_layout.bank_edit(props, FlatWorld())
-        self.assertEqual(edit["deposit"], {"origin": [805.0, 74.0, 4.0], "yaw": 180.0})
-        self.assertEqual(edit["withdraw"], {"origin": [805.0, 161.0, 4.0], "yaw": 180.0})
+        edit = bo2_layout.bank_edit(props, FlatWorld(), [[543.0, 405.0, 0.0]])
+        # in front of the box with the keys, and of the farthest box on its wall, on the floor, facing the wall (+x)
+        self.assertEqual(edit["withdraw"], {"origin": [560.0, 446.0, 0.0], "yaw": 0.0})
+        self.assertEqual(edit["deposit"], {"origin": [564.0, 736.0, 0.0], "yaw": 0.0})
+        # a door's use volume (its box widened by 48) within reach of the last boxes: the farthest clear box instead
+        props.append(("p6_zm_bank_deposit_box_open_02", [596.0, 655.0, 32.0], [0.0, -1.0, 0.0]))
+        doors = [([556.5, 786.0, -60.0], [818.0, 949.0, 97.0])]
+        edit = bo2_layout.bank_edit(props, FlatWorld(), [[543.0, 405.0, 0.0]], doors)
+        self.assertEqual(edit["deposit"], {"origin": [564.0, 655.0, 0.0], "yaw": 0.0})
         # in front of the locker (its +x... here +y), at a player's chest over the floor under it
         self.assertEqual(edit["locker"], {"origin": [100.0, 32.0, 48.0], "yaw": 270.0})
 
     def test_no_bank(self):
         self.assertIsNone(bo2_layout.bank_edit([("p6_zm_bank_teller_window", [0, 0, 0], [1, 0, 0])], FlatWorld()))
+        # boxes and keys but no pathnode to tell the vault's side: no deposit or withdrawal
+        self.assertIsNone(bo2_layout.bank_edit([("p6_zm_bank_deposit_box_open_02", [0, 0, 0], [1, 0, 0]),
+                                                ("p6_zm_keys", [0, 0, 0], [1, 0, 0])], FlatWorld()))
 
     def test_read_props(self):
         with tempfile.TemporaryDirectory() as folder:

@@ -712,7 +712,7 @@ mapkit_check_bus_button( i, player, name )
 }
 
 // "bank" edit (BO2's TranZit bank, written by tools/bo2/bo2_layout.py): "deposit" and "withdraw" { origin, yaw } are
-// the teller windows' use triggers, "locker" the weapon locker's. As in BO2 (_zm_banking, _zm_weapon_locker) a deposit
+// the vault's two deposit boxes' use triggers (their foot on the floor), "locker" the weapon locker's. As in BO2 (_zm_banking, _zm_weapon_locker) a deposit
 // takes 1000 points into the player's account (at most mapkit_bank_max()), a withdrawal gives them back less a 100-point
 // fee, and the locker keeps one weapon with its ammo; both last between games and maps. The engine keeps them in
 // <fs_homepath>/main/mapkit_bank.txt under the player's name (bo1_mapkit_bank_get / _set, g_mapkit.cpp): a game's
@@ -736,11 +736,11 @@ mapkit_bank( i )
 		trig.mapkit_bank_action = actions[a];
 		if ( actions[a] == "deposit" )
 		{
-			trig SetHintString( "Hold ^3[{+activate}]^7 to deposit 1000 points" );
+			trig SetHintString( "Hold ^3[{+activate}]^7 to deposit into deposit box [Amount: 1000]" );
 		}
 		else if ( actions[a] == "withdraw" )
 		{
-			trig SetHintString( "Hold ^3[{+activate}]^7 to withdraw 1000 points [Fee: 100]" );
+			trig SetHintString( "Hold ^3[{+activate}]^7 to withdraw from deposit box [Amount: 1000] [Fee: 100]" );
 		}
 		else
 		{

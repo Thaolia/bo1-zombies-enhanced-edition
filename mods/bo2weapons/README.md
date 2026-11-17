@@ -17,7 +17,9 @@ The procedure is in `docs/BO2_WEAPONS.md`. In short:
 
 That gives `mod.ff` for the 32-bit build. Convert it with `ffconv` for the 64-bit builds (Windows x64, Linux, Switch),
 then put it at `mods/bo2weapons/mod.ff` next to the game, and the weapon's images (`images/*.iwi` from the Linker
-project) in `mods/bo2weapons/images/`. The game loads the images from there, not from `mod.ff`.
+project) in `mods/bo2weapons/images/`. The game loads the images from there, not from `mod.ff`. The packages
+(`tools/make_dist.sh --bo2`) carry them as one IWD instead, `mods/bo2weapons/bo2weapons.iwd` (`tools/bo2/bo2_iwd.py`):
+a mod folder's IWDs load whatever their name.
 
 ## Start it
 

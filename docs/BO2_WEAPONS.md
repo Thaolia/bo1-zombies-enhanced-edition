@@ -50,8 +50,9 @@ zones is skipped, and the map then stays retail.
 - **Clients of a server** that has them must load the same `mod.ff` (`+set fs_mods bo2weapons`): a client without it
   drops back to the menu on entering, with "The server uses weapon '...', which this game does not have" (the weapons'
   indices come from the server), and `cl_autoConnect` stops. A client that loads them can join a server without them.
-- **Packages**: `tools/make_dist.sh --bo2 DIR` copies `DIR/mods/bo2weapons/mod.ff` (ffconv's 64-bit one) and `images/`
-  into the windows and linux packages.
+- **Packages**: `tools/make_dist.sh --bo2 DIR` copies `DIR/mods/bo2weapons/mod.ff` (ffconv's 64-bit one) into the
+  windows, linux and switch packages, and packs `images/*.iwi` beside it as one IWD, `mods/bo2weapons/bo2weapons.iwd`
+  (`tools/bo2/bo2_iwd.py`, 2026-11-18): 193 images, 79 MB against 116 MB; a mod folder's IWDs load whatever their name.
 
 ## What the converter does (`tools/bo2/bo2_weapon.py`)
 
