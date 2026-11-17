@@ -519,8 +519,9 @@ Checked: Windows client (D3D9): spawn in the cell block, the round starts, the c
 near spawners: pass 166 fail 43; the doors, the three perks, the box, the Pack-a-Punch (MP5K upgraded), 6 of 7 wall buys,
 the 29 zones and 30 of 47 risers pass, the rounds go on (16 in 18 minutes). Failing: 17 of 22 windows ("zombies got
 spawned outside only": they walk into the room by another way, or none comes), 17 risers whose zombies do not reach the
-client, the CZ75 wall buy on the cell block's second tier (the client stays on the floor below). Not yet run by the
-user after the start door fix, nor on the console.
+client, the CZ75 wall buy on the cell block's second tier (the client stays on the floor below); most of them are
+fixed since (201/7, "Mob of the Dead's self-test failures" below). Not yet run by the user after the start door fix,
+nor on the console.
 
     tools/bo2/bo2_layout.py $D/zm_prison zm_prison --out bo2_zm_prison.json --links-out zm_prison.links.txt
     tools/bo2/bo2_mesh.py $D/zm_prison zm_prison --out $OUT/imports/zm_prison --blockers-only --mover p6_zm_al_gondola
@@ -716,6 +717,30 @@ ms), about 0.8 ms, measured with the 172 ambient ones; `+set mapkit_fx 0` leaves
 Nuketown 107/0 (`check fx all PASS 214 edits, 28 effects loaded`), TranZit 297/5 (271 edits, 20 effects; the five risers that fail without the effects too), Mob of the Dead 168/41 (345 edits, 16 effects; the same windows and risers as before), Buried 247/12 (153 edits, 13 effects; the candy store, Quick Revive, the upper Ithaca, windows and risers as before); 106/0 and `SKIP` with `mapkit_fx 0`. Not done: the water streams, the arc, the lens
 flare, the other exploders (Nuketown's meteor impacts), TranZit's lava glows and storm, the candles and lamps (the
 same route: an `EFFECTS` entry and its BO1 effect in the zone).
+
+### Mob of the Dead's self-test failures (2026-11-17)
+
+From 168/41 to 201/7 (Linux self-test, all checks, same zones and BSP). One fix per cause, each measured on its own run:
+
+| Cause | Fix | Checks it fixed |
+|---|---|---|
+| 8 windows share their name with their zone (`zone_cafeteria`, `zone_start`, ...): the self-test's room lookup took the window edit, listed after the zone, which has no `mins`, so no zombie ever counted as inside | `_mapkit.gsc` `mapkit_window_track`: only an edit with `mins` is a room (as `mapkit_check_lights` already did) | 168/41 to 176/33: those windows |
+| `g_mapkit_path.cpp` linked new nodes only within 256 units across and 128 up or down, traverse pairs too: none of the 19 climbs taller than 128 had its link (the 240-unit climbs to `zone_start_5/6/7`, the 560-unit ones to the infirmary roof, the dock's water jump up), and their zombies stood on a bad path | a negotiation pair (`Path_IsNegotiationLink`, either way) is always offered to `Path_CanLinkNodes`, which links it at any distance as the engine does | with the CZ75 fix, 176/33 to 199/10: `zone_start_5/6/7`, the roof's and the dock's risers |
+| the CZ75 hangs over a player-clip catwalk 58 units under it; the self-test's bullet trace found the floor 104 units lower | on an imported map, the stand spot takes the higher floor a `PlayerPhysicsTrace` finds | the wall buy |
+| 5 MotD spawn structs target a pathnode near no barricade (BO2's zombies walk in from there): without a window, retail `zombie_think` sent them to the nearest exterior goal, often unreachable (zone_dock_gondola's on a roof 200 units over zone_studio's) | `bo2_layout.py`: such a spawner is a chaser (`"chaser": 1`, as BO2's `find_flesh`) | `zone_studio`, the `zone_studio_21` unlock |
+| `zone_cellblock_west`'s window opens on a roof whose parapet stands 128 units out: its added spawner stood on the parapet's top, 28 units over the roof, with no path | `bo2_layout.py`: an added spawner whose floor out there is not the window's (18 units) stands behind the boards (48 units), as without an outside pathnode | that window |
+| riser pairs 46 units apart (`riser4`/`riser8`, `riser16`/`riser17`, `riser43`/`riser44` in the old numbering): the self-test named a riser by the spot nearest where its zombie stood up, and the climb carries it 45 units on, onto the other spot | `mapkit_riser_track` names it by where `do_zombie_rise` put it under the ground (0.2 s in, horizontal distance) | those three risers |
+| `electric_room_spawn` hangs 220 units over the rocks (zone_electric_room has no pathnode either) | `bo2_layout.py` leaves out a riser spot more than 32 units over its floor (the following risers are numbered one lower) | that riser |
+
+Nuketown's, TranZit's and Buried's layouts come out byte for byte the same; their self-tests with the new binary and
+scripts: Nuketown 107/0, TranZit 298/4 (297/5: `riser88`/`riser89` now reach the client; `power_baricade1`'s unlock
+check saw no spawn in its 90 s, a draw among the zone's spawners that passed before), Buried 248/11 (247/12: the upper
+Ithaca and `riser60` pass; `general_store_2`'s unlock check the same draw). Left on Mob of the Dead (pr_st4): node 581 of the cell block's
+catwalk in solid under a prop (no free spot within 32 units either); `riser32` (the dock's water riser: its zombie
+climbs onto the pier and was jumping down to the client when the 90 s ran out); `riser37`/`riser38`, the gondola
+zone's risers at the citadel station while the client stands at the dock's; and two that pass in other runs
+(`zone_start`: its first zombie came 3 s late, over a round break; the `zone_studio_21` unlock, one spawner among the
+zone's).
 
 ## What comes out of `zm_nuked`
 

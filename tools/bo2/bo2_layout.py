@@ -184,8 +184,10 @@ BARRIER_RAISE = 72.0  # a mantled barrier's clip goes this far over its top: an 
 NODE_REACH = 8.0  # a node may sit this far under the surface it belongs to
 WINDOW_MANTLE = 64.0  # a mantle whose middle lies this close to a boarded window is that window's traversal
 WINDOW_WALL_REACH = 80  # a zbarrier's wall lies within this many units in front of it
+RISER_FLOAT = 32.0  # a riser spot this far above the floor under it (or with none) is left out
 WINDOW_SPAWNER = 128.0  # a spawner added for a window stands this far outside it
 WINDOW_SPAWNER_NEAR = 48.0  # ... or this far, when no pathnode lies out there
+WINDOW_FLOOR_RISE = 18.0  # ... or when the floor out there is not the window's within this (BO1's link step)
 # BO2's TranZit replaces zombies far from every player (its distance tracking); a map whose zones span more than
 # FAR_MAP gets MapKit's far respawn at FAR_RESPAWN ("farrespawn" edit), or a round could wait for minutes on zombies
 # walking across it or stuck there while no other zombie spawned (native TranZit self-test: 24 minutes on round 2)
@@ -918,11 +920,19 @@ def build(ents, col, name, collision, links_file=None, props=(), solid_props=())
                    if e.get("classname") == "node_pathnode" and e.get("targetname")}
 
     risers = 0
+    risers_floating = []
     for e in ents:
         target = e.get("targetname", "")
         if e.get("script_noteworthy") == "riser_location" and spawn_zone(target):
             zone = spawn_zone(target)
             if zone not in zone_names:
+                continue
+            p = vec(e["origin"])
+            ground = col.floor([p[0], p[1], p[2] + RISER_FLOAT])
+            if ground is None or p[2] - ground > RISER_FLOAT:
+                # no floor under it: Mob of the Dead's electric_room_spawn hangs 220 units over the rocks, where its
+                # zombies would rise out of the air
+                risers_floating.append(f"{target} at {p}")
                 continue
             risers += 1
             edits.append({"kind": "riser", "name": f"riser{risers}", "origin": vec(e["origin"]), "yaw": yaw(e),
@@ -1053,6 +1063,11 @@ def build(ents, col, name, collision, links_file=None, props=(), solid_props=())
         near = [n for n in near if n[0] <= FIRST_NODE_REACH]
         if near:
             sp["window"] = min(near)[1]
+        else:
+            # no barricade by its first node: BO2's zombies walk in from there. Without a window, the self-test and
+            # retail zombie_think sent them to the nearest exterior goal, on Mob of the Dead often one they could not
+            # reach (zone_dock_gondola's spawner on a roof 200 units above zone_studio's: bad path, no zombie in 90 s)
+            sp["chaser"] = 1
     for sp in [t for t in edits if t["kind"] == "spawner"]:
         if sp.get("window") in by_window:
             fed.add(sp["window"])
@@ -1073,11 +1088,18 @@ def build(ents, col, name, collision, links_file=None, props=(), solid_props=())
             # to the window, so the spawner stands just behind the boards, by the window's own outside node
             out = [w["origin"][0] - math.cos(r) * WINDOW_SPAWNER_NEAR, w["origin"][1] - math.sin(r) * WINDOW_SPAWNER_NEAR]
         ground = col.floor([out[0], out[1], w["origin"][2] + 64])
+        if outside and (ground is None or abs(ground - w["origin"][2]) > WINDOW_FLOOR_RISE):
+            # not the window's floor: Mob of the Dead's zone_cellblock_west opens on a roof whose parapet stands 128
+            # units out, and its zombies spawned on the parapet's top with no path to the window: behind the boards
+            out = [w["origin"][0] - math.cos(r) * WINDOW_SPAWNER_NEAR, w["origin"][1] - math.sin(r) * WINDOW_SPAWNER_NEAR]
+            ground = col.floor([out[0], out[1], w["origin"][2] + 64])
         if ground is None:
             continue
         edits.append({"kind": "spawner", "origin": [round(out[0], 1), round(out[1], 1), round(ground, 2)],
                       "yaw": w["yaw"], "zone": window_zone(w), "window": w["name"]})
         added += 1
+    if risers_floating:
+        print(f"{len(risers_floating)} riser spots over no floor left out: {', '.join(risers_floating)}")
     print(f"windows: {len(windows)} boarded windows, {mantles} barricade mantles they replace, {added} spawners added "
           f"for the windows no BO2 spawner feeds")
 
