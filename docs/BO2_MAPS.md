@@ -576,13 +576,146 @@ The BSP is otherwise the same (zone unchanged); the props' collision file holds 
 debris and zone, Quick Revive, the upper Ithaca, 4 windows and a riser as before, plus two of the general store's
 window checks, whose zombies came through those windows earlier in the run but not within the check's 90 s (the
 props do not block the AI; `bank_1` failed the same way on the first run and passed on the second). The changes apply
-to every map at its next `bo2_bsp.py` run: Nuketown, TranZit and Mob of the Dead were not rebuilt with them.
+to every map at its next `bo2_bsp.py` run. Nuketown, TranZit and Mob of the Dead were rebuilt with them on 2026-11-17
+(below, "The other maps rebuilt").
 
     tools/bo2/bo2_bsp.py $D/zm_buried zm_buried --name zombie_bo2buried ... (as Mob of the Dead, no --mover)
     +set bo1_mod_mapkit bo2_zm_buried_bsp +set bo1_mod_zones zombie_bo2buried zombie_cosmodrome \
     +set bo1_bspworld maps/zombie_bo2buried.d3dbsp +devmap zombie_pentagon
 
 ZmClient: « Mapkit : Buried native (Black Ops II, monde BSP) »; Switch start menu: « Buried (BO2, natif) ».
+
+### The other maps rebuilt (2026-11-17)
+
+Nuketown, TranZit and Mob of the Dead went through `bo2_bsp.py` again with Buried's props collision (same dumps,
+layouts and blocker meshes; their `_bsp` layouts come out byte for byte the same):
+
+| Map | Props collision | Self-test (Linux, all checks) |
+|---|---|---|
+| Nuketown | 24 piles as 170 rocks; 89 piles hanging or under a player clip, 29 830 of their triangles left out | 106/0, as before |
+| Mob of the Dead | 102 such piles (3 720 triangles left out); 216 191 prisms in 44.1 MB (209 696, 42.8 MB before) | 167/41 (166/43 before): the same windows and risers |
+| TranZit | 85 such piles (3 248 triangles left out); 446 321 prisms in 91.0 MB (88.6 MB before) | 296/5: five risers of the 100-odd (the earlier runs checked two), which fail the same on the previous BSP (`mapkit_test_risers` on those five: 198/5 new, 197/6 previous) |
+
+TranZit's and Mob of the Dead's zones are unchanged. Nuketown's had to be linked again: its last BSP in the packages
+(2026-11-14) predates the props as static models, and its zone holds none of their 333 xmodels; the new BSP places
+them, and a client (not the headless self-test, which draws nothing) stops at the first one with
+`R_CheckValidStaticModel: could not find xmodel 'default_static_model'` (`bad static model 'bo2x_...'` before it).
+Check a rebuilt BSP's zone for every `xmodel` and `material` line of `linker/zone_source/<zone>.zone`, not only the
+materials. Nuketown's layout also takes the current `bo2_layout.py`'s jump downs by height (three traversals).
+
+### Placed effects (2026-11-17)
+
+OAT reads no effect (`FxEffectDef` is unsupported for T6 and T5), so a BO2 map's effects cannot be converted. Its
+placed effects can be placed again with BO1's own: the map's patch zone (`zm_nuked_patch.ff`) holds its compiled
+createfx script, `clientscripts/mp/createfx/zm_nuked_fx.csc`, which `tools/bo2/bo2_createfx.py` reads (T6 GSC:
+each `createoneshoteffect` / `createloopeffect` / `createexploder` call's string argument, and the vectors pushed
+before the next `origin` and `angles` fields; 287 effects on Nuketown, 51 of them exploders). A constant vector is
+three number pushes then opcode `0x5b`, its components pushed last to first, or opcode `0x5e` and a flags byte, two
+bits a component (the last component's in the low bits): 0 for 0, 2 for a number pushed before it (`(273, 0, 0)`:
+a float, then flags `0x20`). Every Nuketown angle reads either way, (pitch, yaw, roll): the vertical electric arc is
+(270, ...), the grates' light rays pitch 40 to 80 (down through them). Its `EFFECTS` table gives a BO1
+effect for some BO2 ids, and `bo2_layout.py --createfx` adds an `fx` edit for each such placement:
+
+| BO2 (Nuketown) | BO1 | Placed |
+|---|---|---|
+| `fx_ash_embers_falling_radioactive_md` / `_sm` | `env/fire/fx_embers_falling_md` / `_sm` | 13 / 4 |
+| `fx_ash_embers_up_lg` | `env/fire/fx_embers_up_dist` | 4 |
+| `fx_zmb_nuke_radioactive_ash_gusty` | `env/fire/fx_ash_embers_light` | 3 |
+| `fx_zmb_nuke_burning_ash_gusty` | `env/fire/fx_ash_embers_heavy` | 3 |
+| `fx_zmb_nuke_radioactive_embers` (and `_crater`) | `env/fire/fx_embers_wind_md` | 2 |
+| the small flames (`fx_fire_xsm`, `fx_fire_line_xsm`, `_pole`) | `env/fire/fx_fire_detail_sm_nodlight` | 41 |
+| the small fires (`fx_fire_line_sm`, `_pole`, ceiling edges, floor, smoulder areas) | `env/fire/fx_fire_sm` | 20 |
+| `fx_fire_sm_smolder` | `env/fire/fx_fire_sm_smolder` | 33 |
+| the eaves, ceilings, rafters, walls, poles, fireplace, wind-blown and TranZit medium fires | `env/fire/fx_fire_md` | 19 |
+| `fx_zmb_tranzit_fire_lrg` | `env/fire/fx_fire_lg` | 3 |
+| `fx_nic_fire_building_md_dist` (the burning houses beyond the map) | `env/fire/fx_fire_large_distant` | 8 |
+| `fx_smk_fire_lg_black` | `env/smoke/fx_smk_fire_lg_black` | 1 |
+| `fx_smk_linger_lit` (and `_slow`, `_z`) | `env/smoke/fx_smk_linger_lit` | 6 |
+| `fx_smk_plume_md_blk_wispy_dist` | `env/smoke/fx_smk_plume_md_blk` | 3 |
+| `fx_smk_smolder_gray_fast` / `_slow` | `env/smoke/fx_smk_smolder_sm` | 4 (the other 10 are exploders) |
+| `fx_smk_smolder_rubble_md_int` | `env/smoke/fx_smk_smolder_rubble_md` | 4 |
+| `fx_smk_wood_sm_black` | `env/smoke/fx_smk_smolder_sm_blk` | 1 |
+| `fx_elec_spark_wire_xsm_runner` | `env/electrical/fx_elec_wire_sparks` | 2 |
+| `fx_elec_transformer_sparks_runner` | `env/electrical/fx_elec_burst_shower_sm_runner` | 1 |
+| `fx_mp_elec_spark_burst_xsm_thin_runner` | `env/electrical/fx_elec_short_random` | 4 |
+| `fx_zm_nuked_light_ray_md_wide` (the sun through the roofs) | `env/light/fx_light_godray_md_white` | 2 |
+| `fx_zm_nuked_light_ray_md_wide_streak` (and `_1s`) | `env/light/fx_ray_md_1sd` | 9 |
+| `fx_zm_nuked_light_ray_streaks_1s` | `env/light/fx_ray_sm_1sd` | 2 |
+| `fx_light_ray_grate_warm` | `env/light/fx_light_godray_sm_warm` | 7 |
+| `fx_light_flour_glow_cool_sngl_shrt` | `env/light/fx_light_fluorescent` | 1 |
+| `fx_zmb_fog_low_radiation_140x300` (in a house) | `env/smoke/fx_fog_interior_md` | 2 |
+| `fx_cloud_cover_flat` / `_volume` (exploders, kept: lit all game) | `env/weather/fx_cloud3d_cmls_lg1_dark` | 5 / 7 |
+
+TranZit's createfx script (`zm_transit_patch.ff`, `clientscripts/mp/createfx/zm_transit_fx.csc`) places 752 effects,
+165 of them exploders; 271 get a BO1 effect: ash and embers (`fx_zmb_ash_ember_*` 45, `fx_zmb_ash_windy_heavy_*` 25,
+`fx_zmb_ash_rising_md` 9), the fires (27, as Nuketown's), smoke (`fx_zmb_tranzit_smk_interior_md` 9 as
+`fx_smk_hallway_md`, `_smk_column_lrg` 4 as `fx_smk_column_lg_blk`, the lava's `fx_zmb_lava_smoke_tall` 8 and
+`_pit` 2 as white plumes and smoulder), fog (the closets' 15 as `fx_fog_interior_md`, `fx_zmb_fog_low_300x300` 12 as
+`fx_fog_low`, `fx_zmb_fog_thick_*` 9 as `fx_fog_rolling_thick_600x600`, the fog between the areas,
+`fx_zmb_fog_transition_*` 17, as `fx_fog_large_slow`), the light rays (depot, interiors, tunnel, power station, bank
+vault: 71, as BO1's godrays), fluorescent tubes (16) and sparks (2). Left out: the lava's glows, edges and heat
+distortion (the lava itself is in the world), the Avogadro's storm, insects, papers, lamps and the exploders.
+
+Mob of the Dead's script (`zm_prison_patch.ff`) places 724 effects, 28 of them exploders; 345 get a BO1 effect: the
+fires (47: `fx_alcatraz_fire_xsm` 31 as the small flames, `_fire_sm` and the fire works 12, `_fire_md` and the ceiling
+fires 4), embers (`fx_alcatraz_embers_flat` and `_indoor` 51 as `fx_embers_falling_sm`), ash (the steam's and the
+tunnel's, 9), the ground fog (60 as `fx_fog_low`), the fog over the bay (25 as `fx_fog_rolling_vista_lg`), the
+closets' and the docks' (9), smoke (4), steam (the pipes' 5 as `fx_pipe_steam_md`, turned, and one more), the light
+rays through the cells and grilles (114, as BO1's white godrays) and sparks (the panels' and ceilings', 20). Left
+out: the 59 candles (BO1's candle carries a dynamic light), papers, flies, blood and water drips, the falling fire
+(BO1's falling debris does not loop), the lamps and the exploders.
+
+Buried's (`zm_buried_patch.ff`) places 629, 24 of them exploders; 153 get a BO1 effect: fog (49, as `fx_fog_low` and
+`_sm`) and the low cloud (2, as `fx_fog_large_slow`), the light rays outside, through the church and the town (38),
+the dust in the light (`fx_buried_dust_motes_*` 42, as BO1's dust motes), steam (9), the smoke plumes over the cave (3,
+as `fx_smk_plume_lg_blk`), ash (9) and the fireplace. Left out: the 144 lamps' glows, the tunnels' falling dust, sand
+and the sandstorm, insects, bats, water and the exploders (the meteors, the barriers breaking).
+
+The fires are point fires without a dynamic light (none of these BO1 effects has a light element): a BO2 fire line
+runs along its angles, which are not kept, so a BO1 line fire would point anywhere. The rays and sparks keep BO2's
+angles (`ORIENTED`, an `angles` field on the edit, `AnglesToForward` / `AnglesToUp` in MapKit): both games lay a ray
+along the effect's forward axis (BO1's godray spawns its beam at `spawnOrgX 350`, and BO2 still uses BO1's
+`fx_ray_sun_sm_short`). Left out: the vertical electric arc, the sun's lens flare (no BO1 equivalent here) and
+the mushroom cloud's remains 10 800 units down (BO1's largest smoke is drawn up to 8 000). BO1's 3D clouds stand
+for BO2's cloud cover: drawn up to 120 000 units (the flat ones only 25 000, BO2's lie 20 000 to 37 000 away).
+
+The BO1 effects are none of the zones a BO2 map loads, so they get a zone of their own, `zombie_bo2fx`, built by the
+Mod Tools' `linker_pc` from their `raw/fx/*.efx` (it builds any zone but a map): a zone source of `fx,` lines (the
+ones `bo2_createfx.py` prints), the effects' images copied from the player's own `.iwd` files into the tool copy's
+`raw/images/` (the zone then holds no image: they load from the `.iwd` in play; the linker names each missing image, and the
+player's `.iwd` files held every one the 46 effects of the four maps use), widened by `ffconv --verify`. One zone
+serves the four maps (the union of their effects, 68 assets). It is loaded after the map's zones (`bo1_mod_zones
+zombie_bo2nuked zombie_bo2fx`, `zombie_bo2transit zombie_cosmodrome zombie_bo2fx`, `zombie_bo2prison zombie_bo2fx`,
+`zombie_bo2buried zombie_cosmodrome zombie_bo2fx`: ZmClient's `MAPKIT_FX_ZONES`, the Switch menu's `fxZone`, both of
+which also require its file).
+
+The server loads each effect before the level script's first wait (`_mapkit.gsc` `mapkit_fx_load`: a client finds
+an effect only once the server has loaded it), and mods/mapkit's client main (`mapkit_main.csc` `mapkit_fx`) plays
+every `fx` edit once on each local client with `playfx`, as BO1's createfx plays its ambient effects: they loop by
+themselves, and no server entity stands for them. A first version spawned one server effect entity each
+(`SpawnFx` / `TriggerFx`): TranZit's 271 ran the server out of entities (`G_Spawn: no free entities` at the start,
+the round never began), and an entity triggered in the level's first frame never started (its trigger time, 0,
+equals the one a client starts with). The client reads the layout through two client script builtins,
+`bo1_mapkit_editcount` and `bo1_mapkit_get` (`cg_scr_sp_client.cpp`, as the server's), and leaves its count in the
+dvar `mapkit_fx_placed`.
+
+    U --include-assets script -o out/?zone? "$Z/zm_nuked_patch.ff"     # and each map's zm_<map>_patch.ff
+    tools/bo2/bo2_createfx.py out/zm_nuked_patch/clientscripts/mp/createfx/zm_nuked_fx.csc --all
+    tools/bo2/bo2_layout.py $D/zm_nuked zm_nuked --createfx out/zm_nuked_patch/clientscripts/mp/createfx/zm_nuked_fx.csc
+    # TranZit: bo2_layout.py ... --collision-file <its zm_transit.collision.bin> --createfx <its csc>
+    # then bo2_bsp.py --layout-only as before; zone_source/zombie_bo2fx.csv: every map's printed fx lines, sorted -u
+    linker_pc.exe -language english zombie_bo2fx; ffconv --verify zombie_bo2fx.ff <game>/usermaps/zombie_bo2fx/zombie_bo2fx.ff
+
+Checked on a Windows client (D3D9): Nuketown `mapkit_fx_placed` 214 (flames on the roofs, a column of black smoke,
+embers falling over the street, sparks, a pale shaft of light, the clouds massed in the sky; the rays are faint as
+in BO1, the fog in the green house too), TranZit 271 (the round starts; fires under the shelter, a burning shack and
+bushes, embers), Mob of the Dead 345 and Buried 153 (the rounds start; embers seen, the rest faint on the views
+taken). Cost on a PC (win64, headless client, the camera still before the burning house, 5 s
+windows after 40 s): 136 and 142 fps without the effects, 116 and 128 with them (frame 6.1 / 6.2 ms against 7.0 / 6.9
+ms), about 0.8 ms, measured with the 172 ambient ones; `+set mapkit_fx 0` leaves them out (a console's GPU may pay more for the smoke). Linux self-tests (the server's side: every effect loaded):
+Nuketown 107/0 (`check fx all PASS 214 edits, 28 effects loaded`), TranZit 297/5 (271 edits, 20 effects; the five risers that fail without the effects too), Mob of the Dead 168/41 (345 edits, 16 effects; the same windows and risers as before), Buried 247/12 (153 edits, 13 effects; the candy store, Quick Revive, the upper Ithaca, windows and risers as before); 106/0 and `SKIP` with `mapkit_fx 0`. Not done: the water streams, the arc, the lens
+flare, the other exploders (Nuketown's meteor impacts), TranZit's lava glows and storm, the candles and lamps (the
+same route: an `EFFECTS` entry and its BO1 effect in the zone).
 
 ## What comes out of `zm_nuked`
 

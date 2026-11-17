@@ -22,4 +22,51 @@ main()
 	clientscripts\_zombiemode_deathcard::init();
 	thread waitforclient( 0 );
 	clientscripts\zombie_pentagon::register_zombie_types();
+	thread mapkit_fx();
+}
+
+// The layout's "fx" edits (another game's placed effects, tools/bo2/bo2_createfx.py), played once on each local client as
+// BO1's createfx plays its ambient effects: they loop by themselves, with no server entity. The server loaded them
+// (_mapkit.gsc mapkit_fx_load). An edit with angles is turned by them (light rays, sparks); the others point up.
+// mapkit_fx_placed: how many this client placed; +set mapkit_fx 0 leaves them out.
+mapkit_fx()
+{
+	if ( GetDvar( "mapkit_fx" ) == "0" )
+	{
+		return;
+	}
+	waitforclient( 0 );
+	ids = [];
+	placed = 0;
+	players = getlocalplayers();
+	for ( i = 0; i < bo1_mapkit_editcount(); i++ )
+	{
+		if ( i % 500 == 499 )
+		{
+			wait 0.01; // TranZit has 6 000 edits
+		}
+		if ( bo1_mapkit_get( i, "kind" ) != "fx" )
+		{
+			continue;
+		}
+		name = bo1_mapkit_get( i, "fx" );
+		if ( !IsDefined( ids[ name ] ) )
+		{
+			ids[ name ] = loadfx( name );
+		}
+		forward = ( 0, 0, 1 );
+		up = ( 1, 0, 0 );
+		angles = bo1_mapkit_get( i, "angles" );
+		if ( IsDefined( angles ) )
+		{
+			forward = AnglesToForward( angles );
+			up = AnglesToUp( angles );
+		}
+		for ( lc = 0; lc < players.size; lc++ )
+		{
+			playfx( lc, ids[ name ], bo1_mapkit_get( i, "origin" ), forward, up );
+		}
+		placed++;
+	}
+	SetDvar( "mapkit_fx_placed", "" + placed );
 }

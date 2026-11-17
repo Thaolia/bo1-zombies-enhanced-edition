@@ -11,6 +11,8 @@
 //   pap    { name, origin, yaw, snap }     the retail Pack-a-Punch machine (power-gated like the perks)
 //   bus    { floor, parts, doors, path, yaws, stops, calls } BO2's TranZit bus (mapkit_bus below)
 //   bank   { deposit, withdraw, locker }  BO2's bank and weapon locker, kept between games (mapkit_bank below)
+//   fx     { fx, origin, angles }         a looping BO1 effect placed for good: loaded here (mapkit_fx_load), played by
+//                                         mods/mapkit's client main (clientscripts/mapkit/mapkit_main.csc)
 // Test aids (dvars, all off by default): mapkit_selftest 1 = trace probes across every box + player origin log
 // + bo1_mapkit_dump("mapkit_dump.json") for tools/mapkit/topdown.mjs.
 
@@ -1431,6 +1433,73 @@ mapkit_precache()
 		PrecacheModel( "zombie_vending_packapunch" );
 		maps\_zombiemode_perks::default_vending_precaching();
 	}
+	mapkit_fx_load();
+}
+
+// The "fx" edits' effects, each loaded once: LoadFX refuses a new effect after the level script's first wait, and a
+// client finds an effect only once the server has loaded it. They come from the layout's own zone of BO1 effects
+// (another game's map: tools/bo2/bo2_createfx.py, docs/BO2_MAPS.md); the clients play them (mapkit_main.csc).
+// +set mapkit_fx 0 leaves them all out (about 0.8 ms a frame for Nuketown's 172 on a PC).
+mapkit_fx_load()
+{
+	level.mapkit_fx = [];
+	if ( GetDvar( "mapkit_fx" ) == "0" )
+	{
+		LogPrint( "mapkit: fx edits left out (mapkit_fx 0)\n" );
+		return;
+	}
+	for ( i = 0; i < bo1_mapkit_editcount(); i++ )
+	{
+		if ( bo1_mapkit_get( i, "kind" ) == "fx" )
+		{
+			name = bo1_mapkit_get( i, "fx" );
+			if ( !IsDefined( level.mapkit_fx[ name ] ) )
+			{
+				level.mapkit_fx[ name ] = LoadFX( name );
+			}
+		}
+	}
+}
+
+// Every "fx" edit's effect was loaded (the clients draw them: a client's own count is its mapkit_fx_placed dvar)
+mapkit_check_fx()
+{
+	total = 0;
+	for ( i = 0; i < bo1_mapkit_editcount(); i++ )
+	{
+		if ( bo1_mapkit_get( i, "kind" ) == "fx" )
+		{
+			total++;
+		}
+	}
+	if ( total == 0 )
+	{
+		return;
+	}
+	if ( GetDvar( "mapkit_fx" ) == "0" )
+	{
+		LogPrint( "mapkit: check fx all SKIP (mapkit_fx 0)\n" );
+	}
+	else
+	{
+		loaded = 0;
+		names = GetArrayKeys( level.mapkit_fx );
+		for ( n = 0; n < names.size; n++ )
+		{
+			if ( level.mapkit_fx[ names[ n ] ] > 0 )
+			{
+				loaded++;
+			}
+		}
+		if ( loaded == names.size && names.size > 0 )
+		{
+			LogPrint( "mapkit: check fx all PASS " + total + " edits, " + loaded + " effects loaded\n" );
+		}
+		else
+		{
+			LogPrint( "mapkit: check fx all FAIL " + loaded + " of " + names.size + " effects loaded for " + total + " edits\n" );
+		}
+	}
 }
 
 // origin / yaw / out of a machine-like edit by the perk rules: yaw defaults to 0, snap:"wall" backs it off the nearest wall
@@ -2031,6 +2100,7 @@ mapkit_check()
 	mapkit_check_lights();
 	mapkit_check_bus( player );
 	mapkit_check_bank( player );
+	mapkit_check_fx();
 	level.mapkit_test_purchases = false;
 	SetDvar( "bo1_testclient_press", "" );
 	for ( i = 0; i < bo1_mapkit_editcount(); i++ )
@@ -2038,7 +2108,7 @@ mapkit_check()
 		kind = bo1_mapkit_get( i, "kind" );
 		if ( kind != "window" && kind != "perk" && kind != "room" && kind != "box" && kind != "stairs" && kind != "node" && kind != "zone"
 			&& kind != "wallbuy" && kind != "spawner" && kind != "spawn" && kind != "door" && kind != "debris" && kind != "mysterybox"
-			&& kind != "pap" && kind != "powerswitch" && kind != "light" && kind != "riser" && kind != "bus" && kind != "bank" && kind != "farrespawn" )
+			&& kind != "pap" && kind != "powerswitch" && kind != "light" && kind != "riser" && kind != "bus" && kind != "bank" && kind != "farrespawn" && kind != "fx" )
 		{
 			LogPrint( "mapkit: check " + kind + " " + mapkit_name( i ) + " SKIP (no runtime check for this kind yet)\n" );
 		}

@@ -62,6 +62,10 @@ MAPKIT_LABELS = {
 # Ascension's (_mapkit.gsc mapkit_marathon_perk)
 MAPKIT_ZONES = {"bo2_zm_transit": "zombie_cosmodrome", "bo2_zm_transit_bsp": "zombie_cosmodrome",
                 "bo2_zm_buried_bsp": "zombie_cosmodrome"}
+# a zone of the package loaded last, usermaps/<zone>/<zone>.ff, that the layout needs: the BO1 effects its "fx" edits
+# place on a BO2 map (tools/bo2/bo2_createfx.py)
+MAPKIT_FX_ZONES = {"bo2_zm_nuked_bsp": "zombie_bo2fx", "bo2_zm_transit_bsp": "zombie_bo2fx",
+                   "bo2_zm_prison_bsp": "zombie_bo2fx", "bo2_zm_buried_bsp": "zombie_bo2fx"}
 # a layout played on a world of its own BSP (docs/BO2_MAPS.md, "Props, gameplay and lighting on the native world"):
 # its zone usermaps/<zone>/<zone>.ff (bo1_mod_zones) and its world main/maps/<zone>.d3dbsp (bo1_bspworld)
 MAPKIT_BSP_WORLDS = {"bo2_zm_nuked_bsp": "zombie_bo2nuked", "bo2_zm_transit_bsp": "zombie_bo2transit",
@@ -279,7 +283,10 @@ def bsp_world_files(layout, dist_root):
     zone = MAPKIT_BSP_WORLDS.get(layout)
     if not zone:
         return []
-    need = (os.path.join("usermaps", zone, zone + ".ff"), os.path.join("main", "maps", zone + ".d3dbsp"))
+    need = [os.path.join("usermaps", zone, zone + ".ff"), os.path.join("main", "maps", zone + ".d3dbsp")]
+    fx = MAPKIT_FX_ZONES.get(layout)
+    if fx:
+        need.append(os.path.join("usermaps", fx, fx + ".ff"))
     return [f for f in need if not (dist_root and os.path.isfile(os.path.join(dist_root, f)))]
 
 
@@ -407,7 +414,7 @@ def solo_mod_flags(p, dist_root=None):
                 a += (" +set fs_mods mapkit" + (" zinfo" if p["zinfo"] else "")
                       + (" noperks +set noperks 1" if p["noperks"] else ""))
         # the world's zone first, as the self-tests load them (docs/BO2_MAPS.md)
-        zones = [z for z in (MAPKIT_BSP_WORLDS.get(layout), MAPKIT_ZONES.get(layout)) if z]
+        zones = [z for z in (MAPKIT_BSP_WORLDS.get(layout), MAPKIT_ZONES.get(layout), MAPKIT_FX_ZONES.get(layout)) if z]
         if zones:
             a += " +set bo1_mod_zones " + " ".join(zones)
         if layout in MAPKIT_BSP_WORLDS:

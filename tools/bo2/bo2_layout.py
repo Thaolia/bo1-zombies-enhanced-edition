@@ -31,7 +31,8 @@ imports/<map>/<map>.collision.bin: copy the .bin there in the run folder) and it
   - mesh: the drawable world, <folder of the collision>/<map>.mesh.bin and images/ (tools/bo2/bo2_mesh.py writes them).
   - bus (TranZit): the vehicle loop with its stops, smoothed headings, doors and the levers that call it, and the
     layout brush models it carries players on;
-  - bank (TranZit): the teller windows' deposit and withdrawal and the weapon locker, from the placed props.
+  - bank (TranZit): the teller windows' deposit and withdrawal and the weapon locker, from the placed props;
+  - fx (--createfx): the map's placed ambient effects that have a BO1 equivalent (tools/bo2/bo2_createfx.py).
 Not converted: dog spawns, BO2-only mechanics (the garage-door crawl becomes a mantle).
 docs/BO2_MAPS.md has the whole procedure.
 """
@@ -42,6 +43,9 @@ import os
 import re
 import struct
 import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from bo2_createfx import fx_edits, read_createfx  # noqa: E402
 
 # BO2 wall weapon -> (BO1 weapon, its world model on the Five base); tools/mapkit/catalog.mjs lists the loaded pairs.
 WEAPONS = {
@@ -1210,6 +1214,8 @@ def main(argv=None):
                                             "(default: imports/<map>/<map>.collision.bin)")
     parser.add_argument("--links-out", help="the node links file to write (default: <map>.links.txt in the current "
                                             "folder; none when the dump has no .paths.csv)")
+    parser.add_argument("--createfx", help="the map's compiled createfx script (clientscripts/mp/createfx/<map>_fx.csc "
+                                           "of its patch zone): its effects with a BO1 equivalent become fx edits")
     args = parser.parse_args(argv)
     base = os.path.join(args.dump, "maps", "mp", f"{args.map}.d3dbsp")
     ents = read_entities(base + ".ents")
@@ -1245,6 +1251,11 @@ def main(argv=None):
     layout, counts, skipped, traverse_skipped, machines_skipped = build(ents, col, name, collision,
                                                                         links_out and os.path.basename(links_out),
                                                                         props, colliding_props(props, args.dump))
+    if args.createfx:
+        fx, _left = fx_edits(read_createfx(args.createfx))
+        layout["edits"] += fx
+        if fx:
+            counts["fx"] = len(fx)
     out = args.out or f"{name}.json"
     with open(out, "w", encoding="utf-8") as f:
         json.dump(layout, f, indent=1)

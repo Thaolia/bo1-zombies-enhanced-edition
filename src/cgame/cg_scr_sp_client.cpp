@@ -28,6 +28,7 @@
 #include <client_mp/cl_input_mp.h>
 #include <win32/win_gamerprofile.h>
 #include <cgame_mp/cg_main_mp.h>
+#include <qcommon/cm_mapkit.h>
 #include <bgame/bg_mantle.h>
 #include <bgame/bg_weapons.h>
 #include <bgame/bg_pmove.h>
@@ -1189,6 +1190,37 @@ static void __cdecl CScr_HideScores()
     CG_GetLocalClientGlobals(CScr_GetLocalClientNum(0))->showScores = 0;
 }
 
+// mod: the MapKit layout's edits for client scripts, as the server's bo1_mapkit_editcount / bo1_mapkit_get
+// (g_mapkit.cpp): mods/mapkit's client main plays the "fx" edits' effects on each local client, as BO1's createfx
+// does, without a server entity each (TranZit's 271 ran the server out of entities)
+static void __cdecl CScr_MapkitEditCount()
+{
+    Scr_AddInt(CM_Mapkit_EditCount(), SCRIPTINSTANCE_CLIENT);
+}
+
+static void __cdecl CScr_MapkitGet()
+{
+    const int edit = Scr_GetInt(0, SCRIPTINSTANCE_CLIENT);
+    const char *key = Scr_GetString(1, SCRIPTINSTANCE_CLIENT);
+    const char *str = 0;
+    float vec[3] = { 0.0f, 0.0f, 0.0f };
+    switch (CM_Mapkit_GetField(edit, key, &str, vec))
+    {
+    case MKF_STRING:
+        Scr_AddString(str, SCRIPTINSTANCE_CLIENT);
+        break;
+    case MKF_NUMBER:
+        Scr_AddFloat(vec[0], SCRIPTINSTANCE_CLIENT);
+        break;
+    case MKF_VECTOR:
+        Scr_AddVector(vec, SCRIPTINSTANCE_CLIENT);
+        break;
+    default:
+        Scr_AddUndefined(SCRIPTINSTANCE_CLIENT);
+        break;
+    }
+}
+
 const BuiltinFunctionDef g_csp_client_functions[] =
 {
     { "setsunlight", CScr_SetSunLight, 0 },
@@ -1221,6 +1253,8 @@ const BuiltinFunctionDef g_csp_client_functions[] =
     { "givegamerpicture", CScr_GiveGamerPicture, 0 },
     { "showscores", CScr_ShowScores, 0 },
     { "hidescores", CScr_HideScores, 0 },
+    { "bo1_mapkit_editcount", CScr_MapkitEditCount, 0 },
+    { "bo1_mapkit_get", CScr_MapkitGet, 0 },
     { nullptr, nullptr, 0 } // end marker, keep last
 };
 const unsigned int g_csp_client_function_count = ARRAY_COUNT(g_csp_client_functions) - 1;

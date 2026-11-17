@@ -70,10 +70,10 @@ paquets par `make_dist.sh --bo2` :
 
 | Carte | Ce qui marche | Absent |
 |---|---|---|
-| Nuketown | toute la carte, ses props et la lumière précalculée de BO2 ; self-test 106/106 | — |
-| TranZit (classique) | portes, courant, atouts, Pack-a-Punch, barricades, le pont, le bus et la banque | les Denizens, les objets à construire |
-| Mob of the Dead | les blocs de cellules, les portes, les atouts, le Pack-a-Punch, la nacelle (en marche dès le début) | l'au-delà, l'avion, Brutus |
-| Buried | la ville, la grotte et le manoir, les atouts, le Pack-a-Punch ; le courant est allumé dès le début | Leroy, les fantômes, les énigmes du labyrinthe, les objets à construire |
+| Nuketown | toute la carte, ses props et la lumière précalculée de BO2, les braises, le feu, la fumée, les étincelles, les rayons de lumière, le brouillard et les nuages (effets de BO1 aux emplacements de BO2) ; self-test 107/107 | les impacts des météores, l'eau |
+| TranZit (classique) | portes, courant, atouts, Pack-a-Punch, barricades, le pont, le bus et la banque ; cendres, feu, fumée, brouillard et rayons de lumière (effets de BO1) | les Denizens, les objets à construire, la lueur de la lave |
+| Mob of the Dead | les blocs de cellules, les portes, les atouts, le Pack-a-Punch, la nacelle (en marche dès le début) ; feu, braises, brouillard, vapeur, rayons de lumière, étincelles (effets de BO1) | l'au-delà, l'avion, Brutus, les bougies |
+| Buried | la ville, la grotte et le manoir, les atouts, le Pack-a-Punch ; le courant est allumé dès le début ; brouillard, rayons de lumière et leur poussière, vapeur, fumée (effets de BO1) | Leroy, les fantômes, les énigmes du labyrinthe, les objets à construire, la lueur des lampes |
 
 Les armes de BO2 (les 36 armes de la boîte et leurs versions Pack-a-Punch) forment le mod `bo2weapons`. Dans la vue
 Solo de ZmClient, les cartes s'appellent « Mapkit : … native (Black Ops II, monde BSP) ». Détails :

@@ -53,11 +53,13 @@ int main()
     const int buried = kLauncherMapCount - 1;
     Check(Launcher_MapKey(nuketown) == "mapkit:bo2_zm_nuked_bsp" && Launcher_MapKey(1) == "zombie_pentagon",
           "the native Nuketown's menu.cfg key is not Five's, whose bsp it shares");
-    Check(Launcher_MapFileCount(0) == 0 && Launcher_MapFileCount(nuketown) == 3 &&
+    Check(Launcher_MapFileCount(0) == 0 && Launcher_MapFileCount(nuketown) == 4 &&
               Launcher_MapFile(nuketown, 0) == "mods/mapkit/layouts/bo2_zm_nuked_bsp.json" &&
               Launcher_MapFile(nuketown, 1) == "usermaps/zombie_bo2nuked/zombie_bo2nuked.ff" &&
-              Launcher_MapFile(nuketown, 2) == "main/maps/zombie_bo2nuked.d3dbsp",
-          "the native Nuketown needs its layout, zone and BSP on the SD card; Kino needs nothing");
+              Launcher_MapFile(nuketown, 2) == "main/maps/zombie_bo2nuked.d3dbsp" &&
+              Launcher_MapFile(nuketown, 3) == "usermaps/zombie_bo2fx/zombie_bo2fx.ff" &&
+              Launcher_MapFile(nuketown, 4).empty(),
+          "the native Nuketown needs its layout, zone, BSP and effects zone on the SD card; Kino needs nothing");
     Check(SameSettings(Launcher_ParseSettings(""), defaults), "an empty menu.cfg gives the defaults");
 
     CheckLine(Launcher_BuildLaunchLine(defaults, ""),
@@ -133,39 +135,42 @@ int main()
               "+set bo1_zombies 1 +set bo1_aimassist 1 +set aim_slowdown_enabled 1 +set aim_lockon_enabled 1"
               " +set aim_autoaim_enabled 0 +set bo1_testclient_god 0 +set fs_game mods/mapkit"
               " +set bo1_mod_mapkit bo2_zm_nuked_bsp +set fs_mods mapkit zinfo +set bo1_mod_zones zombie_bo2nuked"
-              " +set bo1_bspworld maps/zombie_bo2nuked.d3dbsp +set r_fullscreen 0 +set r_customMode 1280x720"
+              " zombie_bo2fx +set bo1_bspworld maps/zombie_bo2nuked.d3dbsp +set r_fullscreen 0 +set r_customMode 1280x720"
               " +set com_maxfps 60 +set sm_enable 1 +set r_lodScaleRigid 1 +set bo1_fpscounter 1 +set bo1_runinfo 1 +set r_texFilterAnisoMax 16"
               " +set r_texFilterMipMode 0 +devmap zombie_pentagon",
-              "the native Nuketown: ZmClient's MapKit layout on Five, its zone and BSP world");
+              "the native Nuketown: ZmClient's MapKit layout on Five, its zone, its effects zone and BSP world");
     LauncherSettings tranzit;
     tranzit.map = transit;
     Check(Launcher_ParseSettings(Launcher_FormatSettings(tranzit)).map == transit &&
-              Launcher_MapKey(transit) == "mapkit:bo2_zm_transit_bsp" && Launcher_MapFileCount(transit) == 3 &&
-              Launcher_MapFile(transit, 2) == "main/maps/zombie_bo2transit.d3dbsp",
-          "menu.cfg keeps the native TranZit, which needs its layout, zone and BSP");
+              Launcher_MapKey(transit) == "mapkit:bo2_zm_transit_bsp" && Launcher_MapFileCount(transit) == 4 &&
+              Launcher_MapFile(transit, 2) == "main/maps/zombie_bo2transit.d3dbsp" &&
+              Launcher_MapFile(transit, 3) == "usermaps/zombie_bo2fx/zombie_bo2fx.ff",
+          "menu.cfg keeps the native TranZit, which needs its layout, zone, BSP and effects zone");
     Check(Launcher_BuildLaunchLine(tranzit, "").find(" +set bo1_mod_mapkit bo2_zm_transit_bsp +set fs_mods mapkit zinfo"
-                                                     " +set bo1_mod_zones zombie_bo2transit zombie_cosmodrome"
+                                                     " +set bo1_mod_zones zombie_bo2transit zombie_cosmodrome zombie_bo2fx"
                                                      " +set bo1_bspworld maps/zombie_bo2transit.d3dbsp ") != std::string::npos,
-          "the native TranZit loads its zone, then Ascension's for Stamin-Up, as ZmClient does");
+          "the native TranZit loads its zone, Ascension's for Stamin-Up, then the effects, as ZmClient does");
     LauncherSettings motd;
     motd.map = prison;
     Check(Launcher_ParseSettings(Launcher_FormatSettings(motd)).map == prison &&
-              Launcher_MapKey(prison) == "mapkit:bo2_zm_prison_bsp" && Launcher_MapFileCount(prison) == 3 &&
-              Launcher_MapFile(prison, 2) == "main/maps/zombie_bo2prison.d3dbsp",
-          "menu.cfg keeps the native Mob of the Dead, which needs its layout, zone and BSP");
+              Launcher_MapKey(prison) == "mapkit:bo2_zm_prison_bsp" && Launcher_MapFileCount(prison) == 4 &&
+              Launcher_MapFile(prison, 2) == "main/maps/zombie_bo2prison.d3dbsp" &&
+              Launcher_MapFile(prison, 3) == "usermaps/zombie_bo2fx/zombie_bo2fx.ff",
+          "menu.cfg keeps the native Mob of the Dead, which needs its layout, zone, BSP and effects zone");
     Check(Launcher_BuildLaunchLine(motd, "").find(" +set bo1_mod_mapkit bo2_zm_prison_bsp +set fs_mods mapkit zinfo"
-                                                  " +set bo1_mod_zones zombie_bo2prison"
+                                                  " +set bo1_mod_zones zombie_bo2prison zombie_bo2fx"
                                                   " +set bo1_bspworld maps/zombie_bo2prison.d3dbsp ") != std::string::npos,
-          "the native Mob of the Dead loads its zone and BSP world");
+          "the native Mob of the Dead loads its zone, then the effects, and its BSP world");
     LauncherSettings town;
     town.map = buried;
     Check(Launcher_ParseSettings(Launcher_FormatSettings(town)).map == buried &&
-              Launcher_MapKey(buried) == "mapkit:bo2_zm_buried_bsp" && Launcher_MapFileCount(buried) == 3 &&
-              Launcher_MapFile(buried, 2) == "main/maps/zombie_bo2buried.d3dbsp",
-          "menu.cfg keeps the native Buried, which needs its layout, zone and BSP");
-    Check(Launcher_BuildLaunchLine(town, "").find(" +set bo1_mod_zones zombie_bo2buried zombie_cosmodrome"
+              Launcher_MapKey(buried) == "mapkit:bo2_zm_buried_bsp" && Launcher_MapFileCount(buried) == 4 &&
+              Launcher_MapFile(buried, 2) == "main/maps/zombie_bo2buried.d3dbsp" &&
+              Launcher_MapFile(buried, 3) == "usermaps/zombie_bo2fx/zombie_bo2fx.ff",
+          "menu.cfg keeps the native Buried, which needs its layout, zone, BSP and effects zone");
+    Check(Launcher_BuildLaunchLine(town, "").find(" +set bo1_mod_zones zombie_bo2buried zombie_cosmodrome zombie_bo2fx"
                                                   " +set bo1_bspworld maps/zombie_bo2buried.d3dbsp ") != std::string::npos,
-          "the native Buried loads its zone, then Ascension's for Stamin-Up");
+          "the native Buried loads its zone, Ascension's for Stamin-Up, then the effects");
     nuke.tabInfo = false;
     nuke.startPoints = 5000;
     const std::string nukeKit = Launcher_BuildLaunchLine(nuke, "");

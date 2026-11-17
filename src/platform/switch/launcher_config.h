@@ -16,6 +16,8 @@ struct LauncherMap
     const char *zone;   // the layout's world: usermaps/<zone>/<zone>.ff and main/maps/<zone>.d3dbsp (bo1_mod_zones,
                         // bo1_bspworld), or null
     const char *extraZone; // a retail zone loaded after it (bo1_mod_zones), or null: TranZit's Stamin-Up is Ascension's
+    const char *fxZone;    // a zone of the package loaded last, usermaps/<it>/<it>.ff, or null: the BO1 effects placed
+                           // on a BO2 map (tools/bo2/bo2_createfx.py)
 };
 
 extern const LauncherMap kLauncherMaps[];
