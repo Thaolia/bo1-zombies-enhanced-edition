@@ -26,6 +26,10 @@ main_start()
 	LogPrint( "mapkit: runtime on layout " + level.mapkit_layout + ", " + bo1_mapkit_editcount() + " edits\n" );
 	mapkit_precache();
 	mapkit_extras_start();
+	if ( mapkit_has_kind( "avogadro" ) )
+	{
+		mapkit_avogadro_precache();
+	}
 	mapkit_blocker_hints();
 	mapkit_marathon_perk();
 	if ( mapkit_imported() )
@@ -1088,6 +1092,11 @@ main_end()
 		level thread mapkit_denizens();
 	}
 	mapkit_tazer_walls();
+	// +set mapkit_avogadro 0: no Avogadro
+	if ( mapkit_has_kind( "avogadro" ) && GetDvar( "mapkit_avogadro" ) != "0" )
+	{
+		level thread mapkit_avogadro();
+	}
 	if ( IsDefined( level.mapkit_paps ) && !IsDefined( level.mapkit_switch ) )
 	{
 		level thread mapkit_pap_power();
@@ -1141,6 +1150,12 @@ main_end()
 	if ( GetDvar( "mapkit_galvashots" ) == "2" )
 	{
 		level thread mapkit_jetshots();
+	}
+	// +set mapkit_galvashots 3: the Avogadro (spawned without waiting for the power) brought down in front of the
+	// player, chasing, then throwing a bolt
+	if ( GetDvar( "mapkit_galvashots" ) == "3" )
+	{
+		level thread mapkit_avoshots();
 	}
 	// mapkit-fix-4b: +set mapkit_clipshots 1 (passive god test client): the player walks from 64 in front into every
 	// machine's centre and must stop outside its clip; zombies are sampled for standing inside a clip ("mapkit: clipshots")
@@ -2804,6 +2819,14 @@ mapkit_emp_detonate( grenade )
 	for ( i = 0; i < zombies.size; i++ )
 	{
 		z = zombies[i];
+		if ( IsDefined( z ) && is_true( z.is_avogadro ) )
+		{
+			if ( DistanceSquared( z.origin, origin ) < 600 * 600 )
+			{
+				z mapkit_avo_emp();
+			}
+			continue;
+		}
 		// one still climbing out of the ground or through a window keeps going: its own script owns it until then
 		if ( IsDefined( z ) && IsAlive( z ) && mapkit_zombie_in_play( z ) && DistanceSquared( z.origin, origin ) < 600 * 600 )
 		{
@@ -3223,7 +3246,8 @@ mapkit_jetgun_blow()
 	for ( i = 0; i < zombies.size; i++ )
 	{
 		z = zombies[i];
-		if ( !IsAlive( z ) || is_true( z.mapkit_jet_ground ) || is_true( z.in_the_ground ) )
+		// BO2's Avogadro ignores the Jet Gun (its fling and drag functions do nothing)
+		if ( !IsAlive( z ) || is_true( z.mapkit_jet_ground ) || is_true( z.in_the_ground ) || is_true( z.is_avogadro ) )
 		{
 			continue;
 		}
@@ -3392,7 +3416,7 @@ mapkit_shield_bash()
 	for ( i = 0; i < zombies.size; i++ )
 	{
 		z = zombies[i];
-		if ( !IsAlive( z ) )
+		if ( !IsAlive( z ) || is_true( z.is_avogadro ) )
 		{
 			continue;
 		}
@@ -3420,6 +3444,442 @@ mapkit_shield_bash()
 		// a thread of its own: a broken shield's "riotshield_zm_taken" ends the watch that bashed
 		self thread mapkit_shield_hit( 100 * hit, false );
 	}
+}
+
+// TranZit's Avogadro (BO2's _zm_ai_avogadro), simplified. A BO1 AI of Five's electrician type (the Pentagon thief's,
+// the layout's "mapkit_avogadro_spawner" ent) with the retail zombie's animations, dressed in BO2's model when a loaded
+// mod.ff holds it (the bo2weapons one, tools/bo2/bo2_weapon.py EXTRA_MODELS: the two skeletons have the same bones).
+// Once the power is on it stands by the power station's reactor until a player sees it, then leaves for the sky. It
+// comes back some rounds later on an "avogadrospot" near a player, chases him, dashes short distances (BO2's phase)
+// and throws a bolt (60 damage and a shock, dodged by moving). Bullets, explosions, the nuke and the Jet Gun do it no
+// harm (enough of them heal a wound); a melee blow wounds it only while its shield is down, right after a bolt, else
+// it shocks the one who struck (4 wounds, 2 per Galvaknuckles blow, or one EMP: it flees); with nobody within 3000
+// units it leaves too. It never dies and never counts as a round's zombie. Left out: the bus attacks, its regions'
+// storm clouds, the reactor chamber, BO2's effects and sounds (BO1's hellhound lightning and thief trail stand in).
+mapkit_avogadro_precache()
+{
+	level.mapkit_avo_model = undefined;
+	if ( bo1_mapkit_modelloaded( "c_zom_avagadro_fb" ) )
+	{
+		PrecacheModel( "c_zom_avagadro_fb" );
+		level.mapkit_avo_model = "c_zom_avagadro_fb";
+	}
+	PrecacheShellShock( "electrocution" );
+	level._effect["mapkit_avo_descend"] = LoadFX( "maps/zombie/fx_zombie_dog_lightning_spawn" );
+	level._effect["mapkit_avo_buildup"] = LoadFX( "maps/zombie/fx_zombie_dog_lightning_buildup" );
+	level._effect["mapkit_avo_bolt"] = LoadFX( "maps/zombie/fx_tesla_impact_default" );
+	level._effect["mapkit_avo_trail"] = LoadFX( "maps/zombie/fx_zombie_tech_trail" );
+	maps\_zombiemode::register_player_damage_callback( ::mapkit_avo_player_damage );
+	LogPrint( "mapkit: Avogadro " + mapkit_choose( IsDefined( level.mapkit_avo_model ), "in BO2's model", "in the Pentagon thief's model (c_zom_avagadro_fb not loaded)" ) + "\n" );
+}
+
+mapkit_avogadro()
+{
+	spawner = GetEnt( "mapkit_avogadro_spawner", "targetname" );
+	core = undefined;
+	level.mapkit_avo_spots = [];
+	for ( i = 0; i < bo1_mapkit_editcount(); i++ )
+	{
+		kind = bo1_mapkit_get( i, "kind" );
+		if ( kind == "avogadro" )
+		{
+			core = i;
+		}
+		else if ( kind == "avogadrospot" && mapkit_get_or( i, "region", "" ) != "" )
+		{
+			s = SpawnStruct();
+			s.origin = bo1_mapkit_get( i, "origin" );
+			s.angles = ( 0, mapkit_get_or( i, "yaw", 0 ), 0 );
+			s.region = bo1_mapkit_get( i, "region" );
+			level.mapkit_avo_spots[ level.mapkit_avo_spots.size ] = s;
+		}
+	}
+	if ( !IsDefined( spawner ) || !IsDefined( core ) || level.mapkit_avo_spots.size == 0 )
+	{
+		LogPrint( "mapkit: Avogadro left out (spawner " + IsDefined( spawner ) + ", core " + IsDefined( core ) + ", " + level.mapkit_avo_spots.size + " spots)\n" );
+		return;
+	}
+	level.mapkit_avo_home = bo1_mapkit_get( core, "origin" );
+	level.mapkit_avo_home_yaw = mapkit_get_or( core, "yaw", 0 );
+	if ( GetDvar( "mapkit_galvashots" ) != "3" )
+	{
+		flag_wait( "power_on" );
+	}
+	// zombie_spawn_init reads level.zombie_health, which the first round sets
+	while ( !IsDefined( level.zombie_health ) )
+	{
+		wait( 0.5 );
+	}
+	for ( ;; )
+	{
+		ai = undefined;
+		for ( tries = 0; tries < 10; tries++ )
+		{
+			ai = spawn_zombie( spawner );
+			if ( !spawn_failed( ai ) )
+			{
+				break;
+			}
+			wait( 1 );
+		}
+		if ( spawn_failed( ai ) )
+		{
+			LogPrint( "mapkit: Avogadro failed to spawn\n" );
+			return;
+		}
+		level.mapkit_avogadro = ai;
+		ai thread mapkit_avo_life();
+		// it never dies; should something kill it anyway, it comes back two rounds later
+		ai waittill( "death" );
+		LogPrint( "mapkit: Avogadro died, back in 2 rounds\n" );
+		start = level.round_number;
+		while ( level.round_number < start + 2 )
+		{
+			wait( 1 );
+		}
+	}
+}
+
+mapkit_avo_life()
+{
+	self endon( "death" );
+	self.is_avogadro = true;
+	self.ignore_enemy_count = true;
+	self.ignore_distance_tracking = true;
+	self.no_gib = true;
+	self.no_eye_glow = true;
+	self maps\_zombiemode_spawner::zombie_spawn_init();
+	self.no_powerups = true;
+	self.nuke_damage_func = ::mapkit_avo_nuked;
+	self.actor_full_damage_func = ::mapkit_avo_damage;
+	self.meleeDamage = 25;
+	self.maxhealth = 100000;
+	self.health = 100000;
+	if ( IsDefined( level.mapkit_avo_model ) )
+	{
+		self SetModel( level.mapkit_avo_model );
+	}
+	self.mapkit_avo_hits = 0;
+	self.mapkit_avo_absorbed = 0;
+	self.mapkit_avo_shield = true;
+	self.mapkit_avo_return = 0;
+	self.mapkit_avo_state = "chamber";
+	self ForceTeleport( level.mapkit_avo_home, ( 0, level.mapkit_avo_home_yaw, 0 ) );
+	self mapkit_avo_hold();
+	self thread mapkit_avo_health();
+	LogPrint( "mapkit: Avogadro out of the reactor at " + level.mapkit_avo_home + "\n" );
+	// BO2's player_look: a player who sees it sends it to the sky (or after 60 s)
+	for ( t = 0; t < 600 && !mapkit_avo_seen( self ) && self.mapkit_avo_state == "chamber"; t++ )
+	{
+		wait( 0.1 );
+	}
+	self mapkit_avo_leave( "chamber" );
+	for ( ;; )
+	{
+		self mapkit_avo_cloud();
+		self mapkit_avo_chase();
+	}
+}
+
+mapkit_avo_health()
+{
+	self endon( "death" );
+	for ( ;; )
+	{
+		self.health = 100000;
+		wait( 0.5 );
+	}
+}
+
+mapkit_avo_seen( ai )
+{
+	players = get_players();
+	for ( p = 0; p < players.size; p++ )
+	{
+		if ( is_player_valid( players[p] ) && DistanceSquared( players[p].origin, ai.origin ) < 900 * 900
+			&& SightTracePassed( players[p] GetEye(), ai.origin + ( 0, 0, 48 ), false, ai ) )
+		{
+			return true;
+		}
+	}
+	return false;
+}
+
+mapkit_avo_hold()
+{
+	self.ignoreall = true;
+	self notify( "stop_find_flesh" );
+	self notify( "zombie_acquire_enemy" );
+	self SetGoalPos( self.origin );
+}
+
+mapkit_avo_release()
+{
+	self notify( "stop_find_flesh" );
+	self.ignoreall = false;
+	self thread maps\_zombiemode_spawner::find_flesh();
+}
+
+// up into the sky: hidden at the reactor until its return round (BO2: the next round when nobody was near, else 2 to 4
+// rounds later)
+mapkit_avo_leave( why )
+{
+	if ( self.mapkit_avo_state == "cloud" || self.mapkit_avo_state == "leaving" )
+	{
+		return;
+	}
+	self.mapkit_avo_state = "leaving";
+	self mapkit_avo_hold();
+	PlayFX( level._effect["mapkit_avo_descend"], self.origin );
+	playsoundatposition( "zmb_hellhound_bolt", self.origin );
+	wait( 0.5 );
+	self Hide();
+	self NotSolid();
+	self ForceTeleport( level.mapkit_avo_home, ( 0, level.mapkit_avo_home_yaw, 0 ) );
+	add = RandomIntRange( 2, 5 );
+	if ( why == "nobody near" )
+	{
+		add = 1;
+	}
+	self.mapkit_avo_return = level.round_number + add;
+	self.mapkit_avo_hits = 0;
+	self.mapkit_avo_absorbed = 0;
+	self.mapkit_avo_state = "cloud";
+	LogPrint( "mapkit: Avogadro left (" + why + "), back in round " + self.mapkit_avo_return + "\n" );
+}
+
+mapkit_avo_cloud()
+{
+	spot = undefined;
+	while ( !IsDefined( spot ) )
+	{
+		wait( 1 );
+		if ( level.round_number >= self.mapkit_avo_return )
+		{
+			spot = mapkit_avo_spot();
+		}
+	}
+	PlayFX( level._effect["mapkit_avo_descend"], spot.origin );
+	playsoundatposition( "zmb_hellhound_spawn", spot.origin );
+	Earthquake( 0.4, 1.5, spot.origin, 1000 );
+	wait( 0.5 );
+	self ForceTeleport( spot.origin, spot.angles );
+	self Show();
+	self Solid();
+	self.mapkit_avo_shield = true;
+	self.mapkit_avo_state = "chasing";
+	self mapkit_avo_release();
+	LogPrint( "mapkit: Avogadro came down at " + spot.origin + " (" + spot.region + ")\n" );
+}
+
+// a spot 400 to 2500 units from a player, at random (BO2: a spot of the region its cloud hangs over, with a player)
+mapkit_avo_spot()
+{
+	if ( IsDefined( level.mapkit_avo_force_spot ) )
+	{
+		return level.mapkit_avo_force_spot;  // the screenshots' spot (mapkit_avoshots)
+	}
+	players = array_randomize( get_players() );
+	for ( p = 0; p < players.size; p++ )
+	{
+		if ( !is_player_valid( players[p] ) )
+		{
+			continue;
+		}
+		near = [];
+		for ( i = 0; i < level.mapkit_avo_spots.size; i++ )
+		{
+			d = DistanceSquared( level.mapkit_avo_spots[i].origin, players[p].origin );
+			if ( d > 400 * 400 && d < 2500 * 2500 )
+			{
+				near[ near.size ] = level.mapkit_avo_spots[i];
+			}
+		}
+		if ( near.size > 0 )
+		{
+			return near[ RandomInt( near.size ) ];
+		}
+	}
+	return undefined;
+}
+
+mapkit_avo_player_near( ai, radius )
+{
+	players = get_players();
+	for ( p = 0; p < players.size; p++ )
+	{
+		if ( is_player_valid( players[p] ) && DistanceSquared( players[p].origin, ai.origin ) < radius * radius )
+		{
+			return true;
+		}
+	}
+	return false;
+}
+
+mapkit_avo_chase()
+{
+	self endon( "death" );
+	alone = 0;
+	next_bolt = GetTime() + 3000;
+	next_phase = GetTime() + 4000;
+	while ( self.mapkit_avo_state == "chasing" )
+	{
+		wait( 0.25 );
+		if ( !mapkit_avo_player_near( self, 3000 ) )
+		{
+			alone += 0.25;
+			if ( alone >= 3 )
+			{
+				self mapkit_avo_leave( "nobody near" );
+			}
+			continue;
+		}
+		alone = 0;
+		enemy = self.favoriteenemy;
+		if ( !IsDefined( enemy ) || !IsPlayer( enemy ) || !is_player_valid( enemy ) )
+		{
+			continue;
+		}
+		d = Distance( self.origin, enemy.origin );
+		if ( GetTime() > next_bolt && d > 120 && d < 600 && SightTracePassed( self GetEye(), enemy GetEye(), false, self ) )
+		{
+			next_bolt = GetTime() + RandomIntRange( 5000, 9000 );
+			self mapkit_avo_bolt( enemy );
+		}
+		else if ( GetTime() > next_phase && d > 200 )
+		{
+			next_phase = GetTime() + RandomIntRange( 3000, 6000 );
+			self mapkit_avo_phase( enemy );
+		}
+	}
+	// wait out a leave started by a wound or an EMP
+	while ( self.mapkit_avo_state == "leaving" )
+	{
+		wait( 0.1 );
+	}
+}
+
+// BO2's ranged attack: it stops, its shield down; the bolt strikes where the player's eye was 0.6 s before
+mapkit_avo_bolt( enemy )
+{
+	self.mapkit_avo_shield = false;
+	self mapkit_avo_hold();
+	PlayFX( level._effect["mapkit_avo_buildup"], self.origin );
+	playsoundatposition( "zmb_hellhound_prespawn", self.origin );
+	target = enemy GetEye();
+	wait( 0.6 );
+	if ( self.mapkit_avo_state == "chasing" )
+	{
+		PlayFX( level._effect["mapkit_avo_bolt"], target );
+		playsoundatposition( "zmb_bolt", target );
+		if ( is_player_valid( enemy ) && DistanceSquared( enemy GetEye(), target ) < 64 * 64 && SightTracePassed( self GetEye(), target, false, self ) )
+		{
+			enemy ShellShock( "electrocution", 1 );
+			enemy DoDamage( 60, self.origin );
+			if ( !IsDefined( level.mapkit_avo_bolts ) )
+			{
+				level.mapkit_avo_bolts = 0;
+			}
+			level.mapkit_avo_bolts++;
+			LogPrint( "mapkit: Avogadro bolt hit " + enemy.playername + "\n" );
+		}
+	}
+	wait( 1 );
+	self.mapkit_avo_shield = true;
+	if ( self.mapkit_avo_state == "chasing" )
+	{
+		self mapkit_avo_release();
+	}
+}
+
+// BO2's phase: a dash of 160 units toward the player, sideways at random, where the way is clear
+mapkit_avo_phase( enemy )
+{
+	dir = enemy.origin - self.origin;
+	dir = VectorNormalize( ( dir[0], dir[1], 0 ) );
+	right = AnglesToRight( VectorToAngles( dir ) );
+	dest = self.origin + dir * 160 + right * RandomFloatRange( -80, 80 );
+	if ( DistanceSquared( PlayerPhysicsTrace( self.origin + ( 0, 0, 24 ), dest + ( 0, 0, 24 ) ), dest + ( 0, 0, 24 ) ) > 1 )
+	{
+		return;
+	}
+	floor = PlayerPhysicsTrace( dest + ( 0, 0, 24 ), dest - ( 0, 0, 72 ) );
+	if ( DistanceSquared( floor, dest - ( 0, 0, 72 ) ) < 1 )
+	{
+		return;
+	}
+	PlayFX( level._effect["mapkit_avo_trail"], self.origin + ( 0, 0, 40 ) );
+	playsoundatposition( "evt_teleporter_out", self.origin );
+	self ForceTeleport( floor, self.angles );
+	PlayFX( level._effect["mapkit_avo_trail"], floor + ( 0, 0, 40 ) );
+}
+
+// actor_full_damage_func: it takes no damage; a melee blow while its shield is down wounds it
+mapkit_avo_damage( inflictor, attacker, damage, flags, meansofdeath, weapon, vpoint, vdir, sHitLoc, modelIndex, psOffsetTime )
+{
+	if ( self.mapkit_avo_state != "chasing" )
+	{
+		return 0;
+	}
+	if ( meansofdeath == "MOD_MELEE" && IsDefined( attacker ) && IsPlayer( attacker ) )
+	{
+		if ( self.mapkit_avo_shield )
+		{
+			attacker ShellShock( "electrocution", 0.25 );
+			return 0;
+		}
+		self.mapkit_avo_shield = true;
+		hits = 1;
+		if ( attacker HasWeapon( "tazer_knuckles_zm" ) )
+		{
+			hits = 2;
+		}
+		self.mapkit_avo_hits += hits;
+		LogPrint( "mapkit: Avogadro wounded by " + attacker.playername + ", " + self.mapkit_avo_hits + "/4\n" );
+		if ( self.mapkit_avo_hits >= 4 )
+		{
+			level notify( "mapkit_avogadro_defeated" );
+			self thread mapkit_avo_leave( "defeated" );
+		}
+		return 0;
+	}
+	// BO2's damage_absorbed: 1000 damage of anything else heals a wound
+	if ( self.mapkit_avo_hits > 0 )
+	{
+		self.mapkit_avo_absorbed += damage;
+		if ( self.mapkit_avo_absorbed >= 1000 )
+		{
+			self.mapkit_avo_absorbed = 0;
+			self.mapkit_avo_hits--;
+		}
+	}
+	return 0;
+}
+
+// BO2's stun_avogadro: an EMP drives it off
+mapkit_avo_emp()
+{
+	if ( self.mapkit_avo_state != "chasing" )
+	{
+		return;
+	}
+	self.mapkit_avo_hits += 4;
+	level notify( "mapkit_avogadro_defeated" );
+	self thread mapkit_avo_leave( "EMP" );
+}
+
+mapkit_avo_nuked()
+{
+}
+
+// its claws shock as well (BO2's avogadro_player_damage_callback)
+mapkit_avo_player_damage( eInflictor, eAttacker, iDamage, iDFlags, sMeansOfDeath, sWeapon, vPoint, vDir, sHitLoc, modelIndex, psOffsetTime )
+{
+	if ( IsDefined( eAttacker ) && is_true( eAttacker.is_avogadro ) && sMeansOfDeath == "MOD_MELEE" )
+	{
+		self ShellShock( "electrocution", 0.25 );
+	}
+	return -1;
 }
 
 // Machines that fall from the sky (BO2's Nuketown, maps\mp\zm_nuked_perks): a perk or pap edit with "sky" lands on one
@@ -4108,7 +4568,8 @@ mapkit_check()
 		if ( kind != "window" && kind != "perk" && kind != "room" && kind != "box" && kind != "stairs" && kind != "node" && kind != "zone"
 			&& kind != "wallbuy" && kind != "spawner" && kind != "spawn" && kind != "door" && kind != "debris" && kind != "mysterybox"
 			&& kind != "pap" && kind != "powerswitch" && kind != "light" && kind != "riser" && kind != "bus" && kind != "bank" && kind != "farrespawn" && kind != "fx"
-			&& kind != "buildable" && kind != "piece" && kind != "buildpart" && kind != "denizens" && kind != "emp" )
+			&& kind != "buildable" && kind != "piece" && kind != "buildpart" && kind != "denizens" && kind != "emp"
+			&& kind != "avogadro" && kind != "avogadrospot" )
 		{
 			LogPrint( "mapkit: check " + kind + " " + mapkit_name( i ) + " SKIP (no runtime check for this kind yet)\n" );
 		}
@@ -4254,6 +4715,7 @@ mapkit_check()
 			}
 		}
 	}
+	mapkit_check_avogadro( player );
 	mapkit_check_risers( player );
 	// mapkit-fix-3d: overlays too (retail round spawning; the doctor always requires the round line)
 	mapkit_check_round( player );
@@ -4528,7 +4990,7 @@ mapkit_check_zombie_near( player, radius, emerged )
 		zombies = GetAiSpeciesArray( "axis", "all" );
 		for ( i = 0; i < zombies.size; i++ )
 		{
-			if ( IsAlive( zombies[i] ) && !is_true( zombies[i].in_the_ground ) && DistanceSquared( zombies[i].origin, player.origin ) < radius * radius
+			if ( IsAlive( zombies[i] ) && !is_true( zombies[i].in_the_ground ) && !is_true( zombies[i].is_avogadro ) && DistanceSquared( zombies[i].origin, player.origin ) < radius * radius
 				&& ( !is_true( emerged ) || mapkit_zombie_in_play( zombies[i] ) ) )
 			{
 				return zombies[i];
@@ -4551,7 +5013,7 @@ mapkit_check_zombie_bring( player )
 		zombies = GetAiSpeciesArray( "axis", "all" );
 		for ( i = 0; i < zombies.size; i++ )
 		{
-			if ( IsAlive( zombies[i] ) && mapkit_zombie_in_play( zombies[i] ) )
+			if ( IsAlive( zombies[i] ) && mapkit_zombie_in_play( zombies[i] ) && !is_true( zombies[i].is_avogadro ) )
 			{
 				zombies[i] ForceTeleport( floor, ( 0, angles[1] + 180, 0 ) );
 				LogPrint( "mapkit: check zombie brought in front of the player, to " + floor + "\n" );
@@ -4561,6 +5023,87 @@ mapkit_check_zombie_bring( player )
 		wait( 0.5 );
 	}
 	return undefined;
+}
+
+// the Avogadro, once the power is on: spawned (with BO2's model when loaded), sent up and brought down near the test
+// client at once; PASS when bullets do it no harm, a melee blow with its shield up does not wound it and one with its
+// shield down does, and an EMP drives it off
+mapkit_check_avogadro( player )
+{
+	if ( !mapkit_has_kind( "avogadro" ) || GetDvar( "mapkit_avogadro" ) == "0" )
+	{
+		return;
+	}
+	ai = level.mapkit_avogadro;
+	if ( !IsDefined( ai ) || !IsAlive( ai ) )
+	{
+		LogPrint( "mapkit: check avogadro FAIL not spawned (power on " + flag( "power_on" ) + ")\n" );
+		return;
+	}
+	LogPrint( "mapkit: check avogadro PASS spawned in model " + ai.model + ", " + ai.mapkit_avo_state + "\n" );
+	if ( ai.mapkit_avo_state == "chamber" )
+	{
+		ai mapkit_avo_leave( "chamber" );
+	}
+	for ( t = 0; t < 50 && ai.mapkit_avo_state != "cloud" && ai.mapkit_avo_state != "chasing"; t++ )
+	{
+		wait( 0.1 );
+	}
+	ai.mapkit_avo_return = 0;
+	limit = mapkit_test_wait( 30000 );
+	for ( start = GetTime(); ai.mapkit_avo_state != "chasing" && GetTime() - start < limit; )
+	{
+		wait( 0.5 );
+	}
+	if ( ai.mapkit_avo_state != "chasing" )
+	{
+		LogPrint( "mapkit: check avogadro FAIL not come down in " + ( limit / 1000 ) + " s (state " + ai.mapkit_avo_state + ", no spot 400-2500 units from the player at " + player.origin + "?)\n" );
+		return;
+	}
+	LogPrint( "mapkit: check avogadro PASS came down " + Int( Distance( ai.origin, player.origin ) ) + " units from the player\n" );
+	wait( 1 );
+	ai DoDamage( 5000, ai.origin, player );
+	wait( 0.1 );
+	if ( IsAlive( ai ) && ai.health > 90000 )
+	{
+		LogPrint( "mapkit: check avogadro PASS 5000 bullet damage did it no harm\n" );
+	}
+	else
+	{
+		LogPrint( "mapkit: check avogadro FAIL 5000 bullet damage: alive " + IsAlive( ai ) + "\n" );
+		return;
+	}
+	ai.mapkit_avo_shield = true;
+	before = ai.mapkit_avo_hits;
+	ai mapkit_avo_damage( player, player, 150, 0, "MOD_MELEE", "knife_zm", ai.origin, ( 1, 0, 0 ), "torso_upper", 0, 0 );
+	up = ai.mapkit_avo_hits;
+	ai.mapkit_avo_shield = false;
+	ai mapkit_avo_damage( player, player, 150, 0, "MOD_MELEE", "knife_zm", ai.origin, ( 1, 0, 0 ), "torso_upper", 0, 0 );
+	down = ai.mapkit_avo_hits;
+	// the test client may hold the Galvaknuckles, which wound it twice
+	wound = 1;
+	if ( player HasWeapon( "tazer_knuckles_zm" ) )
+	{
+		wound = 2;
+	}
+	if ( up == before && down == before + wound )
+	{
+		LogPrint( "mapkit: check avogadro PASS a melee blow wounds it only with its shield down (" + down + "/4)\n" );
+	}
+	else
+	{
+		LogPrint( "mapkit: check avogadro FAIL melee: wounds " + before + " -> " + up + " (shield up) -> " + down + " (shield down)\n" );
+	}
+	ai mapkit_avo_emp();
+	wait( 1.5 );
+	if ( ai.mapkit_avo_state == "cloud" )
+	{
+		LogPrint( "mapkit: check avogadro PASS an EMP drove it off, back in round " + ai.mapkit_avo_return + "\n" );
+	}
+	else
+	{
+		LogPrint( "mapkit: check avogadro FAIL an EMP: state " + ai.mapkit_avo_state + "\n" );
+	}
 }
 
 // a Jet Gun or shield table: the test client walks to it and presses use; PASS once he holds the weapon
@@ -5429,6 +5972,56 @@ mapkit_jetshots()
 			LogPrint( "mapkit: jetdebug end, zombie alive " + IsAlive( near ) + ", kills " + mapkit_choose( IsDefined( level.mapkit_jet_kills ), level.mapkit_jet_kills, 0 ) + "\n" );
 		}
 	}
+	LogPrint( "mapkit: galvashots DONE\n" );
+}
+
+mapkit_avoshots()
+{
+	flag_wait( "all_players_spawned" );
+	wait( 5 );
+	player = get_players()[0];
+	level.mapkit_shot = 0;
+	level.mapkit_shots = "";
+	for ( t = 0; t < 200 && !IsDefined( level.mapkit_avogadro ); t++ )
+	{
+		wait( 0.1 );
+	}
+	ai = level.mapkit_avogadro;
+	if ( !IsDefined( ai ) )
+	{
+		LogPrint( "mapkit: galvashots SKIP (no Avogadro)\n" );
+		return;
+	}
+	o = player.origin;
+	f = AnglesToForward( ( 0, player.angles[1], 0 ) );
+	SetDvar( "bo1_testclient_goto", o[0] + "," + o[1] + "," + o[2] );
+	spot = SpawnStruct();
+	spot.origin = PlayerPhysicsTrace( o + f * 350 + ( 0, 0, 40 ), o + f * 350 - ( 0, 0, 100 ) );
+	spot.angles = VectorToAngles( f * -1 );
+	spot.region = "screenshots";
+	look = spot.origin + ( 0, 0, 50 );
+	SetDvar( "bo1_testclient_look", look[0] + "," + look[1] + "," + look[2] );
+	level.mapkit_avo_force_spot = spot;
+	while ( ai.mapkit_avo_state == "chamber" )
+	{
+		wait( 0.1 );
+		ai mapkit_avo_leave( "chamber" );
+	}
+	ai.mapkit_avo_return = 0;
+	for ( k = 0; k < 16; k++ )
+	{
+		wait( 0.5 );
+		look = ai.origin + ( 0, 0, 50 );
+		SetDvar( "bo1_testclient_look", look[0] + "," + look[1] + "," + look[2] );
+		mapkit_galvashots_shot( "Avogadro " + ai.mapkit_avo_state + " in model " + ai.model + ", " + Int( Distance( ai.origin, player.origin ) ) + " units away" );
+	}
+	ai thread mapkit_avo_bolt( player );
+	for ( k = 0; k < 6; k++ )
+	{
+		wait( 0.3 );
+		mapkit_galvashots_shot( "Avogadro bolt, shield " + ai.mapkit_avo_shield );
+	}
+	level.mapkit_avo_force_spot = undefined;
 	LogPrint( "mapkit: galvashots DONE\n" );
 }
 

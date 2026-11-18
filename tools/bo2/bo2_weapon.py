@@ -35,6 +35,7 @@ The output is the player's own game data: keep it out of the repository.
 import argparse
 import base64
 import glob
+import hashlib
 import json
 import math
 import os
@@ -251,6 +252,8 @@ class Project:
         if key in self.images:
             return self.images[key]
         src = self.find("images", bo2_name + ".dds")
+        if src is None and bo2_name in GENERATED_COLOURS:
+            return self.generated_image(bo2_name, key)
         if src is None:
             # streamed from an .ipak the dump could not read: the caller keeps the template's image
             self.notes.append(f"image {bo2_name}: not in the dumps")
@@ -282,6 +285,30 @@ class Project:
         if dds != src:
             os.remove(dds)
         self.images[key] = name
+        return name
+
+    def generated_image(self, bo2_name, key):
+        """GENERATED_COLOURS: a dark field of the colour crossed by bright wavy veins, 128 x 128 (our own pixels)."""
+        name = image_name(bo2_name + ".dds") + "_gen"
+        dst = os.path.join(self.raw, "images", name + ".iwi")
+        os.makedirs(os.path.dirname(dst), exist_ok=True)
+        y, x = np.mgrid[0:128, 0:128].astype(np.float32) / 128.0
+        rng = np.random.default_rng(int(hashlib.sha1(bo2_name.encode()).hexdigest()[:8], 16))
+        wave = np.zeros_like(x)
+        for _ in range(6):
+            fx, fy, ph = rng.uniform(2, 9), rng.uniform(2, 9), rng.uniform(0, 2 * math.pi)
+            wave += np.sin(2 * math.pi * (fx * x + fy * y) + ph + 1.5 * np.sin(2 * math.pi * rng.uniform(1, 4) * y))
+        vein = np.clip(1.0 - np.abs(wave) / 0.6, 0.0, 1.0)  # thin bright lines where the sum crosses 0
+        colour = np.array(GENERATED_COLOURS[bo2_name], np.float32) / 255.0
+        rgb = colour * (0.35 + 0.65 * vein[..., None]) + 0.5 * (vein[..., None] ** 4)
+        rgba = np.concatenate([np.clip(rgb * 255, 0, 255), np.full((128, 128, 1), 255.0)], axis=2).astype(np.uint8)
+        dds = dst[:-4] + ".dds"
+        write_rgba_dxt5(rgba, dds)
+        if not dds_to_iwi(dds, dst):
+            raise SystemExit(f"image {bo2_name}: generated DDS not taken")
+        os.remove(dds)
+        self.images[key] = name
+        self.notes.append(f"image {bo2_name}: not in the dumps, generated ({GENERATED_COLOURS[bo2_name]})")
         return name
 
     # materials -------------------------------------------------------------------------------------------------------
@@ -827,6 +854,12 @@ OVERRIDES = {"emp_grenade_zm": {"offhandClass": "Smoke Grenade", "projExplosionT
                                maxAmmo="0", startAmmo="0", fireTime="0.06", spinUpTime="0.6"),
              "riotshield_zm": dict(NO_SHOT, emptyFireSound="", emptyFireSoundPlayer="", unlimitedAmmo="1",
                                    clipSize="1", maxAmmo="1", startAmmo="1", fireAnim="@meleeAnim")}
+# BO2 character models MapKit's BO2 maps use (no weapon): converted into mod.ff on their own (_mapkit.gsc dresses
+# TranZit's Avogadro, a BO1 AI, in c_zom_avagadro_fb: both skeletons have the same 115 bones)
+EXTRA_MODELS = ("c_zom_avagadro_fb",)
+# Colour maps the dumps lack (streamed from an .ipak OAT does not read), drawn instead as veins of this colour
+GENERATED_COLOURS = {"~-gc_zom_avagadro_veins_c": (70, 150, 255), "~-gc_zom_avagadro_guts_c": (120, 80, 255),
+                     "~-gc_zom_avagadro_brain_c": (190, 215, 255)}
 # The BO1 reference of a BO2 weapon by class (sounds, effects, tracer, accuracy graph, notetrack sounds)
 UPGRADED_REF = {"m16_zm": "m16_gl_upgraded_zm", "gl_m16_upgraded_zm": "gl_m16_upgraded_zm"}
 VO = {"mg": "mg", "smg": "smg", "spread": "shotgun", "pistol": "pistol", "rocketlauncher": "launcher",
@@ -891,6 +924,8 @@ def select_all(p):
     bo1 = set(os.listdir(os.path.join(p.bo1, "weapons")))
     names = []
     for dump in p.dumps:
+        if not os.path.isdir(os.path.join(dump, "weapons")):
+            continue  # a dump of models only (EXTRA_MODELS)
         for name in sorted(os.listdir(os.path.join(dump, "weapons"))):
             if name not in names:
                 names.append(name)
@@ -950,6 +985,11 @@ def main():
             p.notes.append(f"{name}: its BO1 reference {ref} is not in the BO1 dumps (--bo1-map), left out")
             continue
         p.weapon(name, ref, extra=True)
+    for name in (EXTRA_MODELS if args.all else ()):
+        if p.find("xmodel", name + ".json") and p.xmodel(name):
+            p.lines.append(f"xmodel,{name}")
+        else:
+            p.notes.append(f"{name}: not in the dumps (--dump <so_zclassic_zm_transit dump>), left out")
     keys = [dict(read_weapon(p.find("weapons", name))).get("displayName", "") for name in p.weapons]
     keys += [EXTRA_HINTS[name] for name in p.weapons if name in EXTRA_HINTS]
     for key in keys:
