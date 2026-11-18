@@ -3569,6 +3569,13 @@ bool __fastcall Path_PredictionTrace(
         {
             return 0;
         }
+        // A pass that did not move leaves the next one tracing from the same point to the same actor forever: a
+        // fraction just above the 1e-4 above, of a trace under a unit long, rounds to no move at coordinates in the
+        // thousands (a server frame that never ended on TranZit's diner). Retail loops as well.
+        if ( vTraceEndPos[0] == vSource[0] && vTraceEndPos[1] == vSource[1] )
+        {
+            return 0;
+        }
         mask &= ~0x8000u;
 LABEL_45:
         vSource[0] = *vTraceEndPos;
