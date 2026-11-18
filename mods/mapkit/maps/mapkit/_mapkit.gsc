@@ -176,6 +176,7 @@ mapkit_bus( i )
 		LogPrint( "mapkit: bus edit " + i + ": no brush model " + bo1_mapkit_get( i, "floor" ) + "\n" );
 		return;
 	}
+	level.mapkit_bus_floor = floor;
 	parts = GetEntArray( bo1_mapkit_get( i, "parts" ), "targetname" );
 	for ( p = 0; p < parts.size; p++ )
 	{
@@ -1010,7 +1011,23 @@ main_end()
 		{
 			level thread mapkit_bank( i );
 		}
-		if ( bo1_mapkit_get( i, "kind" ) == "perk" )
+		if ( ( kind == "perk" || kind == "pap" ) && mapkit_sky_edit( i ) )
+		{
+			// placed when it lands (mapkit_sky_perks)
+			if ( !IsDefined( level.mapkit_sky_edits ) )
+			{
+				level.mapkit_sky_edits = [];
+			}
+			if ( kind == "perk" && GetDvarInt( #"noperks" ) == 1 )
+			{
+				LogPrint( "mapkit: perk edit " + i + " (" + bo1_mapkit_get( i, "perk" ) + ") not placed: noperks 1\n" );
+			}
+			else
+			{
+				level.mapkit_sky_edits[ level.mapkit_sky_edits.size ] = i;
+			}
+		}
+		else if ( bo1_mapkit_get( i, "kind" ) == "perk" )
 		{
 			// mod: noperks 1 (mods/noperks stacked with fs_mods) - no perk machine, as noperks removes retail ones before
 			// _zombiemode_perks::init; the engine adds no clip for it either (src/qcommon/cm_mapkit.cpp)
@@ -1056,6 +1073,18 @@ main_end()
 	{
 		// empty base without a powerswitch edit: the power is on from the start (perks and doors that wait for it work)
 		flag_set( "power_on" );
+	}
+	if ( IsDefined( level.mapkit_sky_edits ) )
+	{
+		mapkit_sky_perks();
+	}
+	if ( mapkit_has_kind( "buildable" ) )
+	{
+		mapkit_buildables();
+	}
+	if ( mapkit_has_kind( "denizens" ) )
+	{
+		level thread mapkit_denizens();
 	}
 	if ( IsDefined( level.mapkit_paps ) && !IsDefined( level.mapkit_switch ) )
 	{
@@ -1318,10 +1347,16 @@ mapkit_perk_targetname( perk )
 // the pattern of _zombiemode_perks::place_additionalprimaryweapon_machine: a script_model + a trigger_radius_use
 // with targetname zombie_vending. It runs in main_end, after _zombiemode_perks::init collected the map's machines,
 // so the trigger gets init's retail vending_trigger_think thread here; the machine swaps to its _on model on power.
-mapkit_place_perk( i )
+// at: an optional spot (origin, yaw) instead of the edit's own, where a falling machine lands (mapkit_sky_perks).
+// Returns the use trigger, the machine in its mapkit_machine field.
+mapkit_place_perk( i, at )
 {
 	perk = bo1_mapkit_get( i, "perk" );
 	origin = bo1_mapkit_get( i, "origin" );
+	if ( IsDefined( at ) )
+	{
+		origin = at.origin;
+	}
 	model = mapkit_perk_model( perk );
 	if ( perk == "specialty_longersprint" && !is_true( level.zombiemode_using_marathon_perk ) )
 	{
@@ -1333,13 +1368,17 @@ mapkit_place_perk( i )
 		return;
 	}
 	yaw = bo1_mapkit_get( i, "yaw" );
+	if ( IsDefined( at ) )
+	{
+		yaw = at.yaw;
+	}
 	if ( !IsDefined( yaw ) )
 	{
 		yaw = 0;
 	}
 	out = AnglesToForward( ( 0, yaw, 0 ) );
 	snap = bo1_mapkit_get( i, "snap" );
-	if ( IsDefined( snap ) && snap == "wall" )
+	if ( IsDefined( snap ) && snap == "wall" && !IsDefined( at ) )
 	{
 		s = mapkit_wall_spot( origin, 20, i );
 		if ( !IsDefined( s ) )
@@ -1373,6 +1412,7 @@ mapkit_place_perk( i )
 	trig thread maps\_zombiemode_perks::vending_trigger_think();
 	machine thread mapkit_perk_power( model, perk );
 	trig thread mapkit_perk_trigger_log( perk );
+	trig.mapkit_machine = machine;
 	rec = SpawnStruct();
 	rec.perk = perk;
 	rec.edit = i;
@@ -1388,6 +1428,7 @@ mapkit_place_perk( i )
 	LogPrint( "mapkit: perk " + perk + " at " + origin + " yaw " + yaw + "\n" );
 	bo1_mapkit_mark( "perk", perk, origin, 20 );
 	bo1_mapkit_mark( "trigger", perk, trig.origin, 44 );
+	return trig;
 }
 
 mapkit_perk_power( model, perk )
@@ -1432,6 +1473,10 @@ mapkit_precache()
 	{
 		PrecacheModel( "zombie_vending_packapunch" );
 		maps\_zombiemode_perks::default_vending_precaching();
+	}
+	if ( mapkit_has_kind( "perkspot" ) )
+	{
+		level.mapkit_sky_fx = LoadFX( "explosions/fx_grenadeexp_dirt" ); // common_zombie: the landing's dirt burst
 	}
 	mapkit_fx_load();
 }
@@ -1577,6 +1622,8 @@ mapkit_place_powerswitch( i )
 	trig = mapkit_front_trigger( spot, panel );
 	trig.targetname = "use_elec_switch";
 	level.mapkit_switch = mapkit_machine_rec( i, spot, trig );
+	level.mapkit_switch.panel = panel;
+	level.mapkit_switch.lever = lever;
 	trig thread mapkit_electric_switch();
 	level thread mapkit_wait_for_power( lever );
 	LogPrint( "mapkit: powerswitch " + level.mapkit_switch.name + " at " + spot.origin + " yaw " + spot.yaw + "\n" );
@@ -1623,9 +1670,15 @@ mapkit_wait_for_power( master_switch )
 // triggers at init (K:30 returns early on the empty base), so the kit threads it here, like the perks; turn_PackAPunch_on
 // (K:709) swaps the _on model when Pack_A_Punch_on comes (the power switch, or mapkit_pap_power without one).
 // The "please wait" sign (machine.target -> wait_flag) is optional in retail and left out: no tag to hang it on is known.
-mapkit_place_pap( i )
+mapkit_place_pap( i, at )
 {
 	spot = mapkit_edit_spot( i, 20 );
+	if ( IsDefined( at ) )
+	{
+		spot.origin = at.origin;
+		spot.yaw = at.yaw;
+		spot.out = AnglesToForward( ( 0, at.yaw, 0 ) );
+	}
 	if ( !IsDefined( spot.origin ) )
 	{
 		LogPrint( "mapkit: pap edit " + i + " skipped (no origin)\n" );
@@ -1648,6 +1701,8 @@ mapkit_place_pap( i )
 	LogPrint( "mapkit: pap " + mapkit_name( i ) + " at " + spot.origin + " yaw " + spot.yaw + "\n" );
 	bo1_mapkit_mark( "pap", mapkit_name( i ), spot.origin, 20 );
 	bo1_mapkit_mark( "trigger", mapkit_name( i ), trig.origin, 44 );
+	trig.mapkit_machine = machine;
+	return trig;
 }
 
 // no power switch in the layout: Pack-a-Punch is powered from the start, like the perks (mapkit_perk_power)
@@ -1657,6 +1712,1051 @@ mapkit_pap_power()
 	flag_wait( "all_players_connected" );
 	wait( 0.05 );
 	level notify( "Pack_A_Punch_on" );
+}
+
+// TranZit's buildables (maps\mp\zm_transit_buildables, _zm_buildables): a "buildable" edit is the table a player builds
+// at, its "pieces" the piece models; each "piece" edit is a spot one of them can lie on, drawn by its mesh group. One
+// spot per piece is picked at random, the others' pieces hidden. A player carries one piece at a time to the table and
+// holds the use button there to build it in; a "buildpart" edit (BO2's finished power switch, piece by piece) shows
+// then. Once every piece is in, the machine whose edit names the buildable (the power switch, Pack-a-Punch), placed at
+// load hidden with its trigger out of reach, appears and works. Off with +set mapkit_buildables 0: the machines then work
+// from the start and no piece is drawn. The self-test builds them first (mapkit_check_buildables).
+mapkit_buildables()
+{
+	on = GetDvar( "mapkit_buildables" ) != "0";
+	for ( i = 0; i < bo1_mapkit_editcount(); i++ )
+	{
+		kind = bo1_mapkit_get( i, "kind" );
+		if ( kind == "buildpart" || ( kind == "piece" && !on ) )
+		{
+			bo1_mapkit_visible( i, 0 );
+		}
+	}
+	if ( !on )
+	{
+		turbine = GetEnt( "mapkit_turbine", "targetname" );
+		if ( IsDefined( turbine ) )
+		{
+			turbine Hide();
+			turbine NotSolid();
+		}
+		LogPrint( "mapkit: buildables off, their machines work from the start\n" );
+		return;
+	}
+	level.mapkit_builds = [];
+	for ( i = 0; i < bo1_mapkit_editcount(); i++ )
+	{
+		if ( bo1_mapkit_get( i, "kind" ) != "buildable" )
+		{
+			continue;
+		}
+		b = SpawnStruct();
+		b.edit = i;
+		b.name = bo1_mapkit_get( i, "name" );
+		b.origin = bo1_mapkit_get( i, "origin" );
+		b.pieces = StrTok( bo1_mapkit_get( i, "pieces" ), "," );
+		b.built = [];
+		b.spawned = [];
+		if ( b.name == "turbine" )
+		{
+			b.turbine = GetEnt( "mapkit_turbine", "targetname" );
+			if ( !IsDefined( b.turbine ) )
+			{
+				LogPrint( "mapkit: buildable turbine has no mapkit_turbine brush model, left out\n" );
+				continue;
+			}
+			b.turbine Hide();
+			b.turbine NotSolid();
+			mapkit_turbine_doors();
+		}
+		else
+		{
+			b.machine = mapkit_build_machine( b.name );
+			if ( !IsDefined( b.machine ) )
+			{
+				LogPrint( "mapkit: buildable " + b.name + " has no machine edit naming it, left out\n" );
+				continue;
+			}
+			mapkit_build_hide( b.machine );
+		}
+		for ( p = 0; p < b.pieces.size; p++ )
+		{
+			mapkit_build_spawn_piece( b, b.pieces[p] );
+		}
+		level.mapkit_builds[ level.mapkit_builds.size ] = b;
+		b thread mapkit_build_table();
+		LogPrint( "mapkit: buildable " + b.name + " at " + b.origin + ", " + b.pieces.size + " pieces\n" );
+	}
+}
+
+// the machine a buildable makes: its parts to hide and show, and its trigger
+mapkit_build_machine( name )
+{
+	if ( name == "powerswitch" && IsDefined( level.mapkit_switch ) && bo1_mapkit_get( level.mapkit_switch.edit, "buildable" ) == name )
+	{
+		m = SpawnStruct();
+		m.models = array( level.mapkit_switch.panel, level.mapkit_switch.lever );
+		m.trig = level.mapkit_switch.trig;
+		return m;
+	}
+	if ( name == "pap" && IsDefined( level.mapkit_paps ) )
+	{
+		for ( k = 0; k < level.mapkit_paps.size; k++ )
+		{
+			rec = level.mapkit_paps[k];
+			if ( bo1_mapkit_get( rec.edit, "buildable" ) == name )
+			{
+				m = SpawnStruct();
+				m.models = array( rec.trig.mapkit_machine );
+				m.trig = rec.trig;
+				return m;
+			}
+		}
+	}
+	return undefined;
+}
+
+mapkit_build_hide( m )
+{
+	for ( k = 0; k < m.models.size; k++ )
+	{
+		m.models[k] Hide();
+	}
+	m.trig.origin = m.trig.origin - ( 0, 0, 10000 );
+}
+
+mapkit_build_show( m )
+{
+	for ( k = 0; k < m.models.size; k++ )
+	{
+		m.models[k] Show();
+	}
+	m.trig.origin = m.trig.origin + ( 0, 0, 10000 );
+}
+
+// one spot of the piece at random; the pieces on the others are hidden
+mapkit_build_spawn_piece( b, model )
+{
+	spots = [];
+	for ( i = 0; i < bo1_mapkit_editcount(); i++ )
+	{
+		if ( bo1_mapkit_get( i, "kind" ) == "piece" && bo1_mapkit_get( i, "buildable" ) == b.name && bo1_mapkit_get( i, "piece" ) == model )
+		{
+			spots[ spots.size ] = i;
+		}
+	}
+	if ( spots.size == 0 )
+	{
+		LogPrint( "mapkit: buildable " + b.name + " piece " + model + " has no spot\n" );
+		return;
+	}
+	pick = spots[ RandomInt( spots.size ) ];
+	for ( k = 0; k < spots.size; k++ )
+	{
+		if ( spots[k] != pick )
+		{
+			bo1_mapkit_visible( spots[k], 0 );
+		}
+	}
+	piece = SpawnStruct();
+	piece.build = b;
+	piece.model = model;
+	piece.edit = pick;
+	piece.origin = bo1_mapkit_get( pick, "origin" );
+	piece.label = mapkit_piece_label( model );
+	piece.trig = mapkit_table_hint( piece.origin, "Hold ^3[{+activate}]^7 to pick up the " + piece.label );
+	b.spawned[ b.spawned.size ] = piece;
+	piece thread mapkit_piece_think();
+	LogPrint( "mapkit: buildable " + b.name + " piece " + model + " on spot " + pick + " at " + piece.origin + "\n" );
+}
+
+mapkit_piece_label( model )
+{
+	switch ( model )
+	{
+	case "p6_zm_buildable_pswitch_hand": return "power switch handle";
+	case "p6_zm_buildable_pswitch_body": return "power switch panel";
+	case "p6_zm_buildable_pswitch_lever": return "power switch lever";
+	case "p6_zm_buildable_battery": return "battery";
+	case "p6_zm_buildable_pap_body": return "Pack-a-Punch body";
+	case "p6_zm_buildable_pap_table": return "Pack-a-Punch table legs";
+	case "p6_zm_buildable_turbine_fan": return "turbine fan";
+	case "p6_zm_buildable_turbine_rudder": return "turbine rudder";
+	case "p6_zm_buildable_turbine_mannequin": return "turbine mannequin";
+	}
+	return "part";
+}
+
+mapkit_piece_think()
+{
+	for ( ;; )
+	{
+		// polled as a table's use (mapkit_wait_use): a piece on a shelf (TranZit's turbine fan) hides its trigger's centre
+		player = mapkit_wait_use( self.origin, 64 );
+		if ( IsDefined( self.carrier ) || IsDefined( self.done ) )
+		{
+			wait( 0.5 );
+			continue;
+		}
+		// one piece at a time: the one in hand goes back to its spot
+		if ( IsDefined( player.mapkit_piece ) )
+		{
+			player.mapkit_piece mapkit_piece_return();
+		}
+		bo1_mapkit_visible( self.edit, 0 );
+		self.trig.origin = self.trig.origin - ( 0, 0, 10000 );
+		player.mapkit_piece = self;
+		self.carrier = player;
+		player PlaySound( "zmb_powerup_grabbed" );
+		player IPrintLn( "Picked up the " + self.label + ": build it at the " + mapkit_build_label( self.build.name ) );
+		LogPrint( "mapkit: buildable " + self.build.name + " piece " + self.model + " picked up\n" );
+		player thread mapkit_piece_carried( self );
+	}
+}
+
+mapkit_build_label( name )
+{
+	if ( name == "powerswitch" )
+	{
+		return "power switch";
+	}
+	if ( name == "turbine" )
+	{
+		return "turbine table";
+	}
+	if ( name == "pap" )
+	{
+		return "Pack-a-Punch table";
+	}
+	return name;
+}
+
+// a carrier who bleeds out or leaves gives the piece back to its spot (BO2 drops it where the player fell)
+mapkit_piece_carried( piece )
+{
+	self endon( "mapkit_piece_built" );
+	self waittill_any( "bled_out", "disconnect", "death", "spawned_spectator" );
+	if ( IsDefined( self ) && IsDefined( self.mapkit_piece ) && self.mapkit_piece == piece )
+	{
+		self.mapkit_piece = undefined;
+	}
+	if ( IsDefined( piece.carrier ) && !IsDefined( piece.done ) )
+	{
+		piece mapkit_piece_return();
+	}
+}
+
+mapkit_piece_return()
+{
+	if ( IsDefined( self.carrier ) )
+	{
+		if ( IsDefined( self.carrier.mapkit_piece ) && self.carrier.mapkit_piece == self )
+		{
+			self.carrier.mapkit_piece = undefined;
+		}
+		self.carrier = undefined;
+	}
+	bo1_mapkit_visible( self.edit, 1 );
+	self.trig.origin = self.trig.origin + ( 0, 0, 10000 );
+	LogPrint( "mapkit: buildable " + self.build.name + " piece " + self.model + " back on its spot\n" );
+}
+
+// A table's use: the first valid player within `radius` (across) of `origin` pressing use. Polled, not a use
+// trigger's: BO2's table triggers stand inside the table, where a use trigger's sight test from the eye fails (the
+// native TranZit self-test's client never built the power switch from its trigger). The table's trigger only shows the
+// hint.
+mapkit_wait_use( origin, radius )
+{
+	for ( ;; )
+	{
+		wait( 0.05 );
+		players = get_players();
+		for ( p = 0; p < players.size; p++ )
+		{
+			player = players[p];
+			if ( player UseButtonPressed() && is_player_valid( player ) && !player in_revive_trigger()
+				&& Distance2DSquared( player.origin, origin ) < radius * radius && abs( player.origin[2] - origin[2] ) < 160 )
+			{
+				return player;
+			}
+		}
+	}
+}
+
+mapkit_table_hint( origin, text )
+{
+	trig = Spawn( "trigger_radius_use", origin - ( 0, 0, 96 ), 0, 96, 192 );
+	trig SetCursorHint( "HINT_NOICON" );
+	trig SetHintString( text );
+	return trig;
+}
+
+// the table: a player holding one of its pieces holds the use button 2 s to build it in
+mapkit_build_table()
+{
+	trig = mapkit_table_hint( self.origin, "Hold ^3[{+activate}]^7 to build the " + mapkit_build_label( self.name ) + " (" + self.built.size + "/" + self.pieces.size + " parts)" );
+	while ( self.built.size < self.pieces.size )
+	{
+		player = mapkit_wait_use( self.origin, 96 );
+		piece = player.mapkit_piece;
+		if ( !IsDefined( piece ) || piece.build != self )
+		{
+			player IPrintLn( "Missing parts: " + ( self.pieces.size - self.built.size ) + " to find" );
+			wait( 1 );
+			continue;
+		}
+		held = 0;
+		while ( held < 2 && IsDefined( player ) && player UseButtonPressed() && Distance2DSquared( player.origin, self.origin ) < 128 * 128 && is_player_valid( player ) )
+		{
+			wait( 0.1 );
+			held += 0.1;
+		}
+		if ( held < 2 )
+		{
+			continue;
+		}
+		piece.done = true;
+		player.mapkit_piece = undefined;
+		player notify( "mapkit_piece_built" );
+		self.built[ self.built.size ] = piece.model;
+		mapkit_build_show_part( self.name, piece.model );
+		play_sound_at_pos( "purchase", self.origin );
+		LogPrint( "mapkit: buildable " + self.name + " piece " + piece.model + " built in by player, " + self.built.size + "/" + self.pieces.size + "\n" );
+		trig SetHintString( "Hold ^3[{+activate}]^7 to build the " + mapkit_build_label( self.name ) + " (" + self.built.size + "/" + self.pieces.size + " parts)" );
+	}
+	trig Delete();
+	self.done = true;
+	if ( IsDefined( self.turbine ) )
+	{
+		LogPrint( "mapkit: buildable " + self.name + " built\n" );
+		self thread mapkit_turbine();
+		return;
+	}
+	// the finished machine takes the built parts' place
+	for ( i = 0; i < bo1_mapkit_editcount(); i++ )
+	{
+		if ( bo1_mapkit_get( i, "kind" ) == "buildpart" && bo1_mapkit_get( i, "buildable" ) == self.name )
+		{
+			bo1_mapkit_visible( i, 0 );
+		}
+	}
+	mapkit_build_show( self.machine );
+	if ( IsDefined( self.machine.models[0] ) )
+	{
+		self.machine.models[0] PlaySound( "zmb_perks_power_on" );
+	}
+	LogPrint( "mapkit: buildable " + self.name + " built\n" );
+}
+
+mapkit_build_show_part( name, model )
+{
+	for ( i = 0; i < bo1_mapkit_editcount(); i++ )
+	{
+		if ( bo1_mapkit_get( i, "kind" ) == "buildpart" && bo1_mapkit_get( i, "buildable" ) == name && bo1_mapkit_get( i, "piece" ) == model )
+		{
+			bo1_mapkit_visible( i, 1 );
+		}
+	}
+}
+
+// The turbine (BO2's zm_equip_turbine), once built: a player takes it from its table (one turbine, one carrier) and
+// plants it by crouching and holding the use button 1 s. Planted, it opens every door edit with "turbine" within
+// 335 units (BO2's local power radius), for good: BO2 powers such a door only while a turbine runs beside it, and its
+// turbine wears out. Anyone can take it back from where it stands. A carrier who goes down or leaves puts it back on its
+// table. Drawn by the mesh mover on the mapkit_turbine brush model (bo2_layout.py), moved to where it is planted.
+mapkit_turbine()
+{
+	t = self.turbine;
+	level.mapkit_turbine = self;
+	self.home = t.origin;
+	self.home_angles = t.angles;
+	self.state = "table";
+	t Show();
+	self.take = mapkit_table_hint( self.origin, "Hold ^3[{+activate}]^7 to take the turbine" );
+	// the press that built the last piece in is not a press to take it
+	for ( held = true; held; )
+	{
+		wait( 0.05 );
+		held = false;
+		players = get_players();
+		for ( p = 0; p < players.size; p++ )
+		{
+			if ( players[p] UseButtonPressed() && Distance2DSquared( players[p].origin, self.origin ) < 128 * 128 )
+			{
+				held = true;
+			}
+		}
+	}
+	for ( ;; )
+	{
+		at = self.origin;
+		reach = 96;
+		if ( self.state == "planted" )
+		{
+			at = self.at;
+			reach = 64;
+		}
+		player = mapkit_wait_use( at, reach );
+		self.take.origin = self.take.origin - ( 0, 0, 10000 );
+		t Hide();
+		t NotSolid();
+		self.state = "carried";
+		self.carrier = player;
+		player.mapkit_turbine = self;
+		player PlaySound( "zmb_powerup_grabbed" );
+		player IPrintLn( "Crouch and hold ^3[{+activate}]^7 to plant the turbine" );
+		LogPrint( "mapkit: turbine taken\n" );
+		self mapkit_turbine_carry( player );
+		// the planting press is not a press to take it back
+		while ( IsDefined( player ) && player UseButtonPressed() )
+		{
+			wait( 0.05 );
+		}
+	}
+}
+
+mapkit_turbine_carry( player )
+{
+	// the press that took it is not a press to plant it
+	while ( IsDefined( player ) && player UseButtonPressed() )
+	{
+		wait( 0.05 );
+	}
+	held = 0;
+	for ( ;; )
+	{
+		wait( 0.05 );
+		if ( !IsDefined( player ) || !is_player_valid( player ) )
+		{
+			self mapkit_turbine_home();
+			return;
+		}
+		if ( player GetStance() == "crouch" && player UseButtonPressed() )
+		{
+			held += 0.05;
+		}
+		else
+		{
+			held = 0;
+		}
+		if ( held >= 1 )
+		{
+			self mapkit_turbine_plant( player );
+			return;
+		}
+	}
+}
+
+mapkit_turbine_home()
+{
+	if ( IsDefined( self.carrier ) )
+	{
+		self.carrier.mapkit_turbine = undefined;
+		self.carrier = undefined;
+	}
+	t = self.turbine;
+	t.origin = self.home;
+	t.angles = self.home_angles;
+	t Show();
+	self.state = "table";
+	self.take.origin = self.origin - ( 0, 0, 96 );
+	LogPrint( "mapkit: turbine back on its table\n" );
+}
+
+mapkit_turbine_plant( player )
+{
+	spot = player.origin + AnglesToForward( ( 0, player.angles[1], 0 ) ) * 32;
+	floor_trace = BulletTrace( spot + ( 0, 0, 32 ), spot - ( 0, 0, 128 ), false, player );
+	if ( floor_trace["fraction"] < 1 )
+	{
+		spot = floor_trace["position"];
+	}
+	player.mapkit_turbine = undefined;
+	self.carrier = undefined;
+	t = self.turbine;
+	// the brush model's origin is its box's centre, 32 units over the model's feet (bo2_layout.py TURBINE_BOX)
+	t.origin = spot + ( 0, 0, 32 );
+	t.angles = ( 0, player.angles[1], 0 );
+	t Show();
+	self.state = "planted";
+	self.at = spot;
+	self.take.origin = spot - ( 0, 0, 96 );
+	player PlaySound( "zmb_perks_power_on" );
+	LogPrint( "mapkit: turbine planted at " + spot + "\n" );
+	mapkit_turbine_power( spot, "the turbine at " + spot );
+}
+
+// every closed turbine door within range of `at` opens
+mapkit_turbine_power( at, why )
+{
+	for ( i = 0; i < bo1_mapkit_editcount(); i++ )
+	{
+		if ( bo1_mapkit_get( i, "kind" ) == "door" && is_true( bo1_mapkit_get( i, "turbine" ) ) && !flag( "mkdoor" + i + "_open" )
+			&& Distance( mapkit_center( i ), at ) <= 335 ) // BO2's turbine powerradius
+		{
+			mapkit_turbine_open_door( i, why );
+		}
+	}
+}
+
+// The door edits with "turbine" are retail electric doors (cm_mapkit.cpp MkE_Blocker), which open when the power comes
+// on: with a turbine to build, their door_think stops and a turbine opens them instead. The self-test plants the
+// turbine once (mapkit_check_turbine), and the power opens the doors that planting did not reach.
+mapkit_turbine_doors()
+{
+	for ( i = 0; i < bo1_mapkit_editcount(); i++ )
+	{
+		if ( bo1_mapkit_get( i, "kind" ) != "door" || !is_true( bo1_mapkit_get( i, "turbine" ) ) )
+		{
+			continue;
+		}
+		trig = mapkit_door_trigger( i );
+		if ( !IsDefined( trig ) )
+		{
+			continue;
+		}
+		trig notify( "kill_door_think" );
+		trig SetHintString( "Needs a turbine planted nearby" );
+		if ( GetDvar( "mapkit_selftest" ) == "1" )
+		{
+			level thread mapkit_turbine_door_selftest( i );
+		}
+	}
+}
+
+mapkit_turbine_door_selftest( i )
+{
+	flag_wait( "power_on" );
+	if ( !flag( "mkdoor" + i + "_open" ) )
+	{
+		mapkit_turbine_open_door( i, "the power (self-test)" );
+	}
+}
+
+mapkit_door_trigger( i )
+{
+	trigs = GetEntArray( "zombie_door", "targetname" );
+	for ( t = 0; t < trigs.size; t++ )
+	{
+		if ( IsDefined( trigs[t].target ) && trigs[t].target == "mkdoor" + i )
+		{
+			return trigs[t];
+		}
+	}
+	return undefined;
+}
+
+// retail door_think opens a door given a forced "trigger" (door_buy's `force`); the stopped one is started again for it
+mapkit_turbine_open_door( i, why )
+{
+	trig = mapkit_door_trigger( i );
+	if ( !IsDefined( trig ) )
+	{
+		return;
+	}
+	trig.script_noteworthy = "default";
+	trig thread maps\_zombiemode_blockers::door_think();
+	trig notify( "trigger", get_players()[0], true );
+	LogPrint( "mapkit: turbine door " + mapkit_name( i ) + " opened by " + why + "\n" );
+}
+
+// TranZit's Denizens (BO2's zm_ai_screecher), simplified. A player who stays a few seconds in a zone whose name holds one
+// of the "denizens" edit's "zones" (the fog between TranZit's areas), off the bus and away from a lit safety light, is
+// hunted: a Denizen (the screecher's model, a mesh mover on a mapkit_denizen<k> brush model) comes out of the ground
+// behind him, leaps on him and clings to his head, blurring his view and clawing him (10 damage every 2 s) until he
+// knifes it (one melee), reaches a lit light or goes down. A "safelight" edit (BO2's screecher_escape) is lit while
+// the planted turbine stands within 335 units of it, and covers its "radius". BO2's Denizen also teleports a player
+// standing in the light and is fought off by a minigame of pushes: neither is here. +set mapkit_denizens 0: none; the
+// self-test sends one at the test client once (mapkit_check_denizen).
+mapkit_denizens()
+{
+	level.mapkit_denizen_ents = [];
+	for ( k = 0; ; k++ )
+	{
+		d = GetEnt( "mapkit_denizen" + k, "targetname" );
+		if ( !IsDefined( d ) )
+		{
+			break;
+		}
+		d Hide();
+		d NotSolid();
+		d.home = d.origin;
+		level.mapkit_denizen_ents[k] = d;
+	}
+	level.mapkit_denizen_zones = [];
+	level.mapkit_safelights = [];
+	for ( i = 0; i < bo1_mapkit_editcount(); i++ )
+	{
+		kind = bo1_mapkit_get( i, "kind" );
+		if ( kind == "denizens" )
+		{
+			level.mapkit_denizen_tokens = StrTok( bo1_mapkit_get( i, "zones" ), "," );
+		}
+		if ( kind == "safelight" )
+		{
+			level.mapkit_safelights[ level.mapkit_safelights.size ] = i;
+		}
+	}
+	for ( i = 0; i < bo1_mapkit_editcount(); i++ )
+	{
+		if ( bo1_mapkit_get( i, "kind" ) != "zone" || !IsDefined( bo1_mapkit_get( i, "mins" ) ) )
+		{
+			continue;
+		}
+		name = mapkit_name( i );
+		for ( t = 0; t < level.mapkit_denizen_tokens.size; t++ )
+		{
+			if ( IsSubStr( name, level.mapkit_denizen_tokens[t] ) )
+			{
+				level.mapkit_denizen_zones = array_combine( level.mapkit_denizen_zones, GetEntArray( name, "targetname" ) );
+				break;
+			}
+		}
+	}
+	LogPrint( "mapkit: denizens: " + level.mapkit_denizen_ents.size + " models, " + level.mapkit_denizen_zones.size + " zone volumes, " + level.mapkit_safelights.size + " safety lights\n" );
+	if ( level.mapkit_denizen_ents.size == 0 || GetDvar( "mapkit_denizens" ) == "0" || GetDvar( "mapkit_selftest" ) == "1" )
+	{
+		return;
+	}
+	flag_wait( "all_players_connected" );
+	players = get_players();
+	for ( p = 0; p < players.size; p++ )
+	{
+		players[p] thread mapkit_denizen_watch();
+	}
+}
+
+// self: a player. Hunted after 8 to 15 s in a Denizen zone; 20 s of quiet after an attack.
+mapkit_denizen_watch()
+{
+	self endon( "disconnect" );
+	exposed = 0;
+	due = RandomIntRange( 8, 16 );
+	for ( ;; )
+	{
+		wait( 1 );
+		if ( IsDefined( self.mapkit_denizen ) || !mapkit_denizen_exposed( self ) )
+		{
+			exposed = 0;
+			continue;
+		}
+		exposed++;
+		if ( exposed < due )
+		{
+			continue;
+		}
+		d = mapkit_denizen_free();
+		if ( !IsDefined( d ) )
+		{
+			continue;
+		}
+		mapkit_denizen_attack( d, self );
+		wait( 20 );
+		exposed = 0;
+		due = RandomIntRange( 8, 16 );
+	}
+}
+
+mapkit_denizen_free()
+{
+	for ( k = 0; k < level.mapkit_denizen_ents.size; k++ )
+	{
+		if ( !IsDefined( level.mapkit_denizen_ents[k].victim ) )
+		{
+			return level.mapkit_denizen_ents[k];
+		}
+	}
+	return undefined;
+}
+
+// in a Denizen zone, on foot, off the bus, out of every lit safety light
+mapkit_denizen_exposed( player )
+{
+	if ( !is_player_valid( player ) || mapkit_on_bus( player ) || mapkit_in_safelight( player ) )
+	{
+		return false;
+	}
+	for ( z = 0; z < level.mapkit_denizen_zones.size; z++ )
+	{
+		if ( player IsTouching( level.mapkit_denizen_zones[z] ) )
+		{
+			return true;
+		}
+	}
+	return false;
+}
+
+// standing in the bus: within its floor's footprint (BUS_FLOOR, bo2_layout.py), in the floor's own axes
+mapkit_on_bus( player )
+{
+	if ( !IsDefined( level.mapkit_bus_floor ) )
+	{
+		return false;
+	}
+	f = level.mapkit_bus_floor;
+	d = player.origin - f.origin;
+	fwd = AnglesToForward( ( 0, f.angles[1], 0 ) );
+	right = AnglesToRight( ( 0, f.angles[1], 0 ) );
+	return abs( VectorDot( d, fwd ) ) < 240 && abs( VectorDot( d, right ) ) < 240 && d[2] > -24 && d[2] < 110;
+}
+
+mapkit_safelight_lit( i )
+{
+	t = level.mapkit_turbine;
+	return IsDefined( t ) && t.state == "planted" && Distance( t.at, bo1_mapkit_get( i, "origin" ) ) <= 335;
+}
+
+mapkit_in_safelight( player )
+{
+	for ( k = 0; k < level.mapkit_safelights.size; k++ )
+	{
+		i = level.mapkit_safelights[k];
+		radius = mapkit_get_or( i, "radius", 256 );
+		if ( mapkit_safelight_lit( i ) && DistanceSquared( player.origin, bo1_mapkit_get( i, "origin" ) ) < radius * radius )
+		{
+			return true;
+		}
+	}
+	return false;
+}
+
+// d: a Denizen brush model. It rises 300 units behind the player, runs and leaps at him, then clings.
+mapkit_denizen_attack( d, player )
+{
+	d.victim = player;
+	back = AnglesToForward( ( 0, player.angles[1] + 180, 0 ) );
+	spot = player.origin + back * 300;
+	floor_trace = BulletTrace( spot + ( 0, 0, 64 ), spot - ( 0, 0, 256 ), false, undefined );
+	if ( floor_trace["fraction"] < 1 )
+	{
+		spot = floor_trace["position"];
+	}
+	// the brush model's origin is its box's centre, 8 units over the model's feet (bo2_layout.py DENIZEN_BOX)
+	d.origin = spot + ( 0, 0, 8 );
+	d.angles = ( 0, VectorToAngles( player.origin - spot )[1], 0 );
+	d Show();
+	d PlaySound( "zmb_laugh_child" );
+	LogPrint( "mapkit: denizen rises at " + spot + " behind " + player.playername + "\n" );
+	caught = false;
+	start = GetTime();
+	while ( GetTime() - start < 6000 )
+	{
+		if ( !mapkit_denizen_exposed( player ) && !IsDefined( level.mapkit_denizen_forced ) )
+		{
+			break;
+		}
+		to = player.origin + ( 0, 0, 8 );
+		gap = Distance( d.origin, to );
+		if ( gap < 48 )
+		{
+			caught = true;
+			break;
+		}
+		d.angles = ( 0, VectorToAngles( to - d.origin )[1], 0 );
+		step = 0.2;
+		if ( gap < 160 )
+		{
+			// the leap: up and onto him
+			d MoveTo( to + ( 0, 0, 40 ), 0.3 );
+			wait( 0.3 );
+			continue;
+		}
+		d MoveTo( d.origin + VectorNormalize( to - d.origin ) * Min( gap, 400 * step ), step );
+		wait( step );
+	}
+	if ( !caught )
+	{
+		LogPrint( "mapkit: denizen gave up on " + player.playername + "\n" );
+		mapkit_denizen_park( d );
+		return;
+	}
+	mapkit_denizen_cling( d, player );
+}
+
+mapkit_denizen_cling( d, player )
+{
+	player.mapkit_denizen = d;
+	LogPrint( "mapkit: denizen clings to " + player.playername + "\n" );
+	player SetBlur( 6, 0.3 );
+	why = "";
+	next_hit = GetTime() + 2000;
+	for ( ;; )
+	{
+		wait( 0.05 );
+		if ( !IsDefined( player ) )
+		{
+			why = "its player left";
+			break;
+		}
+		if ( !is_player_valid( player ) )
+		{
+			why = "its player went down";
+			break;
+		}
+		if ( player MeleeButtonPressed() )
+		{
+			why = "knifed";
+			break;
+		}
+		if ( mapkit_in_safelight( player ) )
+		{
+			why = "the light";
+			break;
+		}
+		eye = player GetEye();
+		d.origin = eye + AnglesToForward( ( 0, player.angles[1], 0 ) ) * 6 - ( 0, 0, 12 );
+		d.angles = ( 0, player.angles[1] + 180, 0 );
+		if ( GetTime() >= next_hit )
+		{
+			player DoDamage( 10, d.origin );
+			next_hit = GetTime() + 2000;
+		}
+	}
+	if ( IsDefined( player ) )
+	{
+		player SetBlur( 0, 0.5 );
+		player.mapkit_denizen = undefined;
+		if ( why == "knifed" )
+		{
+			player maps\_zombiemode_score::add_to_player_score( 50 );
+		}
+	}
+	LogPrint( "mapkit: denizen let go (" + why + ")\n" );
+	mapkit_denizen_park( d );
+}
+
+mapkit_denizen_park( d )
+{
+	d Hide();
+	d.origin = d.home;
+	d.victim = undefined;
+}
+
+// Machines that fall from the sky (BO2's Nuketown, maps\mp\zm_nuked_perks): a perk or pap edit with "sky" lands on one
+// of the layout's perkspot edits, picked at random, during the game. Off with +set mapkit_skyperks 0, and in the
+// self-test (it buys at the edits' own spots): the machines then stand at their edit's origin from the start.
+mapkit_sky_edit( i )
+{
+	if ( !is_true( bo1_mapkit_get( i, "sky" ) ) || GetDvar( "mapkit_skyperks" ) == "0" || GetDvar( "mapkit_selftest" ) == "1" )
+	{
+		return false;
+	}
+	return mapkit_has_kind( "perkspot" );
+}
+
+// Every machine is placed at load on its spot, hidden 8000 units up with its trigger out of reach, as BO2 lifts them
+// at the start: the retail perk threads, mods/admin's start perks (its machine exists) and the power all work as on a
+// map whose machines stand. Quick Revive takes a solo spot, the other machines the other spots. BO2 picks the spots
+// from the expected player count and in co-op lets any machine take any spot, but BO1 knows the count only once
+// the players are in (retail vending_trigger_think waits for all_players_connected), after the machines are placed:
+// alone, Quick Revive comes first (mapkit_sky_schedule).
+mapkit_sky_perks()
+{
+	spots = [];
+	solo_spots = [];
+	for ( i = 0; i < bo1_mapkit_editcount(); i++ )
+	{
+		if ( bo1_mapkit_get( i, "kind" ) != "perkspot" )
+		{
+			continue;
+		}
+		s = SpawnStruct();
+		s.edit = i;
+		s.origin = bo1_mapkit_get( i, "origin" );
+		s.yaw = bo1_mapkit_get( i, "yaw" );
+		if ( !IsDefined( s.yaw ) )
+		{
+			s.yaw = 0;
+		}
+		if ( is_true( bo1_mapkit_get( i, "solo" ) ) )
+		{
+			solo_spots[ solo_spots.size ] = s;
+		}
+		else
+		{
+			spots[ spots.size ] = s;
+		}
+	}
+	spots = array_randomize( spots );
+	solo_spots = array_randomize( solo_spots );
+	level.mapkit_sky = [];
+	first = undefined;
+	for ( k = 0; k < level.mapkit_sky_edits.size; k++ )
+	{
+		i = level.mapkit_sky_edits[k];
+		perk = bo1_mapkit_get( i, "perk" ); // undefined on the pap edit
+		revive = IsDefined( perk ) && perk == "specialty_quickrevive";
+		spot = undefined;
+		if ( revive && solo_spots.size > 0 )
+		{
+			spot = solo_spots[0];
+		}
+		else if ( spots.size > 0 )
+		{
+			spot = spots[0];
+			spots = array_remove_index( spots, 0 );
+		}
+		else if ( solo_spots.size > 1 )
+		{
+			spot = solo_spots[1]; // more machines than other spots: the solo spots Quick Revive does not take
+			solo_spots = array_remove_index( solo_spots, 1 );
+		}
+		if ( !IsDefined( spot ) )
+		{
+			LogPrint( "mapkit: sky machine edit " + i + " has no free perkspot left, not placed\n" );
+			continue;
+		}
+		if ( bo1_mapkit_get( i, "kind" ) == "pap" )
+		{
+			trig = mapkit_place_pap( i, spot );
+		}
+		else
+		{
+			trig = mapkit_place_perk( i, spot );
+		}
+		if ( !IsDefined( trig ) )
+		{
+			continue;
+		}
+		m = SpawnStruct();
+		m.edit = i;
+		m.name = mapkit_name( i );
+		if ( bo1_mapkit_get( i, "kind" ) == "perk" )
+		{
+			m.name = bo1_mapkit_get( i, "perk" );
+		}
+		m.spot = spot;
+		m.trig = trig;
+		m.machine = trig.mapkit_machine;
+		m.landed = m.machine.origin;
+		m.machine.origin = m.landed + ( 0, 0, 8000 );
+		m.machine Hide();
+		m.trig.origin = m.trig.origin - ( 0, 0, 10000 );
+		if ( revive )
+		{
+			first = m;
+		}
+		else
+		{
+			level.mapkit_sky[ level.mapkit_sky.size ] = m;
+		}
+		LogPrint( "mapkit: sky machine " + m.name + " will land on perkspot edit " + spot.edit + " at " + spot.origin + "\n" );
+	}
+	level thread mapkit_sky_schedule( first );
+}
+
+// BO2's timetable (zm_nuked_perks perks_from_the_sky): 5 to 15 s after the start, then alone Quick Revive 4 s later;
+// then one machine at random in each of the rounds 3-5, 6-9, 10-14, 15-19 and 20-25, 30 to 60 s into the round
+// (60 to 120 s from round 10). +set mapkit_skyperks_fast 1 (tests): one every 20 s from the start.
+mapkit_sky_schedule( first )
+{
+	flag_wait( "all_players_connected" );
+	if ( IsDefined( first ) && get_players().size > 1 )
+	{
+		level.mapkit_sky[ level.mapkit_sky.size ] = first; // in co-op Quick Revive falls at random like the others
+		first = undefined;
+	}
+	order = "";
+	if ( IsDefined( first ) )
+	{
+		order = ", Quick Revive first";
+	}
+	LogPrint( "mapkit: sky machines for " + get_players().size + " player(s)" + order + "\n" );
+	fast = GetDvar( "mapkit_skyperks_fast" ) == "1";
+	if ( fast )
+	{
+		wait( 5 );
+	}
+	else
+	{
+		wait( RandomFloatRange( 5, 15 ) );
+	}
+	if ( IsDefined( first ) )
+	{
+		if ( !fast )
+		{
+			wait( 4 );
+		}
+		mapkit_sky_land( first );
+	}
+	ranges = array( 3, 5, 6, 9, 10, 14, 15, 19, 20, 25 );
+	for ( r = 0; r < ranges.size && level.mapkit_sky.size > 0; r += 2 )
+	{
+		if ( fast )
+		{
+			wait( 20 );
+		}
+		else
+		{
+			// RandomIntRange's top is exclusive, as BO2's wait_for_round_range
+			target = RandomIntRange( ranges[r], ranges[r + 1] );
+			while ( level.round_number < target )
+			{
+				wait( 1 );
+			}
+			if ( r < 4 )
+			{
+				wait( RandomIntRange( 30, 60 ) );
+			}
+			else
+			{
+				wait( RandomIntRange( 60, 120 ) );
+			}
+		}
+		k = RandomInt( level.mapkit_sky.size );
+		m = level.mapkit_sky[k];
+		level.mapkit_sky = array_remove_index( level.mapkit_sky, k );
+		mapkit_sky_land( m );
+	}
+}
+
+mapkit_sky_land( m )
+{
+	LogPrint( "mapkit: sky machine " + m.name + " falling onto " + m.landed + " (round " + level.round_number + ")\n" );
+	m.machine Show();
+	m.machine MoveTo( m.landed, 4, 3.5, 0 );
+	m.machine waittill( "movedone" );
+	// the crate pile on the spot goes (its mesh group), the machine takes the spot's clip
+	bo1_mapkit_visible( m.spot.edit, 0 );
+	Earthquake( 0.7, 2.5, m.landed, 1000 );
+	if ( IsDefined( level.mapkit_sky_fx ) )
+	{
+		PlayFX( level.mapkit_sky_fx, m.landed );
+	}
+	PlaySoundAtPosition( "zmb_box_poof_land", m.landed );
+	// BO2's landing: players within 300 go prone and take a little damage, zombies within 500 are torn apart and come
+	// back later in the round
+	players = get_players();
+	for ( p = 0; p < players.size; p++ )
+	{
+		if ( DistanceSquared( players[p].origin, m.landed ) <= 300 * 300 && is_player_valid( players[p] ) )
+		{
+			players[p] SetStance( "prone" );
+			players[p] DoDamage( 10, m.landed );
+		}
+	}
+	zombies = GetAiSpeciesArray( "axis", "all" );
+	killed = 0;
+	for ( z = 0; z < zombies.size; z++ )
+	{
+		zombie = zombies[z];
+		if ( !IsDefined( zombie ) || !IsAlive( zombie ) || DistanceSquared( zombie.origin, m.landed ) > 500 * 500 )
+		{
+			continue;
+		}
+		if ( IsDefined( zombie.animname ) && zombie.animname == "zombie" )
+		{
+			zombie.a.gib_ref = random( array( "guts", "right_arm", "left_arm" ) );
+			zombie thread animscripts\zombie_death::do_gib();
+		}
+		level.zombie_total++;
+		zombie DoDamage( zombie.health + 100, m.landed );
+		killed++;
+	}
+	m.trig.origin = m.trig.origin + ( 0, 0, 10000 );
+	m.machine Vibrate( ( 0, -100, 0 ), 0.3, 0.4, 3 );
+	m.machine PlaySound( "zmb_perks_power_on" );
+	LogPrint( "mapkit: sky machine " + m.name + " landed at " + m.landed + ", " + killed + " zombies knocked down\n" );
 }
 
 // mapkit-fix-3: one log line per round, so map makers read rounds from the log instead of spawn gaps.
@@ -2015,6 +3115,10 @@ mapkit_check()
 		LogPrint( "mapkit: check all SKIP (needs bo1_testclient 1 + bo1_testclient_passive 1)\n" );
 		return;
 	}
+	// the power switch and Pack-a-Punch of a buildable layout stay hidden until built: build them before their checks
+	mapkit_check_buildables( player );
+	mapkit_check_turbine( player );
+	mapkit_check_denizen( player );
 	// mapkit-fix-3c: the switch and the perk that must refuse can sit behind doors (sluice_works: switch in the control
 	// room, the only reachable perk solo Quick Revive; live doctor "the press never reached perk"). Without electric doors
 	// the progression opens everything with the power off first; electric doors need the power, so they keep the old order.
@@ -2110,7 +3214,8 @@ mapkit_check()
 		kind = bo1_mapkit_get( i, "kind" );
 		if ( kind != "window" && kind != "perk" && kind != "room" && kind != "box" && kind != "stairs" && kind != "node" && kind != "zone"
 			&& kind != "wallbuy" && kind != "spawner" && kind != "spawn" && kind != "door" && kind != "debris" && kind != "mysterybox"
-			&& kind != "pap" && kind != "powerswitch" && kind != "light" && kind != "riser" && kind != "bus" && kind != "bank" && kind != "farrespawn" && kind != "fx" )
+			&& kind != "pap" && kind != "powerswitch" && kind != "light" && kind != "riser" && kind != "bus" && kind != "bank" && kind != "farrespawn" && kind != "fx"
+			&& kind != "buildable" && kind != "piece" && kind != "buildpart" && kind != "denizens" )
 		{
 			LogPrint( "mapkit: check " + kind + " " + mapkit_name( i ) + " SKIP (no runtime check for this kind yet)\n" );
 		}
@@ -2286,6 +3391,10 @@ mapkit_test_budget()
 		{
 			windows++;
 		}
+		if ( kind == "buildable" )
+		{
+			seconds += 60 * StrTok( bo1_mapkit_get( i, "pieces" ), "," ).size;
+		}
 		if ( kind == "riser" && IsDefined( level.mapkit_empty ) )
 		{
 			seconds += 90;
@@ -2302,6 +3411,211 @@ mapkit_test_budget()
 	seconds += windows * 90 + blockers * ( 29 + windows * 90 );
 	seconds += 120; // mapkit_check_round, empty base and overlay
 	LogPrint( "mapkit_selftest BUDGET level_seconds " + seconds + " timescale " + GetDvar( "timescale" ) + "\n" );
+}
+
+// every buildable: the test client picks up each piece where it lies (a use press), carries it to the table and holds
+// use there; PASS per piece once built in, and per buildable once its machine stands
+mapkit_check_buildables( player )
+{
+	if ( !IsDefined( level.mapkit_builds ) )
+	{
+		return;
+	}
+	for ( k = 0; k < level.mapkit_builds.size; k++ )
+	{
+		b = level.mapkit_builds[k];
+		for ( p = 0; p < b.spawned.size; p++ )
+		{
+			piece = b.spawned[p];
+			mapkit_test_visit( piece.origin, piece.origin );
+			start = GetTime();
+			limit = mapkit_test_wait( 25000 );
+			while ( !( IsDefined( player.mapkit_piece ) && player.mapkit_piece == piece ) && GetTime() - start < limit )
+			{
+				wait( 0.5 );
+			}
+			if ( !IsDefined( player.mapkit_piece ) || player.mapkit_piece != piece )
+			{
+				LogPrint( "mapkit: check buildable " + b.name + " piece " + piece.model + " FAIL not picked up in " + ( limit / 1000 ) + " s (player at " + player.origin + ", piece at " + piece.origin + ")\n" );
+				continue;
+			}
+			mapkit_test_visit( b.origin, b.origin );
+			SetDvar( "bo1_testclient_press", "3," + GetTime() + ",3000,2600" );
+			start = GetTime();
+			while ( !IsDefined( piece.done ) && GetTime() - start < limit )
+			{
+				wait( 0.5 );
+			}
+			if ( IsDefined( piece.done ) )
+			{
+				LogPrint( "mapkit: check buildable " + b.name + " piece " + piece.model + " PASS built in after " + ( GetTime() - start ) + " ms\n" );
+			}
+			else
+			{
+				LogPrint( "mapkit: check buildable " + b.name + " piece " + piece.model + " FAIL carried but not built in " + ( limit / 1000 ) + " s (player at " + player.origin + ", table at " + b.origin + ")\n" );
+			}
+		}
+		wait( 0.5 );
+		if ( IsDefined( b.done ) )
+		{
+			LogPrint( "mapkit: check buildable " + b.name + " PASS built, its machine stands\n" );
+		}
+		else
+		{
+			LogPrint( "mapkit: check buildable " + b.name + " FAIL " + b.built.size + "/" + b.pieces.size + " pieces built in\n" );
+		}
+	}
+	SetDvar( "bo1_testclient_press", "" );
+}
+
+// the built turbine: the test client takes it from its table, crouches there and holds use; PASS once planted, with
+// every turbine door within its range opened
+mapkit_check_turbine( player )
+{
+	if ( !IsDefined( level.mapkit_turbine ) )
+	{
+		return;
+	}
+	b = level.mapkit_turbine;
+	mapkit_test_visit( b.origin, b.origin );
+	start = GetTime();
+	limit = mapkit_test_wait( 25000 );
+	while ( !( IsDefined( player.mapkit_turbine ) && player.mapkit_turbine == b ) && GetTime() - start < limit )
+	{
+		wait( 0.5 );
+	}
+	if ( !IsDefined( player.mapkit_turbine ) )
+	{
+		LogPrint( "mapkit: check turbine FAIL not taken from its table in " + ( limit / 1000 ) + " s (player at " + player.origin + ", table at " + b.origin + ")\n" );
+		SetDvar( "bo1_testclient_press", "" );
+		return;
+	}
+	SetDvar( "bo1_testclient_stance", 1 );
+	SetDvar( "bo1_testclient_press", "3," + ( GetTime() + 1500 ) + ",3000,2000" );
+	start = GetTime();
+	while ( b.state != "planted" && GetTime() - start < limit )
+	{
+		wait( 0.5 );
+	}
+	SetDvar( "bo1_testclient_press", "" );
+	SetDvar( "bo1_testclient_stance", 0 );
+	if ( b.state != "planted" )
+	{
+		LogPrint( "mapkit: check turbine FAIL taken but not planted in " + ( limit / 1000 ) + " s (stance " + player GetStance() + ")\n" );
+		return;
+	}
+	wait( 1 );
+	near = 0;
+	opened = "";
+	for ( i = 0; i < bo1_mapkit_editcount(); i++ )
+	{
+		if ( bo1_mapkit_get( i, "kind" ) != "door" || !is_true( bo1_mapkit_get( i, "turbine" ) ) || Distance( mapkit_center( i ), b.at ) > 335 )
+		{
+			continue;
+		}
+		near++;
+		if ( flag( "mkdoor" + i + "_open" ) )
+		{
+			opened = opened + " " + mapkit_name( i );
+		}
+		else
+		{
+			LogPrint( "mapkit: check turbine FAIL door " + mapkit_name( i ) + " within range of the turbine at " + b.at + " stays closed\n" );
+		}
+	}
+	if ( near == 0 )
+	{
+		LogPrint( "mapkit: check turbine FAIL planted at " + b.at + " but no turbine door within range of its table\n" );
+	}
+	else if ( StrTok( opened, " " ).size == near )
+	{
+		LogPrint( "mapkit: check turbine PASS planted at " + b.at + ", opened" + opened + "\n" );
+	}
+}
+
+// a Denizen sent at the test client standing on a node of a Denizen zone: PASS once it clings, then once a knife
+// (melee press) throws it off
+mapkit_check_denizen( player )
+{
+	if ( !IsDefined( level.mapkit_denizen_ents ) || level.mapkit_denizen_ents.size == 0 )
+	{
+		return;
+	}
+	stand = undefined;
+	for ( i = 0; i < bo1_mapkit_editcount() && !IsDefined( stand ); i++ )
+	{
+		if ( bo1_mapkit_get( i, "kind" ) != "zone" || !IsDefined( bo1_mapkit_get( i, "mins" ) ) )
+		{
+			continue;
+		}
+		name = mapkit_name( i );
+		hunted = false;
+		for ( t = 0; t < level.mapkit_denizen_tokens.size; t++ )
+		{
+			if ( IsSubStr( name, level.mapkit_denizen_tokens[t] ) )
+			{
+				hunted = true;
+			}
+		}
+		if ( !hunted )
+		{
+			continue;
+		}
+		lo = bo1_mapkit_get( i, "mins" );
+		hi = bo1_mapkit_get( i, "maxs" );
+		for ( n = 0; n < bo1_mapkit_editcount(); n++ )
+		{
+			if ( bo1_mapkit_get( n, "kind" ) != "node" )
+			{
+				continue;
+			}
+			o = bo1_mapkit_get( n, "origin" );
+			if ( o[0] > lo[0] + 64 && o[0] < hi[0] - 64 && o[1] > lo[1] + 64 && o[1] < hi[1] - 64 && o[2] > lo[2] && o[2] < hi[2] )
+			{
+				stand = o;
+				break;
+			}
+		}
+	}
+	if ( !IsDefined( stand ) )
+	{
+		LogPrint( "mapkit: check denizen FAIL no node inside a Denizen zone\n" );
+		return;
+	}
+	mapkit_test_visit( stand, stand + ( 100, 0, 48 ) );
+	SetDvar( "bo1_testclient_press", "" );
+	wait( 2 );
+	level.mapkit_denizen_forced = true;
+	level thread mapkit_denizen_attack( level.mapkit_denizen_ents[0], player );
+	start = GetTime();
+	while ( !IsDefined( player.mapkit_denizen ) && GetTime() - start < 10000 )
+	{
+		wait( 0.25 );
+	}
+	if ( !IsDefined( player.mapkit_denizen ) )
+	{
+		LogPrint( "mapkit: check denizen FAIL never clung to the test client at " + player.origin + " (exposed " + mapkit_denizen_exposed( player ) + ")\n" );
+		level.mapkit_denizen_forced = undefined;
+		return;
+	}
+	LogPrint( "mapkit: check denizen PASS clung after " + ( GetTime() - start ) + " ms at " + player.origin + "\n" );
+	wait( 3 );
+	SetDvar( "bo1_testclient_press", "2," + GetTime() + ",1000,200" );
+	start = GetTime();
+	while ( IsDefined( player.mapkit_denizen ) && GetTime() - start < 10000 )
+	{
+		wait( 0.25 );
+	}
+	SetDvar( "bo1_testclient_press", "" );
+	level.mapkit_denizen_forced = undefined;
+	if ( IsDefined( player.mapkit_denizen ) )
+	{
+		LogPrint( "mapkit: check denizen FAIL still clinging 10 s into melee presses\n" );
+	}
+	else
+	{
+		LogPrint( "mapkit: check denizen PASS knifed off after " + ( GetTime() - start ) + " ms\n" );
+	}
 }
 
 // every zone: its info_volume exists, the zone manager enabled it, and whether the test client stands in it

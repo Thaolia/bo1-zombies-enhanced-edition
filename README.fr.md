@@ -70,8 +70,8 @@ paquets par `make_dist.sh --bo2` :
 
 | Carte | Ce qui marche | Absent |
 |---|---|---|
-| Nuketown | toute la carte, ses props et la lumière précalculée de BO2, les braises, le feu, la fumée, les étincelles, les rayons de lumière, le brouillard et les nuages (effets de BO1 aux emplacements de BO2) ; self-test 107/107 | les impacts des météores, l'eau |
-| TranZit (classique) | portes, courant, atouts, Pack-a-Punch, barricades, le pont, le bus et la banque ; cendres, feu, fumée, brouillard, rayons de lumière et lueur des lampes (effets de BO1) | les Denizens, les objets à construire, la lueur de la lave |
+| Nuketown | toute la carte, ses props et la lumière précalculée de BO2, les braises, le feu, la fumée, les étincelles, les rayons de lumière, le brouillard et les nuages (effets de BO1 aux emplacements de BO2) ; les atouts et le Pack-a-Punch qui tombent du ciel, le couteau Bowie et les claymores ; self-test 109/109 | les impacts des météores, l'eau |
+| TranZit (classique) | portes, courant, atouts, Pack-a-Punch, barricades, le pont, le bus et la banque ; cendres, feu, fumée, brouillard, rayons de lumière et lueur des lampes (effets de BO1) ; l'interrupteur, le Pack-a-Punch et la turbine à construire, les portes de la turbine, des Denizens simplifiés (à retirer au couteau), le couteau Bowie et les claymores | le Jet Gun, le bouclier, les Galvaknuckles, l'EMP, l'Avogadro, la lueur de la lave |
 | Mob of the Dead | les blocs de cellules, les portes, les atouts, le Pack-a-Punch, la nacelle (en marche dès le début) ; feu, braises, brouillard, vapeur, rayons de lumière, étincelles, lueur des lampes (effets de BO1) | l'au-delà, l'avion, Brutus, les bougies |
 | Buried | la ville, la grotte et le manoir, les atouts, le Pack-a-Punch ; le courant est allumé dès le début ; brouillard, rayons de lumière et leur poussière, vapeur, fumée, la lueur des lampes (effets de BO1) | Leroy, les fantômes, les énigmes du labyrinthe, les objets à construire |
 

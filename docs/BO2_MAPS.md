@@ -403,7 +403,9 @@ Build it (the procedure of Nuketown's world with these differences):
 
     $U --include-assets xmodel,material --model-format GLTF -o $D/transitgltf/?zone? zm_transit.ff   # and each
     # zm_transit_gump_*.ff, then rsync -a --ignore-existing zm_transit_gump_*/ zm_transit/ in $D/transitgltf
-    tools/bo2/bo2_mesh.py $D/zm_transit zm_transit --out $OUT/imports --blockers-only --mover veh_t6_civ_bus_zombie
+    tools/bo2/bo2_mesh.py $D/zm_transit zm_transit --out $OUT/imports --blockers-only --mover veh_t6_civ_bus_zombie \
+        --mover p6_anim_zm_buildable_turbine --mover c_zom_screecher_fb   # the last two since 2026-11-18
+    # (the buildables' piece models are in so_zclassic_zm_transit.ff: its dump merged with rsync --ignore-existing)
     # Five's brush models, once: a headless client on Five with +set mapkit_dump_bmodels five_bmodels.json
     tools/bo2/bo2_bsp.py $D/zm_transit zm_transit --name zombie_bo2transit --templates <wc> --models \
         $D/transitgltf/zm_transit --layout <layouts/bo2_zm_transit.json> \
@@ -777,6 +779,46 @@ climbs onto the pier and was jumping down to the client when the 90 s ran out); 
 zone's risers at the citadel station while the client stands at the dock's; and two that pass in other runs
 (`zone_start`: its first zombie came 3 s late, over a round break; the `zone_studio_21` unlock, one spawner among the
 zone's).
+
+### Nuketown's falling machines, TranZit's buildables and Denizens (2026-11-18)
+
+Asked by the user, in this order: Nuketown's perks falling from the sky, then TranZit's map weapons, buildables and
+Denizens. The decompiled BO2 scripts (`zm_nuked_perks`, `zm_transit_buildables`, `_zm_buildables`,
+`_zm_equip_turbine`, `zm_ai_screecher`, `zm_transit`) are the reference; MAPKIT.md's `perkspot`, `wallbuy`
+(`"trigger"`), `buildable`, `piece`, `buildpart` rows and `_mapkit.gsc` hold the details.
+
+- **Nuketown's machines from the sky** (`perkspot` edits, `"sky"` on the perk and pap edits): the four perks and
+  Pack-a-Punch land on 5 of BO2's 10 `zm_random_machine` spots, picked at random; Quick Revive first and alone on a
+  `solo` spot, the others one per round range (3-5, 6-9, 10-14, 15-19, 20-25). Each spot keeps BO2's crate pile
+  (`bo2_mesh.py` groups, 25 props, 2 new images) and a machine clip until a machine lands on it. Windows (test client,
+  `mapkit_skyperks_fast 1`): the five machines landed in 2 minutes, crates hidden under each, no script error.
+- **Bowie knife and claymores** on Nuketown and TranZit: BO2's `bowie_upgrade` and `claymore_purchase` triggers become
+  wall buys of BO1's own purchases (`"trigger"`; the engine names the trigger so). BO2's Galvaknuckles wall
+  (`tazer_upgrade`) has no BO1 weapon and is left out. A first Windows run gave 5 script errors: that exe predated the
+  engine's `"trigger"` (`cm_mapkit.cpp` built a second earlier), so both were plain wall buys of weapons BO1's table
+  lacks; none with the rebuilt exe. Self-test: both bought on Nuketown and TranZit.
+- **Buildables** (TranZit): the power switch, Pack-a-Punch and the turbine are built from three pieces each, lying on
+  one of their BO2 spots (`piece` edits drawn by `bo2_mesh.py` groups; 20 spots, the models from
+  `so_zclassic_zm_transit.ff`). The power switch shows its parts at the switch as they are built in (`buildpart`).
+  Use at a table and on a piece is polled by distance, not a use trigger's: BO2's table triggers stand inside the
+  tables, and the self-test's client never built the power switch (nor picked up the turbine's fan, on a shelf)
+  through the trigger, whose use test looks for its centre from the eye.
+- **The turbine**: once built, a player takes it from its table and plants it by crouching and holding use 1 s; it
+  opens the doors BO2 opens with a turbine (`local_electric_door`: the depot's two, the diner's, the town's and the
+  lab hatch to Pack-a-Punch), within BO2's 335 units, for good (BO2's need it running beside them, and it wears out).
+  It is drawn by a mesh mover (`p6_anim_zm_buildable_turbine`) on an undrawn layout brush model the script moves.
+  Without buildables (`mapkit_buildables 0`) those doors open with the power, as before.
+- **Denizens**, simplified: in a fog zone (`_trans_`/`_amb_`, BO2's `init_screecher_zones`), off the bus and away
+  from a lit safety light (BO2's 8 `screecher_escape` lamps, lit by a planted turbine within 335 units), a player is
+  hunted after 8-15 s: the screecher's model rises behind him, leaps on him and clings to his face, blurring the view
+  and clawing 10 health every 2 s until one melee throws it off (50 points). No BO2 teleport, no push minigame, no
+  Denizen anim (its bind pose). Its colour map is streamed from an `.ipak` OAT does not dump: it is drawn with its
+  grey rim mask.
+- Checks. TranZit Windows self-test client (win64, screenshots every 3 s): the six pieces of the power switch and
+  Pack-a-Punch built, the turbine's three, the turbine taken, planted (drawn) and the two depot doors opened, a
+  Denizen clinging (blurred view) then knifed off; no script error. Linux self-tests (all checks, timescale 4):
+  Nuketown 109/0 (the Bowie knife and claymore walls; the machines stand at their edits there), TranZit 315/3
+  (`riser101` to `riser103`, which fail the same way in the 298/4 run before; the old fourth failure passes).
 
 ## What comes out of `zm_nuked`
 
@@ -1240,8 +1282,10 @@ TranZit goes through the same tools, with what its size and its bus needed:
   and the bus ride. `pow_door_rr` is a SKIP: BO2's graph reaches its room by stairs below the doorway, so no link crosses
   it.
 - **Not done.** The props are unlit (TranZit's placements carry no `smodellight` colours), the fog and the lava,
-  the buildables, Denizens, the Avogadro, the Jet Gun and the other BO2 weapons (the bank and the bus's doors and calls
-  came on 2026-11-15: "TranZit's bus and bank" below).
+  the Avogadro, the Jet Gun, the shield, the Galvaknuckles, the EMP and the other buildables (the bank and the bus's
+  doors and calls came on 2026-11-15: "TranZit's bus and bank" below; the power switch, Pack-a-Punch and turbine
+  buildables, the Bowie knife, the claymores and simplified Denizens on 2026-11-18: "Nuketown's falling machines,
+  TranZit's buildables and Denizens" below).
 
 #### The user's first TranZit run (2026-11-11)
 
