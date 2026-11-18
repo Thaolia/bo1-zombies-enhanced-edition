@@ -24,7 +24,8 @@ imports/<map>/<map>.collision.bin: copy the .bin there in the run folder) and it
     one farther from the player start being the one it unlocks, and its "meshGroup" names the group of BO2 script
     models (door, couch, chairs) that bo2_mesh.py draws until the purchase;
   - wallbuy: the weapon_upgrade structs whose weapon has a BO1 equivalent loaded on the Five base (WEAPONS), and the
-    Bowie knife and claymore purchases with Five's own (PURCHASES, the edit's "trigger");
+    Bowie knife and claymore purchases with Five's own (PURCHASES, the edit's "trigger"), and the Galvaknuckles'
+    ("tazer_upgrade", sold by _mapkit.gsc when the bo2weapons mod.ff holds them);
   - perk / pap: the four Five perks and Pack-a-Punch on the first zm_random_machine landing spots, on the side a
     player can reach, with "sky": BO2 drops them from the sky onto random spots during the game, as MapKit does;
   - piece / buildpart / buildable (TranZit): each spot a buildable piece can lie on (BUILDABLES), the finished power
@@ -33,6 +34,7 @@ imports/<map>/<map>.collision.bin: copy the .bin there in the run folder) and it
     the doors BO2 opens with a turbine (local_electric_door) get "turbine";
   - safelight / denizens (TranZit): BO2's safety lights (screecher_escape), and the Denizens' zones, with their brush
     models "mapkit_denizen<k>" carrying the screecher's model as mesh movers;
+  - emp (TranZit, EMP_MAPS): BO2's EMP grenade joins the mystery box when the bo2weapons mod.ff holds it;
   - perkspot: every zm_random_machine landing spot (Nuketown's ten), where the machines fall: "solo" for the spots
     Quick Revive lands on in a solo game, "meshGroup" for BO2's crate pile there (drawn until a machine lands);
   - traverse: the node_negotiation pairs whose BO2 animscript has a BO1 one of about the same height (TRAVERSES);
@@ -75,6 +77,10 @@ PURCHASES = {
     "bowie_upgrade": ("bowie_knife_zm", "world_knife_bowie"),
     "claymore_purchase": ("claymore_zm", "weapon_claymore"),
 }
+# The Galvaknuckles' price (BO2's _zm_weap_tazer_knuckles level.tazer_cost default)
+TAZER_COST = 6000
+# The maps whose mystery box holds BO2's EMP grenade (from the bo2weapons mod.ff, _mapkit.gsc mapkit_emp)
+EMP_MAPS = {"bo2_zm_transit"}
 # BO2 traversal animscript -> the BO1 zombie animscript of the nearest height that the Five base loads
 # (zombie_pentagon.ff, common_zombie.ff). BO1 zombies have no jump up below 222 units: the jump-ups take MapKit's
 # mapkit_jump_up (mods/mapkit/animscripts/traverse), the 222 one brought down to the end node's height. The mantles
@@ -965,6 +971,7 @@ def bank_edit(props, col, nodes=(), doors=()):
 
 
 def build(ents, col, name, collision, links_file=None, props=(), solid_props=()):
+    layout_name = name  # the loops below reuse "name" for chests, windows, buildables and Denizens
     submodels = col.submodels
     folder = os.path.dirname(collision)
     edits = [{"kind": "collision", "file": collision},
@@ -1261,7 +1268,11 @@ def build(ents, col, name, collision, links_file=None, props=(), solid_props=())
             edits.append({"kind": "wallbuy", "origin": vec(e["origin"]), "yaw": round((yaw(e) + 90) % 360, 1),
                           "weapon": weapon, "model": model, "trigger": e["targetname"]})
         elif e.get("targetname") == "tazer_upgrade" and classic_wallbuy(e):
-            skipped.append(e.get("zombie_weapon_upgrade", "tazer_knuckles_zm"))
+            # the Galvaknuckles come from the player's bo2weapons mod.ff (tools/bo2/bo2_weapon.py EXTRAS); _mapkit.gsc
+            # sells them and gives the wall their model when they are loaded (tag_origin until then)
+            edits.append({"kind": "wallbuy", "origin": vec(e["origin"]), "yaw": round((yaw(e) + 90) % 360, 1),
+                          "weapon": e.get("zombie_weapon_upgrade", "tazer_knuckles_zm"), "model": "tag_origin",
+                          "trigger": "tazer_upgrade", "cost": TAZER_COST})
 
     # BO2 drops these machines from the sky: each zm_random_machine struct, high above the map, targets the struct
     # where the machine lands (its yaw included)
@@ -1386,6 +1397,8 @@ def build(ents, col, name, collision, links_file=None, props=(), solid_props=())
                 {"model": DENIZEN_MODEL, "entity": name, "offset": [round((lo[j] + hi[j]) / 2, 2) for j in range(3)],
                  "yaw": 0.0})
         edits.append({"kind": "denizens", "zones": DENIZEN_ZONES, "count": DENIZEN_COUNT})
+    if layout_name in EMP_MAPS:
+        edits.append({"kind": "emp"})
     # the doors' use volumes the deposit keeps clear of are the blocker edits', made before the bank, added after it
     blockers = blocker_edits(ents, submodels, zones, start_zones)
     bank = bank_edit(props, col, [e["origin"] for e in edits if e["kind"] == "node"],
@@ -1397,7 +1410,7 @@ def build(ents, col, name, collision, links_file=None, props=(), solid_props=())
     edits += blockers
     edits += barrier_clips(edits, col)
 
-    layout = {"name": name, "base": "zombie_pentagon", "empty": True, "edits": edits}
+    layout = {"name": layout_name, "base": "zombie_pentagon", "empty": True, "edits": edits}
     if sum(1 for e in edits if e["kind"] == "node") > BIG_MAP_NODES:
         layout["nodeVisRange"] = NODE_VIS_RANGE
     counts = {}

@@ -88,7 +88,8 @@ box_only_bo2( mode )
 	removed = 0;
 	for ( i = 0; i < keys.size; i++ )
 	{
-		if ( IsDefined( bo2[keys[i]] ) || !is_true( level.zombie_weapons[keys[i]].is_in_box ) )
+		// emp_grenade_zm: BO2's special grenade, which MapKit's TranZit adds to the box from this mod.ff
+		if ( IsDefined( bo2[keys[i]] ) || keys[i] == "emp_grenade_zm" || !is_true( level.zombie_weapons[keys[i]].is_in_box ) )
 		{
 			continue;
 		}
