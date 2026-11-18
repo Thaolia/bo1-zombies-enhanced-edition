@@ -928,7 +928,7 @@ static void CM_Mapkit_WarnPurchaseOverlap()
 
 // mapkit-fix-4b: machine clips. Retail Five's perk machines, Pack-a-Punch and box stand in baked CLIP brushes (player clip +
 // monster clip: cm_noperks.cpp removes them); a script_model's own contents never stop a player or an actor. Every perk / pap
-// / powerswitch / mysterybox edit gets a hidden axial box of contents 0x8030200 around the machine's model bounds (rotated by
+// (but those with "sky", which land on a perkspot) / powerswitch / mysterybox / perkspot edit gets a hidden axial box of contents 0x8030200 around the machine's model bounds (rotated by
 // the model yaw, then the covering AABB). It is added before G_InitGame, so the node pass cuts the links through it
 // (Mapkit_GridInSolid / Mapkit_LinkNearBox, Path_CanLinkNodes mask 0x2820011 & 0x20000). Use traces (0x11) and BulletTrace
 // (0x280E033) pass through it. snap:"wall" is resolved here, by _mapkit.gsc mapkit_wall_spot's rule, so the clip and the
@@ -1003,6 +1003,10 @@ namespace
         { "powerswitch", { -16.0f, -12.0f, 24.0f }, { 16.0f, 4.0f, 104.0f }, 90.0f },
         // box model at origin+14, angles yaw-90
         { "mysterybox", { -50.0f, -18.0f, -10.0f }, { 50.0f, 18.0f, 145.0f }, -90.0f },
+        // a spot any of the falling machines can land on (Nuketown, _mapkit.gsc mapkit_sky_perks): Pack-a-Punch's
+        // footprint, the tallest machine's height. BO2 keeps a crate pile there until a machine lands, so the spot is
+        // solid all game and the node pass cuts the links through it once, at load
+        { "perkspot", { -43.0f, -27.0f, -4.0f }, { 43.0f, 23.0f, 105.5f }, 90.0f },
     };
 }
 
@@ -1025,6 +1029,9 @@ void CM_Mapkit_AddMachineClips()
             if (!strcmp(s_machineClips[i].key, key))
                 clip = &s_machineClips[i];
         if (!clip)
+            continue;
+        // a machine that falls from the sky lands on a perkspot edit, whose clip it takes
+        if ((!strcmp(kind, "perk") || !strcmp(kind, "pap")) && MkJ_Num(c, "sky", 0.0f) != 0.0f)
             continue;
         float yaw = MkJ_Num(c, "yaw", !strcmp(kind, "mysterybox") ? 270.0f : 0.0f);
         if (strcmp(kind, "mysterybox") && !strcmp(MkJ_Str(c, "snap", ""), "wall")
@@ -1181,7 +1188,9 @@ namespace
         MkE_Add("}\n");
     }
 
-    // wall buy: trigger_use + the chalk/weapon model it targets (weapons.gsc:356-374; Five m14 E:17207-17221)
+    // wall buy: trigger_use + the chalk/weapon model it targets (weapons.gsc:356-374; Five m14 E:17207-17221). "trigger"
+    // names another retail purchase that takes the same pair: bowie_upgrade (_zombiemode_bowie bowie_init) or
+    // claymore_purchase (_zombiemode_claymore init), as Five's own (E: bowie_upgrade, claymore_purchase)
     void MkE_WallBuy(int e, int c)
     {
         float origin[3];
@@ -1192,7 +1201,7 @@ namespace
         MkE_Add("{\n\"classname\" \"trigger_use\"\n");
         MkE_Model("model", s_editBModel[e]);
         MkE_KeyVec("origin", s_editBCenter[e]);
-        MkE_Key("targetname", "weapon_upgrade");
+        MkE_Key("targetname", MkJ_Str(c, "trigger", "weapon_upgrade"));
         MkE_Key("zombie_weapon_upgrade", MkJ_Str(c, "weapon", "m14_zm"));
         MkE_Key("target", target);
         MkE_Add("}\n{\n\"classname\" \"script_model\"\n");

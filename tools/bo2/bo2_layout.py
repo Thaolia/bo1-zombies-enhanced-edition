@@ -23,9 +23,18 @@ imports/<map>/<map>.collision.bin: copy the .bin there in the run folder) and it
     models' (the door panel, the debris clip), its zones come from its script_flag ("culdesac_2_openhouse2_f1"), the
     one farther from the player start being the one it unlocks, and its "meshGroup" names the group of BO2 script
     models (door, couch, chairs) that bo2_mesh.py draws until the purchase;
-  - wallbuy: the weapon_upgrade structs whose weapon has a BO1 equivalent loaded on the Five base (WEAPONS);
-  - perk / pap: the four Five perks and Pack-a-Punch on the first zm_random_machine landing spots (BO2 drops them
-    at random), on the side a player can reach;
+  - wallbuy: the weapon_upgrade structs whose weapon has a BO1 equivalent loaded on the Five base (WEAPONS), and the
+    Bowie knife and claymore purchases with Five's own (PURCHASES, the edit's "trigger");
+  - perk / pap: the four Five perks and Pack-a-Punch on the first zm_random_machine landing spots, on the side a
+    player can reach, with "sky": BO2 drops them from the sky onto random spots during the game, as MapKit does;
+  - piece / buildpart / buildable (TranZit): each spot a buildable piece can lie on (BUILDABLES), the finished power
+    switch's pieces, and the table a player builds at; the power switch and Pack-a-Punch edits get "buildable"; the
+    turbine's table also gets an "ent" brush model "mapkit_turbine" carrying the finished turbine as a mesh mover, and
+    the doors BO2 opens with a turbine (local_electric_door) get "turbine";
+  - safelight / denizens (TranZit): BO2's safety lights (screecher_escape), and the Denizens' zones, with their brush
+    models "mapkit_denizen<k>" carrying the screecher's model as mesh movers;
+  - perkspot: every zm_random_machine landing spot (Nuketown's ten), where the machines fall: "solo" for the spots
+    Quick Revive lands on in a solo game, "meshGroup" for BO2's crate pile there (drawn until a machine lands);
   - traverse: the node_negotiation pairs whose BO2 animscript has a BO1 one of about the same height (TRAVERSES);
   - collision "cut": the BO2 clip at each machine and box spot (MapKit's machine brings its own);
   - mesh: the drawable world, <folder of the collision>/<map>.mesh.bin and images/ (tools/bo2/bo2_mesh.py writes them).
@@ -58,6 +67,13 @@ WEAPONS = {
     # the dual CZ75: Five's English zone has no ZOMBIE_WEAPON_CZ75 (the single CZ75 is never a wall weapon in BO1), so
     # its wall showed the raw key and no "hold to buy" until the first purchase; ZOMBIE_WEAPON_CZ75DW is there
     "beretta93r_zm": ("cz75dw_zm", "t5_weapon_cz75_world"),
+}
+# BO2's other wall purchases (their struct's targetname) whose weapon BO1 has under the same name, with the retail
+# purchase that sells it on Five (the wallbuy edit's "trigger"), the model on the wall and BO2's cost (BO1's scripts
+# set their own: 3000 and 1000)
+PURCHASES = {
+    "bowie_upgrade": ("bowie_knife_zm", "world_knife_bowie"),
+    "claymore_purchase": ("claymore_zm", "weapon_claymore"),
 }
 # BO2 traversal animscript -> the BO1 zombie animscript of the nearest height that the Five base loads
 # (zombie_pentagon.ff, common_zombie.ff). BO1 zombies have no jump up below 222 units: the jump-ups take MapKit's
@@ -167,6 +183,61 @@ HEADING_REACH = 250.0
 # side, searched at these places along the bus (vehicle space x) up to CALL_REACH units out from its side.
 CALL_ALONG = [420.0, 300.0, 520.0, 200.0, -150.0, 620.0]
 CALL_REACH = 400.0
+
+
+# TranZit's buildables (maps\mp\zm_transit_buildables, _zm_buildables): each piece lies on one of its spots, a struct
+# named "<buildable>_<piece model>" (picked at random in play), a player carries it to the buildable's table trigger
+# and builds it there. A piece shared by two buildables (the battery) has its spots told apart by claim_location.
+# BO2's finished power switch is its three pieces as script models at the switch, shown as each piece is built.
+BUILDABLES = {
+    "powerswitch": {"trigger": "powerswitch_buildable_trigger",
+                    "pieces": ["p6_zm_buildable_pswitch_hand", "p6_zm_buildable_pswitch_body",
+                               "p6_zm_buildable_pswitch_lever"]},
+    "pap": {"trigger": "pap_buildable_trigger",
+            "pieces": ["p6_zm_buildable_battery", "p6_zm_buildable_pap_body", "p6_zm_buildable_pap_table"],
+            "spots": {"p6_zm_buildable_battery": ("pap_p6_zm_buildable_battery", "pap_battery")}},
+    # no machine: the finished turbine is an item a player takes from its table and plants (TURBINE_MODEL below)
+    "turbine": {"trigger": "turbine_buildable_trigger",
+                "pieces": ["p6_zm_buildable_turbine_fan", "p6_zm_buildable_turbine_rudder",
+                           "p6_zm_buildable_turbine_mannequin"]},
+}
+# The finished turbine (BO2's script model "buildable_turbine" on its table): a mesh mover on an undrawn brush model of
+# TURBINE_BOX (model space, its origin at the model's feet) that _mapkit.gsc shows on the table once built, then moves to
+# where a player plants it. bo2_mesh.py --mover writes the model.
+TURBINE_MODEL = "p6_anim_zm_buildable_turbine"
+TURBINE_BOX = ([-16.0, -16.0, 0.0], [16.0, 16.0, 64.0])
+# TranZit's Denizens (zm_ai_screecher), simplified (_mapkit.gsc mapkit_denizens): DENIZEN_COUNT mesh movers of the
+# screecher's model (its bind pose) on undrawn brush models of DENIZEN_BOX, parked DENIZEN_PARK under the first safety
+# light until one leaps at a player. They hunt in the zones whose name holds one of DENIZEN_ZONES (BO2's
+# init_screecher_zones), away from a safety light (BO2's screecher_escape structs: "safelight" edits) a turbine powers.
+DENIZEN_MODEL = "c_zom_screecher_fb"
+DENIZEN_COUNT = 2
+DENIZEN_BOX = ([-8.0, -8.0, 0.0], [8.0, 8.0, 16.0])
+DENIZEN_PARK = 2048.0
+DENIZEN_ZONES = "_trans_,_amb_"
+
+
+def buildable_parts(ents):
+    """{buildable: {"trigger": the table's trigger entity, "pieces": {model: [(group, spot struct)]},
+    "built": {model: [(group, script model)]}}} for the BUILDABLES the entities have. A group is the mesh group that
+    draws a piece on its spot (or built at its buildable), bo2_mesh.py's and the layout's name for it."""
+    out = {}
+    for name, b in BUILDABLES.items():
+        trigger = next((e for e in ents if e.get("targetname") == b["trigger"]
+                        and CLASSIC in e.get("script_gameobjectname", CLASSIC)), None)
+        if trigger is None:
+            continue
+        pieces, built = {}, {}
+        for model in b["pieces"]:
+            targetname, claim = b.get("spots", {}).get(model, (f"{name}_{model}", None))
+            spots = [e for e in ents if e.get("targetname") == targetname and e.get("classname") == "script_struct"
+                     and (claim is None or e.get("claim_location") == claim)]
+            pieces[model] = [(f"piece:{name}:{model[len('p6_zm_buildable_'):]}:{k}", e) for k, e in enumerate(spots)]
+            done = [e for e in ents if e.get("targetname") == f"{name}_{model}" and e.get("classname") == "script_model"
+                    and CLASSIC in e.get("script_gameobjectname", "")]
+            built[model] = [(f"built:{name}:{model[len('p6_zm_buildable_'):]}", e) for e in done]
+        out[name] = {"trigger": trigger, "pieces": pieces, "built": built}
+    return out
 
 
 def read_entities(path):
@@ -459,8 +530,9 @@ def blocker_edits(ents, submodels, zones, start_zones):
         group = {"kind": kind, "name": target, "mins": mins, "maxs": maxs, "yaw": 0,
                  "zones": (a, b), "cost": int(float(trigger.get("zombie_cost", 1000))), "meshGroup": target}
         if kind == "door" and trigger.get("script_noteworthy") == "local_electric_door":
-            # TranZit's doors that the power opens by itself (MapKit's electric_door)
-            group["power"], group["cost"] = 1, 0
+            # TranZit's doors that a turbine planted beside them opens (BO2's local power); MapKit opens them with the
+            # power when there is no turbine to build (_mapkit.gsc mapkit_turbine_doors)
+            group["power"], group["cost"], group["turbine"] = 1, 0, 1
         elif kind == "door" and trigger.get("script_noteworthy") == "afterlife_door" and not group["cost"]:
             # Mob of the Dead's doors that a player opens in afterlife, which MapKit does not have: bought instead
             group["cost"] = AFTERLIFE_DOOR_COST
@@ -1184,20 +1256,40 @@ def build(ents, col, name, collision, links_file=None, props=(), solid_props=())
             # BO2 lays the weapon along the wall (its yaw); BO1's wallbuy faces out of the wall: 90 degrees more
             edits.append({"kind": "wallbuy", "origin": vec(e["origin"]), "yaw": round((yaw(e) + 90) % 360, 1),
                           "weapon": weapon, "model": model})
+        elif e.get("targetname") in PURCHASES and classic_wallbuy(e):
+            weapon, model = PURCHASES[e["targetname"]]
+            edits.append({"kind": "wallbuy", "origin": vec(e["origin"]), "yaw": round((yaw(e) + 90) % 360, 1),
+                          "weapon": weapon, "model": model, "trigger": e["targetname"]})
+        elif e.get("targetname") == "tazer_upgrade" and classic_wallbuy(e):
+            skipped.append(e.get("zombie_weapon_upgrade", "tazer_knuckles_zm"))
 
     # BO2 drops these machines from the sky: each zm_random_machine struct, high above the map, targets the struct
     # where the machine lands (its yaw included)
     by_targetname = {e["targetname"]: e for e in ents if "targetname" in e}
-    machines, machines_skipped = [], []
+    machines, machines_skipped, spots = [], [], []
     for e in ents:
         if e.get("script_noteworthy") == "zm_random_machine":
             land = by_targetname.get(e.get("target", ""), e)
             machines.append(place(vec(land["origin"]), yaw(land), (0, 180, 90, -90)))
+            # every spot keeps BO2's crate pile (the landing struct's target) until a machine lands on it; the
+            # solo_revive spots are those Quick Revive lands on in a solo game
+            origin, angle = machines[-1]
+            spot = {"kind": "perkspot", "origin": origin, "yaw": angle}
+            if e.get("targetname") == "solo_revive":
+                spot["solo"] = 1
+            if land.get("target"):
+                spot["meshGroup"] = land["target"]
+            spots.append(spot)
+    # the machines fall from the sky onto random spots during the game (_mapkit.gsc mapkit_sky_perks); each still has
+    # an origin, where it stands when the drops are off (mapkit_skyperks 0, the self-test)
+    sky = {"sky": 1} if len(spots) > len(PERKS) else {}
     for perk, (origin, angle) in zip(PERKS, machines):
-        edits.append({"kind": "perk", "perk": perk, "origin": origin, "yaw": angle})
+        edits.append({"kind": "perk", "perk": perk, "origin": origin, "yaw": angle, **sky})
     if len(machines) > len(PERKS):
         origin, angle = machines[len(PERKS)]
-        edits.append({"kind": "pap", "name": "pap", "origin": origin, "yaw": angle})
+        edits.append({"kind": "pap", "name": "pap", "origin": origin, "yaw": angle, **sky})
+    if sky:
+        edits += spots
     # TranZit places its machines per gametype (zm_perk_machine structs, script_string "zclassic_perks_transit ...")
     paps = [e for e in ents if e.get("targetname") == "zm_perk_machine"
             and e.get("script_noteworthy") == "specialty_weapupgrade"]
@@ -1237,18 +1329,72 @@ def build(ents, col, name, collision, links_file=None, props=(), solid_props=())
             edits.append({"kind": "powerswitch", "name": "switch",
                           "origin": [o[0], o[1], round(ground, 2) if ground is not None else o[2]], "yaw": yaw(e)})
             break
+    # TranZit's buildables: the power switch and Pack-a-Punch are built before they work (_mapkit.gsc
+    # mapkit_buildables); their machine edits say so, the pieces' spots and the built parts are edits of their own
+    turbine_mover = None
+    for name, parts in buildable_parts(ents).items():
+        if name == "turbine":
+            built = next((e for e in ents if e.get("targetname") == "buildable_turbine" and e.get("model") == TURBINE_MODEL
+                          and CLASSIC in e.get("script_gameobjectname", "")), None)
+            if built is None:
+                continue
+            o = vec(built["origin"])
+            lo, hi = TURBINE_BOX
+            edits.append({"kind": "ent", "keys": {"classname": "script_brushmodel", "targetname": "mapkit_turbine"},
+                          "bmodel": {"mins": [round(o[k] + lo[k], 2) for k in range(3)],
+                                     "maxs": [round(o[k] + hi[k], 2) for k in range(3)]}})
+            # the brush model spawns with angles 0 and its origin at its box's centre
+            turbine_mover = {"model": TURBINE_MODEL, "entity": "mapkit_turbine",
+                             "offset": [round((lo[k] + hi[k]) / 2, 2) for k in range(3)], "yaw": yaw(built)}
+        else:
+            machine = next((e for e in edits if e["kind"] == ("powerswitch" if name == "powerswitch" else "pap")), None)
+            if machine is None:
+                continue
+            machine["buildable"] = name
+        for model, spots in parts["pieces"].items():
+            for group, e in spots:
+                edits.append({"kind": "piece", "buildable": name, "piece": model, "origin": vec(e["origin"]),
+                              "meshGroup": group})
+            for group, e in parts["built"][model]:
+                edits.append({"kind": "buildpart", "buildable": name, "piece": model, "origin": vec(e["origin"]),
+                              "meshGroup": group})
+        trigger = parts["trigger"]
+        edits.append({"kind": "buildable", "name": name, "origin": vec(trigger["origin"]),
+                      "pieces": ",".join(parts["pieces"])})
     bus, mover = bus_edits(ents, col)
     if not bus:
         bus, mover = gondola_edits(ents, col)
     edits += bus
     edits[1].update(mover)
+    if turbine_mover:
+        edits[1].setdefault("movers", []).append(turbine_mover)
+    lights = [e for e in ents if e.get("targetname") == "screecher_escape" and e.get("classname") == "script_struct"]
+    if lights:
+        for e in lights:
+            edits.append({"kind": "safelight", "name": e.get("script_noteworthy", "light"), "origin": vec(e["origin"]),
+                          "radius": float(e.get("radius", 256))})
+        park = vec(lights[0]["origin"])
+        lo, hi = DENIZEN_BOX
+        for k in range(DENIZEN_COUNT):
+            name = f"mapkit_denizen{k}"
+            edits.append({"kind": "ent", "keys": {"classname": "script_brushmodel", "targetname": name},
+                          "bmodel": {"mins": [round(park[0] + lo[0], 2), round(park[1] + lo[1], 2),
+                                              round(park[2] - DENIZEN_PARK + lo[2], 2)],
+                                     "maxs": [round(park[0] + hi[0], 2), round(park[1] + hi[1], 2),
+                                              round(park[2] - DENIZEN_PARK + hi[2], 2)]}})
+            edits[1].setdefault("movers", []).append(
+                {"model": DENIZEN_MODEL, "entity": name, "offset": [round((lo[j] + hi[j]) / 2, 2) for j in range(3)],
+                 "yaw": 0.0})
+        edits.append({"kind": "denizens", "zones": DENIZEN_ZONES, "count": DENIZEN_COUNT})
+    # the doors' use volumes the deposit keeps clear of are the blocker edits', made before the bank, added after it
+    blockers = blocker_edits(ents, submodels, zones, start_zones)
     bank = bank_edit(props, col, [e["origin"] for e in edits if e["kind"] == "node"],
-                     [(e["mins"], e["maxs"]) for e in edits if e["kind"] in ("door", "debris") and "mins" in e])
+                     [(e["mins"], e["maxs"]) for e in blockers if e["kind"] in ("door", "debris") and "mins" in e])
     if bank:
         edits.append(bank)
     if cuts:
         edits[0]["cut"] = cuts
-    edits += blocker_edits(ents, submodels, zones, start_zones)
+    edits += blockers
     edits += barrier_clips(edits, col)
 
     layout = {"name": name, "base": "zombie_pentagon", "empty": True, "edits": edits}

@@ -28,7 +28,8 @@ and FAR_CELL beyond it (the distant backdrop), so the view culls them and the li
   i32 sky model (the worldspawn's skyboxmodel, one of the models above, drawn around the viewer; -1: none)
   u32 groupCount, then per group: char[64] name, u32 count, count x u32 instance: the props a door or debris removes
       when bought (BO2's blockers are script models: their doors and furniture, written as instances above); a group
-      is named after its triggers' target, the "meshGroup" of the layout's door or debris edit (bo2_layout.py)
+      is named after its triggers' target, the "meshGroup" of the layout's door or debris edit (bo2_layout.py); the
+      crate pile on each spot a perk machine can fall on is a group too, the "meshGroup" of the perkspot edit
 --blockers-only writes <out>/<map>.blockers.mesh.bin instead, in the same format: the blockers' props and groups, the
 standing brush models and the --mover models only (no chunks, no placed props, sky -1), for a native map whose BSP draws the world and the props (bo2_bsp.py
 --blocker-mesh): MapKit then draws BO2's doors and furniture there too, until the purchase.
@@ -45,7 +46,7 @@ import struct
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from bo2_layout import read_entities  # noqa: E402  (the worldspawn names the sky model)
+from bo2_layout import buildable_parts, read_entities  # noqa: E402  (the worldspawn names the sky model)
 from bo2_worldlight import WorldLight, light_triangles, pack, read_world_light  # noqa: E402
 
 CELL = 512.0
@@ -714,8 +715,12 @@ def main(argv=None):
     for e in ents:
         by_name.setdefault(e.get("targetname"), []).append(e)
     blocker_groups = {}
+    # and Nuketown's crate piles, one on each spot a perk machine can fall on (a zm_random_machine struct targets the
+    # landing struct, which targets the pile): the "meshGroup" of the layout's perkspot edit, hidden when a machine lands
+    landings = {e.get("target") for e in ents if e.get("script_noteworthy") == "zm_random_machine"}
     for trigger in ents:
-        if trigger.get("targetname") not in ("zombie_door", "zombie_debris") or not trigger.get("target"):
+        crate = trigger.get("targetname") in landings and trigger.get("classname") == "script_struct"
+        if not crate and trigger.get("targetname") not in ("zombie_door", "zombie_debris") or not trigger.get("target"):
             continue
         group = trigger["target"]
         if group in blocker_groups:
@@ -734,6 +739,19 @@ def main(argv=None):
             blocker_groups[group].append(len(instances))
             instances.append((index, [float(v) for v in e["origin"].split()], angles_to_axes(e.get("angles", "0 0 0")),
                               float(e.get("modelscale", 1.0))))
+
+    # TranZit's buildable pieces, one group per spot (shown on the spot the game picks, hidden once picked up), and the
+    # finished power switch's pieces (hidden until each is built): bo2_layout.buildable_parts names the groups
+    for parts in buildable_parts(ents).values():
+        for kind in ("pieces", "built"):
+            for model, entries in parts[kind].items():
+                for group, e in entries:
+                    index = add_model(e.get("model", model))
+                    if index < 0:
+                        continue
+                    blocker_groups.setdefault(group, []).append(len(instances))
+                    instances.append((index, [float(v) for v in e["origin"].split()],
+                                      angles_to_axes(e.get("angles", "0 0 0")), float(e.get("modelscale", 1.0))))
 
     # brush models that always stand: TranZit's bridge (two sections, walked on, never drawn before); kept with
     # --blockers-only too, since a BSP world (bo2_bsp.py) holds the world's static surfaces only
