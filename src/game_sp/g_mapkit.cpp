@@ -266,6 +266,7 @@ void G_Mapkit_f_graphcheck()
 //                                             (key may be dotted: "gaps.0.side"; "#gaps" = array length)
 //   bo1_mapkit_layout()                     the loaded layout's name ("" = none)
 //   bo1_mapkit_weaponloaded(name)           1 if a loaded zone holds the weapon (another map's, bo1_mod_zones)
+//   bo1_mapkit_modelloaded(name)            1 if a loaded zone holds the xmodel (a mod.ff's BO2 character)
 //   bo1_mapkit_mark(kind, name, origin, r)  record a placement / zone / probe for the validator dump
 //   bo1_mapkit_dump(file)                   write <fs_game>/<file>: boxes, marks, retail brushes and pathnodes
 //                                             around the edits (tools/mapkit/topdown.mjs draws it)
@@ -325,6 +326,13 @@ void G_Mapkit_f_layout()
 void G_Mapkit_f_weaponloaded()
 {
     const XAssetEntryPoolEntry *entry = DB_FindXAssetEntry(ASSET_TYPE_WEAPON, Scr_GetString(0, SCRIPTINSTANCE_SERVER));
+    Scr_AddInt(entry && entry->entry.zoneIndex != 0, SCRIPTINSTANCE_SERVER);
+}
+
+// the same for an xmodel: a PrecacheModel of a missing one draws the default model
+void G_Mapkit_f_modelloaded()
+{
+    const XAssetEntryPoolEntry *entry = DB_FindXAssetEntry(ASSET_TYPE_XMODEL, Scr_GetString(0, SCRIPTINSTANCE_SERVER));
     Scr_AddInt(entry && entry->entry.zoneIndex != 0, SCRIPTINSTANCE_SERVER);
 }
 
