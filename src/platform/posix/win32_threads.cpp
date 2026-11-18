@@ -21,6 +21,10 @@
 #include <mutex>
 #include <vector>
 
+#if defined(__SWITCH__)
+#include <platform/switch/switch_perf.h>
+#endif
+
 namespace
 {
 thread_local Bo1Thread *t_self = nullptr;
@@ -101,6 +105,40 @@ void UnregisterThread(Bo1Thread *thread)
     }
     Bo1_Release(thread);
 }
+
+#if defined(__SWITCH__)
+// A .nro's exit() goes back to hbloader in the same process: the threads CreateThread started keep running in code that
+// hbloader then unmaps, and the first of them to wake took an instruction abort (2168-0001) at the module's address.
+// Bo1_StopThreadsForExit sets s_exiting; a created thread then ends itself at its next Sleep or event wait (infinite
+// waits wake every 100 ms to look).
+std::atomic<bool> s_exiting{false};
+std::atomic<int> s_running{0}; // created threads not yet returned
+
+// At most every 100 ms: a svcGetInfo per sample, and the job queue's workers wait thousands of times a second.
+void SampleCpu(Bo1Thread *self)
+{
+    timespec now;
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    const long long ns = (long long)now.tv_sec * 1000000000LL + now.tv_nsec;
+    if (ns - self->lastSampleNs < 100000000LL)
+        return;
+    self->lastSampleNs = ns;
+    self->cpuTicks.store(Switch_ThreadTicks());
+    self->cpuCore.store(Switch_CurrentCore());
+}
+
+// Called with no shim lock held.
+void ExitIfStopping()
+{
+    Bo1Thread *self = t_self;
+    if (!s_exiting.load() || !self || !self->created)
+        return;
+    self->exited.Set();
+    UnregisterThread(self);
+    s_running.fetch_sub(1);
+    pthread_exit(nullptr);
+}
+#endif
 
 // The calling thread's object, created the first time a thread that CreateThread did not start asks for it (the main
 // thread, threads of libraries). It lives as long as the process.
@@ -244,6 +282,9 @@ void *ThreadTrampoline(void *arg)
     thread->exited.Set();
     UnregisterThread(thread);
     Bo1_Release(thread); // the reference CreateThread gave the running thread
+#if defined(__SWITCH__)
+    s_running.fetch_sub(1);
+#endif
     return nullptr;
 }
 } // namespace
@@ -264,6 +305,11 @@ Bo1Event::~Bo1Event()
 
 bool Bo1Event::Wait(DWORD milliseconds)
 {
+#if defined(__SWITCH__)
+    ExitIfStopping();
+    if (t_self)
+        SampleCpu(t_self);
+#endif
     const timespec deadline = DeadlineAfter(milliseconds == INFINITE ? 0 : milliseconds);
     pthread_mutex_lock(&mutex);
     const uint64_t generation = pulseGeneration;
@@ -286,7 +332,20 @@ bool Bo1Event::Wait(DWORD milliseconds)
             break;
         }
         if (milliseconds == INFINITE)
+        {
+#if defined(__SWITCH__)
+            const timespec slice = DeadlineAfter(100);
+            pthread_cond_timedwait(&cond, &mutex, &slice);
+            if (s_exiting.load() && t_self && t_self->created)
+            {
+                --waiters;
+                pthread_mutex_unlock(&mutex);
+                ExitIfStopping();
+            }
+#else
             pthread_cond_wait(&cond, &mutex);
+#endif
+        }
         else if (pthread_cond_timedwait(&cond, &mutex, &deadline) == ETIMEDOUT)
             break;
     }
@@ -514,6 +573,7 @@ HANDLE CreateThread(LPSECURITY_ATTRIBUTES, SIZE_T dwStackSize, LPTHREAD_START_RO
 {
     std::call_once(s_suspendHandlerOnce, InstallSuspendHandler);
     Bo1Thread *thread = new Bo1Thread();
+    thread->created = true;
     thread->start = lpStartAddress;
     thread->parameter = lpParameter;
     thread->suspendCount = (dwCreationFlags & CREATE_SUSPENDED) ? 1 : 0;
@@ -538,10 +598,16 @@ HANDLE CreateThread(LPSECURITY_ATTRIBUTES, SIZE_T dwStackSize, LPTHREAD_START_RO
     if (defaultSize > stackSize)
         stackSize = defaultSize;
     pthread_attr_setstacksize(&attr, stackSize);
+#if defined(__SWITCH__)
+    s_running.fetch_add(1);
+#endif
     const int error = pthread_create(&thread->thread, &attr, ThreadTrampoline, &start);
     pthread_attr_destroy(&attr);
     if (error)
     {
+#if defined(__SWITCH__)
+        s_running.fetch_sub(1);
+#endif
         pthread_cond_destroy(&start.cond);
         pthread_mutex_destroy(&start.mutex);
         delete thread;
@@ -777,8 +843,50 @@ DWORD SetThreadIdealProcessor(HANDLE, DWORD)
     return (DWORD)-1;
 }
 
+#if defined(__SWITCH__)
+extern "C" void Bo1_SampleCurrentThread(void)
+{
+    SampleCpu(SelfThread());
+}
+
+extern "C" int Bo1_ThreadPerfSnapshot(Bo1ThreadPerf *out, int max)
+{
+    Bo1Thread *self = SelfThread();
+    std::lock_guard<std::mutex> lock(s_threadsLock);
+    int count = 0;
+    for (const auto &entry : Threads())
+    {
+        if (count >= max)
+            break;
+        Bo1Thread *thread = entry.second;
+        Bo1ThreadPerf &t = out[count++];
+        t.id = (unsigned)thread->id;
+        t.param = (unsigned long long)(uintptr_t)thread->parameter;
+        t.created = thread->created ? 1 : 0;
+        t.self = thread == self ? 1 : 0;
+        t.ticks = thread->cpuTicks.load();
+        t.core = thread->cpuCore.load();
+    }
+    return count;
+}
+
+extern "C" int Bo1_StopThreadsForExit(unsigned timeoutMs)
+{
+    s_exiting.store(true);
+    const timespec step = {0, 5000000L};
+    for (unsigned waited = 0; s_running.load() > 0 && waited < timeoutMs; waited += 5)
+        nanosleep(&step, nullptr);
+    return s_running.load();
+}
+#endif
+
 void Sleep(DWORD dwMilliseconds)
 {
+#if defined(__SWITCH__)
+    ExitIfStopping();
+    if (t_self)
+        SampleCpu(t_self);
+#endif
     if (!dwMilliseconds)
     {
         sched_yield();

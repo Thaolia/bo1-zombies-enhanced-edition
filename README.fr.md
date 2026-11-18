@@ -195,6 +195,10 @@ menu écrit `launch.cfg` (la ligne de commande du moteur) et `gfx.cfg` (le rendu
 vide `skip_menu` dans le même dossier, le jeu démarre sans menu, sur `launch.cfg` et `gfx.cfg` tels quels. C'est
 pratique sur un émulateur.
 
+En partie, quitter depuis le menu pause (Start, puis l'entrée qui quitte la partie) ferme proprement l'application et
+ramène au menu homebrew, au lieu du menu principal de BO1 (`bo1_quitOnDisconnect`, actif par défaut sur la console
+seulement). HOME met toujours le jeu en pause comme d'habitude.
+
 #### Build PC d'origine
 Les instructions upstream (Windows, MSVC x86, D3D9) sont dans `README.md`, `setup.ps1` et `Play.bat`.
 

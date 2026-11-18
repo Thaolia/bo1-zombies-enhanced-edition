@@ -3193,9 +3193,18 @@ static void Com_LoadFrontEnd_SP()
     Cbuf_AddText(primary, "map frontend\n");
 }
 
+extern bool cl_quitAtFrontEnd; // cl_main_mp.cpp, bo1_quitOnDisconnect
+
 void __cdecl Com_LoadFrontEnd()
 {
     Dvar_SetBool((dvar_s *)xblive_matchEndingSoon, 0);
+    if ( cl_quitAtFrontEnd )
+    {
+        cl_quitAtFrontEnd = false;
+        Com_Printf(16, "bo1_quitOnDisconnect: the player left the game, quitting instead of loading the front end\n");
+        Cbuf_AddText(0, "quit\n");
+        return;
+    }
     if (!IsDedicatedServer())
     {
         CL_SetupClientsForFrontend();
@@ -3328,9 +3337,16 @@ void __cdecl Com_CheckSyncFrame()
     UI_ViewerCheckStreamer();
 }
 
+#if defined(__SWITCH__)
+extern "C" void Switch_PerfFrame(void); // platform/switch/switch_perf.cpp: per-thread CPU use in the boot log
+#endif
+
 void __cdecl Com_Frame()
 {
     void *Value; // eax
+#if defined(__SWITCH__)
+    Switch_PerfFrame();
+#endif
 
     proftimer_physics_frame_advance.reset();
     sv_flame_proftimer.reset();

@@ -99,6 +99,8 @@
 #include <platform/netlog.h>
 
 const dvar_t *cl_noprint;
+const dvar_t *bo1_quitOnDisconnect;
+bool cl_quitAtFrontEnd; // set by CL_Disconnect_f, read by Com_LoadFrontEnd
 const dvar_t *playlist;
 const dvar_t *category;
 const dvar_t *categoryPlaylist;
@@ -4100,6 +4102,15 @@ void __cdecl CL_InitOnceForAllClients()
     cl_allowWanConnect = _Dvar_RegisterBool("cl_allowWanConnect", 0, 0,
         "zombies: let connect reach addresses beyond the LAN");
     cl_shownuments = _Dvar_RegisterBool("cl_shownuments", 0, 0, "Show the number of entities");
+    // zombies: the console has no use for BO1's main menu (its start menu chose the game), so leaving a game from the
+    // pause menu (popup_leavegame: exec "disconnect") closes the application instead of loading the front end, back to
+    // the homebrew menu. A game that ends by itself (game over) still goes back to the main menu
+#if defined(__SWITCH__)
+    bo1_quitOnDisconnect = _Dvar_RegisterBool("bo1_quitOnDisconnect", 1, 0,
+#else
+    bo1_quitOnDisconnect = _Dvar_RegisterBool("bo1_quitOnDisconnect", 0, 0,
+#endif
+        "zombies: the disconnect command quits the game once a connected client has left");
     cl_showServerCommands = _Dvar_RegisterBool(
                                                         "cl_showServerCommands",
                                                         0,
@@ -4508,7 +4519,13 @@ void __cdecl CL_Disconnect_f()
     for ( localClientNum = 0; localClientNum < cl_maxLocalClients; ++localClientNum )
     {
         if ( CL_GetLocalClientConnectionState(localClientNum) )
+        {
+            // set before the disconnect: leaving a listen server ends the level and loads the front end
+            // (Com_LoadFrontEnd) inside CL_DisconnectLocalClient, where the quit replaces that load
+            if ( bo1_quitOnDisconnect && bo1_quitOnDisconnect->current.enabled )
+                cl_quitAtFrontEnd = true;
             CL_DisconnectLocalClient(localClientNum);
+        }
     }
 }
 
