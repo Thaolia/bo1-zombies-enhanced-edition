@@ -27,7 +27,8 @@ What changes on the way:
 - animations: BO2's, with each "sndnt#<alias>" notetrack renamed to the reference weapon's alias of the same action
   (fly_hamr_mag_out -> wpn_hk21_mag_out) or disabled when BO1 has none: BO1 has no BO2 sound aliases.
 --all takes every BO2 box weapon of the dumps with its Pack-a-Punch version, picks the BO1 reference by class
-(reference_for) and writes mp/bo2weapons.csv, the list mods/bo2weapons registers.
+(reference_for) and writes mp/bo2weapons.csv, the list mods/bo2weapons registers. It also takes the scripted
+weapons of EXTRAS that MapKit's BO2 maps sell (the Galvaknuckles, the EMP grenade), which stay out of that list.
 The output is the player's own game data: keep it out of the repository.
 """
 import argparse
@@ -414,7 +415,10 @@ class Project:
         return True
 
     # weapons ---------------------------------------------------------------------------------------------------------
-    def weapon(self, bo2_name, bo1_name):
+    def weapon(self, bo2_name, bo1_name, extra=False):
+        """extra: an EXTRAS weapon. An asset BO1 has under the same name (the perk bottle's animations and the cloth
+        hands of the Galvaknuckles' purchase, a grenade icon) stays BO1's: a BO2 copy in mod.ff would replace it for
+        BO1's own weapons."""
         t6 = read_weapon(self.find("weapons", bo2_name))
         ref = read_weapon(os.path.join(self.bo1, "weapons", bo1_name))
         t6d = dict(t6)
@@ -423,7 +427,8 @@ class Project:
         out, kept, from_ref = [], 0, 0
         for key, ref_value in ref:
             value = t6d.get(key)
-            if value is None:
+            if value is None or (extra and value and value == ref_value
+                                 and (MODEL_KEY.match(key) or ANIM_KEY.search(key) or ICON_KEY.match(key))):
                 out.append((key, ref_value))
                 from_ref += 1
                 continue
@@ -438,7 +443,9 @@ class Project:
                     value = ref_value
             elif value and (ANIM_KEY.search(key) or self.find("xanim", value)
                             or os.path.exists(os.path.join(self.bo1, "xanim", ref_value or "-"))):
-                if not self.xanim(value, aliases):
+                if extra and os.path.exists(os.path.join(self.bo1, "xanim", value)):
+                    pass
+                elif not self.xanim(value, aliases):
                     value = ref_value  # BO2's anim is not in the dumps (the Mark II's dive to prone)
             elif ICON_KEY.match(key) and value and self.find("materials", value + ".json"):
                 value = self.hud_material(value)
@@ -452,6 +459,10 @@ class Project:
         # the reference's accuracy graphs are files the Linker reads next to the weapon. An AI firing a weapon without
         # one ends the game (Actor_GetWeaponAccuracyFromGraph_SP: "No 'AI vs AI' accuracy graph"); BO1's box weapons
         # have none, so an empty one takes BO1's SMG graph
+        for key, value in OVERRIDES.get(bo2_name, {}).items():
+            if value.startswith("@"):
+                value = dict(out)[value[1:]]
+            out = [(k, value if k == key else v) for k, v in out]
         for key, folder in (("aiVsAiAccuracyGraph", "aivsai"), ("aiVsPlayerAccuracyGraph", "aivsplayer")):
             if not dict(out).get(key):
                 out = [(k, DEFAULT_ACCURACY_GRAPH if k == key else v) for k, v in out]
@@ -770,6 +781,19 @@ def sound_for(alias, aliases):
 # box weapon and the items, turrets, hands and powerups are not box weapons.
 SKIP = re.compile(r"^(blunder|slipgun|slowgun|staff_|tower_trap|minigun|knife_ballistic|equip_|zombie_|falling_hands|"
                   r"electrocuted|defaultweapon|quadrotor|jetgun|riotshield|tomb_shield|alcatraz_shield)|_extclip|_stalker")
+# --all: the scripted weapons MapKit's BO2 maps sell (mods/mapkit _mapkit.gsc), each with the BO1 weapon it works like.
+# The Galvaknuckles replace the knife as the Bowie knife does, through a purchase animation of their own; the EMP
+# grenade is a special grenade thrown like the Monkey Bomb.
+EXTRAS = (("tazer_knuckles_zm", "bowie_knife_zm"), ("zombie_tazer_flourish", "zombie_bowie_flourish"),
+          ("emp_grenade_zm", "zombie_cymbal_monkey"))
+# The EXTRAS' names BO2's zombie zones lack (the EMP grenade's is in its multiplayer strings)
+EXTRA_NAMES = {"WEAPON_EMP_GRENADE": "EMP Grenade"}
+# Values set after the merge ("@key": the merged weapon's value of key). The EMP takes the Monkey Bomb's class (BO1
+# throws a "Flash Grenade" as a flash bang) and a plain grenade explosion with no effect or sound: its 1 damage within
+# 1 unit hurts nobody, and the script plays the pulse (the Monkey's satchel blast would look like an explosion). Its
+# projectile is its own world model, not the Monkey (REF_KEY takes projectileModel from the reference).
+OVERRIDES = {"emp_grenade_zm": {"offhandClass": "Smoke Grenade", "projExplosionType": "grenade",
+                                "projExplosionEffect": "", "projExplosionSound": "", "projectileModel": "@worldModel"}}
 # The BO1 reference of a BO2 weapon by class (sounds, effects, tracer, accuracy graph, notetrack sounds)
 UPGRADED_REF = {"m16_zm": "m16_gl_upgraded_zm", "gl_m16_upgraded_zm": "gl_m16_upgraded_zm"}
 VO = {"mg": "mg", "smg": "smg", "spread": "shotgun", "pistol": "pistol", "rocketlauncher": "launcher",
@@ -882,10 +906,15 @@ def main():
         if upgrade:
             p.weapon_tree(upgrade, UPGRADED_REF.get(ref, ref.replace("_zm", "_upgraded_zm")))
         table.append((base, upgrade or "", vo))
+    for name, ref in (EXTRAS if args.all else ()):
+        if p.find("weapons", name):
+            p.weapon(name, ref, extra=True)
     for name in p.weapons:
         key = dict(read_weapon(p.find("weapons", name))).get("displayName", "")
         if key and key not in strings and key in bo2_strings:
             strings[key] = bo2_strings[key]
+        elif key in EXTRA_NAMES and key not in strings:
+            strings[key] = EXTRA_NAMES[key]
     p.localize(sorted(strings.items()))
     p.weapon_table(table)
     p.write_zone()

@@ -111,6 +111,32 @@ zones is skipped, and the map then stays retail.
   one becomes the reference weapon's alias for the same action (`fly_hamr_mag_out` → `wpn_hk21_mag_out`). A notetrack
   with no match is renamed `bo2nt#...`: it still notifies but plays no sound (the HAMR's `tap`).
 
+## The Galvaknuckles and the EMP grenade (2026-11-18)
+
+`--all` also converts three scripted weapons that MapKit's BO2 maps sell (`EXTRAS` in `bo2_weapon.py`), each on the
+BO1 weapon it works like. They stay out of `mp/bo2weapons.csv`: the box list does not take them.
+
+| BO2 weapon | BO1 reference | Used by |
+|---|---|---|
+| `tazer_knuckles_zm` (Galvaknuckles, melee, 1500 damage) | `bowie_knife_zm` | the `tazer_upgrade` wall buys of Nuketown and TranZit (`_mapkit.gsc` `mapkit_tazer_walls`) |
+| `zombie_tazer_flourish` (their purchase animation) | `zombie_bowie_flourish` | the same purchase |
+| `emp_grenade_zm` (special grenade) | `zombie_cymbal_monkey` | TranZit's box (`emp` edit, `mapkit_emp_detonate`) |
+
+- A model, animation or icon that BO1 has under the same name stays BO1's (`weapon(..., extra=True)`): the
+  purchase animation plays the perk bottle's `viewmodel_zombie_perksacola_*` in its cloth hands, and a BO2 copy of
+  those in `mod.ff` would replace them for BO1's own perk bottles.
+- `OVERRIDES` sets values after the merge. The EMP takes the Monkey Bomb's class (`Smoke Grenade`: BO1 throws a
+  `Flash Grenade` as a flash bang) and a plain grenade explosion with no effect and no sound (its 1 damage within 1
+  unit hurts nobody; the script plays the pulse); its projectile is its own world model (`projectileModel` comes from
+  the reference otherwise, which would throw a Monkey).
+- The EMP's name (`WEAPON_EMP_GRENADE`) is in BO2's multiplayer strings only: it takes `EXTRA_NAMES`' English.
+- `--all` output: the three add 3 weapon files, 4 xmodels (each weapon's view and world model), 8 xanims (the
+  knuckles' 6, the grenade's pull-pin and throw), 5 materials and 9 images (the converter's summary: 97 xmodels, 747
+  xanims, 194 materials, 202 images). The other weapons' files come out the same, but for a few hundred bytes in some
+  `_lit` colour maps (DXT encoding: 186 bytes of the HAMR's 1.4 MB).
+  Linker: the same 6 warnings as before (the Ray Gun Mark II's dive-to-prone anims), 0 errors; `ffconv --verify`
+  passes (1 604 assets).
+
 ## Build it
 
 Paths are those of this machine. OAT must be built with both patches (`tools/bo2/oat/README.md`):
@@ -184,7 +210,8 @@ The HAMR (proof of concept):
 - The LSAT's ammo counter is dropped; 24 images streamed from `.ipak`s keep the template's image.
 - The Five-seven's left gun, in dual wield, is barely visible.
 - Scripted weapons (Jet Gun, staffs, Blundergat, Slowgun, Sliquifier, tomahawk, ballistic knife), equipment, the
-  shields and Origins' extended-clip / stalker copies are left out (`SKIP`, or not a primary weapon). Weapons BO1
+  shields and Origins' extended-clip / stalker copies are left out (`SKIP`, or not a primary weapon), but for the
+  Galvaknuckles and the EMP grenade (`EXTRAS`, above). Weapons BO1
   already has under the same name (`m14_zm`, `mp5k_zm`, `ray_gun_zm`...) keep BO1's.
 - Since 2026-11-16 every stacked mod's `mod.ff` loads (`DB_ListModZones`): the first as zone `mod`, the next ones
   as `mod_<name>`, all in the batch that loads `mod` (`mods/dualwield/README.md`).

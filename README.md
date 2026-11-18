@@ -68,8 +68,8 @@ Extracted from your own Black Ops II with `tools/bo2` (OpenAssetTools plus a wor
 
 | Map | What works | Not there |
 |---|---|---|
-| Nuketown | the whole map, its props and BO2's baked light, embers, fires, smoke, sparks, light rays, fog and clouds (BO1 effects on BO2's spots); the perk machines and Pack-a-Punch falling from the sky, the Bowie knife and claymores; self-test 109/109 | the meteors' impacts, the water |
-| TranZit (classic) | doors, power, perks, Pack-a-Punch, barricades, the bridge, the bus and the bank; ash, fires, smoke, fog, light rays and the lamps' glow (BO1 effects); the power switch, Pack-a-Punch and turbine to build, the turbine's doors, simplified Denizens (knife them off), the Bowie knife and claymores | the Jet Gun, the shield, the Galvaknuckles, the EMP, the Avogadro, the lava's glow |
+| Nuketown | the whole map, its props and BO2's baked light, embers, fires, smoke, sparks, light rays, fog and clouds (BO1 effects on BO2's spots); the perk machines and Pack-a-Punch falling from the sky, the Bowie knife, claymores and Galvaknuckles (with the bo2weapons mod); self-test 109/109 | the meteors' impacts, the water |
+| TranZit (classic) | doors, power, perks, Pack-a-Punch, barricades, the bridge, the bus and the bank; ash, fires, smoke, fog, light rays and the lamps' glow (BO1 effects); the power switch, Pack-a-Punch and turbine to build, the turbine's doors, simplified Denizens (knife them off), the Bowie knife and claymores; with the bo2weapons mod, the Galvaknuckles and the EMP grenade (simplified) | the Jet Gun, the shield, the Avogadro, the lava's glow |
 | Mob of the Dead | cell blocks, doors, perks, Pack-a-Punch, the gondola (running from the start); fires, embers, fog, steam, light rays, sparks, the lamps' glow (BO1 effects) | afterlife, the plane, Brutus, the candles |
 | Buried | town, cave and mansion, perks, Pack-a-Punch; the power is on from the start; fog, light rays and their dust, steam, smoke, the lamps' glow (BO1 effects) | Leroy, ghosts, the maze puzzles, buildables |
 

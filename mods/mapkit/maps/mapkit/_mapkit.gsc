@@ -25,6 +25,7 @@ main_start()
 	level.mapkit_layout = bo1_mapkit_layout();
 	LogPrint( "mapkit: runtime on layout " + level.mapkit_layout + ", " + bo1_mapkit_editcount() + " edits\n" );
 	mapkit_precache();
+	mapkit_extras_start();
 	mapkit_blocker_hints();
 	mapkit_marathon_perk();
 	if ( mapkit_imported() )
@@ -1086,6 +1087,7 @@ main_end()
 	{
 		level thread mapkit_denizens();
 	}
+	mapkit_tazer_walls();
 	if ( IsDefined( level.mapkit_paps ) && !IsDefined( level.mapkit_switch ) )
 	{
 		level thread mapkit_pap_power();
@@ -1126,6 +1128,12 @@ main_end()
 	if ( GetDvar( "mapkit_boardshots" ) == "1" )
 	{
 		level thread mapkit_boardshots();
+	}
+	// +set mapkit_galvashots 1 (passive god test client, -Client 1x): the Galvaknuckles' purchase and melees, then the
+	// box's EMP grenade thrown, photographed (log lines "mapkit: galvashots ...", shots bo1_<n>)
+	if ( GetDvar( "mapkit_galvashots" ) == "1" )
+	{
+		level thread mapkit_galvashots();
 	}
 	// mapkit-fix-4b: +set mapkit_clipshots 1 (passive god test client): the player walks from 64 in front into every
 	// machine's centre and must stop outside its clip; zombies are sampled for standing inside a clip ("mapkit: clipshots")
@@ -1965,11 +1973,16 @@ mapkit_piece_return()
 // trigger's: BO2's table triggers stand inside the table, where a use trigger's sight test from the eye fails (the
 // native TranZit self-test's client never built the power switch from its trigger). The table's trigger only shows the
 // hint.
-mapkit_wait_use( origin, radius )
+mapkit_wait_use( origin, radius, owner, state )
 {
 	for ( ;; )
 	{
 		wait( 0.05 );
+		// the thing waited for moved away meanwhile (an EMP sent the planted turbine back to its table)
+		if ( IsDefined( owner ) && owner.state != state )
+		{
+			return undefined;
+		}
 		players = get_players();
 		for ( p = 0; p < players.size; p++ )
 		{
@@ -2096,7 +2109,11 @@ mapkit_turbine()
 			at = self.at;
 			reach = 64;
 		}
-		player = mapkit_wait_use( at, reach );
+		player = mapkit_wait_use( at, reach, self, self.state );
+		if ( !IsDefined( player ) )
+		{
+			continue;
+		}
 		self.take.origin = self.take.origin - ( 0, 0, 10000 );
 		t Hide();
 		t NotSolid();
@@ -2530,6 +2547,437 @@ mapkit_denizen_park( d )
 	d Hide();
 	d.origin = d.home;
 	d.victim = undefined;
+}
+
+// BO2's scripted weapons that the player's bo2weapons mod.ff holds (tools/bo2/bo2_weapon.py EXTRAS): the Galvaknuckles
+// of the wallbuy edits with "trigger" "tazer_upgrade" and the EMP grenade of the "emp" edit. main_start runs while
+// precaching is open. Without the weapons (no mod.ff stacked) the walls stay empty and the box keeps its own.
+mapkit_extras_start()
+{
+	level.mapkit_tazer = mapkit_has_trigger( "tazer_upgrade" ) && bo1_mapkit_weaponloaded( "tazer_knuckles_zm" );
+	if ( level.mapkit_tazer )
+	{
+		PrecacheItem( "tazer_knuckles_zm" );
+		if ( bo1_mapkit_weaponloaded( "zombie_tazer_flourish" ) )
+		{
+			PrecacheItem( "zombie_tazer_flourish" );
+		}
+		PrecacheModel( "t6_wpn_taser_knuckles_world" );
+	}
+	level.mapkit_emp = mapkit_has_kind( "emp" ) && bo1_mapkit_weaponloaded( "emp_grenade_zm" );
+	if ( level.mapkit_emp )
+	{
+		maps\_zombiemode_weapons::include_zombie_weapon( "emp_grenade_zm", true );
+		PrecacheShellShock( "electrocution" );
+		// init_weapons() calls level._zombie_custom_add_weapons after the retail list; keep the one already set (the
+		// bo2weapons mod's, which keeps it too)
+		level._mapkit_map_add = level._zombie_custom_add_weapons;
+		level._zombie_custom_add_weapons = ::mapkit_add_weapons;
+		level._mapkit_offhand_give = level.zombiemode_offhand_weapon_give_override;
+		level.zombiemode_offhand_weapon_give_override = ::mapkit_offhand_give;
+	}
+	if ( mapkit_has_trigger( "tazer_upgrade" ) || mapkit_has_kind( "emp" ) )
+	{
+		LogPrint( "mapkit: Galvaknuckles " + mapkit_choose( level.mapkit_tazer, "on", "not loaded" ) + ", EMP grenade "
+			+ mapkit_choose( level.mapkit_emp, "in the box", mapkit_choose( mapkit_has_kind( "emp" ), "not loaded", "not on this map" ) ) + "\n" );
+	}
+}
+
+mapkit_has_trigger( trigger )
+{
+	for ( i = 0; i < bo1_mapkit_editcount(); i++ )
+	{
+		if ( bo1_mapkit_get( i, "kind" ) == "wallbuy" && mapkit_get_or( i, "trigger", "" ) == trigger )
+		{
+			return true;
+		}
+	}
+	return false;
+}
+
+mapkit_add_weapons()
+{
+	if ( IsDefined( level._mapkit_map_add ) )
+	{
+		[[ level._mapkit_map_add ]]();
+	}
+	// a box weapon: the cost and hint only matter on a wall, where it is not
+	maps\_zombiemode_weapons::add_zombie_weapon( "emp_grenade_zm", undefined, &"ZOMBIE_WEAPON_SATCHEL_2000", 2000, "grenade", "", undefined );
+	register_tactical_grenade_for_level( "emp_grenade_zm" );
+}
+
+// level.zombiemode_offhand_weapon_give_override: the box's EMP grenade becomes the player's special grenade, in place of
+// his Monkey Bombs (BO2's player_give_emp_bomb); a Monkey Bomb takes the EMP's place in turn. Returns true when the
+// grenade was given.
+mapkit_offhand_give( weapon )
+{
+	if ( weapon == "emp_grenade_zm" )
+	{
+		tactical = self get_player_tactical_grenade();
+		if ( IsDefined( tactical ) && tactical != weapon && self HasWeapon( tactical ) )
+		{
+			self TakeWeapon( tactical );
+		}
+		self thread mapkit_emp_unhold( self GetCurrentWeapon() );
+		self GiveWeapon( weapon );
+		self set_player_tactical_grenade( weapon );
+		self thread mapkit_emp_watch();
+		LogPrint( "mapkit: EMP grenade given to " + self.playername + "\n" );
+		return true;
+	}
+	if ( weapon == "zombie_cymbal_monkey" && self HasWeapon( "emp_grenade_zm" ) )
+	{
+		self TakeWeapon( "emp_grenade_zm" );
+	}
+	if ( IsDefined( level._mapkit_offhand_give ) )
+	{
+		return self [[ level._mapkit_offhand_give ]]( weapon );
+	}
+	return false;
+}
+
+// The box's treasure_chest_give_weapon goes on after the override (retail returns early for the Monkey Bomb only):
+// GiveStartAmmo, then SwitchToWeapon to the grenade, in the same frame. The player keeps his gun in hand (the switch
+// ends a few frames later, more on a test client: watched 2 s).
+mapkit_emp_unhold( gun )
+{
+	self endon( "disconnect" );
+	for ( t = 0; t < 40 && self GetCurrentWeapon() != "emp_grenade_zm"; t++ )
+	{
+		wait( 0.05 );
+	}
+	if ( self GetCurrentWeapon() != "emp_grenade_zm" )
+	{
+		return;
+	}
+	if ( gun == "none" || gun == "emp_grenade_zm" || !self HasWeapon( gun ) )
+	{
+		primaries = self GetWeaponsListPrimaries();
+		if ( !IsDefined( primaries ) || primaries.size == 0 )
+		{
+			return;
+		}
+		gun = primaries[0];
+	}
+	self SwitchToWeapon( gun );
+}
+
+mapkit_emp_watch()
+{
+	self notify( "mapkit_emp_watch" );
+	self endon( "mapkit_emp_watch" );
+	self endon( "disconnect" );
+	for ( ;; )
+	{
+		self waittill( "grenade_fire", grenade, weapname );
+		if ( weapname == "emp_grenade_zm" )
+		{
+			level thread mapkit_emp_detonate( grenade );
+		}
+	}
+}
+
+// BO2's _zm_weap_emp_bomb, simplified. Where the grenade goes off, BO1's blue power-up wave plays (BO2's effect is not
+// in BO1); the zombies within 600 units stand still for 20 s or until hurt (BO2 makes them inert); the players within
+// 420 are shaken 2 s; the perk machines within 420 refuse purchases for 90 s, and a turbine planted there goes back to
+// its table (BO2 breaks it). BO2 also switches off the machines' lights, the Pack-a-Punch, the doors' local power and
+// the electric traps; those stay on here.
+mapkit_emp_detonate( grenade )
+{
+	grenade waittill( "explode", origin );
+	if ( !IsDefined( origin ) )
+	{
+		return;
+	}
+	PlayFX( level._effect["powerup_grabbed_wave"], origin );
+	play_sound_at_pos( "zmb_powerup_grabbed", origin );
+	level notify( "emp_detonate", origin, 420 );
+	stunned = 0;
+	zombies = GetAiSpeciesArray( "axis", "all" );
+	for ( i = 0; i < zombies.size; i++ )
+	{
+		z = zombies[i];
+		// one still climbing out of the ground or through a window keeps going: its own script owns it until then
+		if ( IsDefined( z ) && IsAlive( z ) && is_true( z.completed_emerging_into_playable_area )
+			&& DistanceSquared( z.origin, origin ) < 600 * 600 )
+		{
+			z thread mapkit_emp_stun( 20 );
+			stunned++;
+		}
+	}
+	players = get_players();
+	for ( i = 0; i < players.size; i++ )
+	{
+		if ( IsAlive( players[i] ) && DistanceSquared( players[i].origin, origin ) < 420 * 420 )
+		{
+			players[i] ShellShock( "electrocution", 2 );
+		}
+	}
+	off = [];
+	machines = GetEntArray( "zombie_vending", "targetname" );
+	for ( i = 0; i < machines.size; i++ )
+	{
+		trig = machines[i];
+		if ( !is_true( trig.mapkit_emp_off ) && DistanceSquared( trig.origin, origin ) < 420 * 420 )
+		{
+			trig.mapkit_emp_off = true;
+			trig.origin = trig.origin - ( 0, 0, 10000 );
+			off[off.size] = trig;
+		}
+	}
+	turbine = "";
+	t = level.mapkit_turbine;
+	if ( IsDefined( t ) && t.state == "planted" && Distance( t.at, origin ) <= 420 )
+	{
+		t mapkit_turbine_home();
+		turbine = ", the turbine sent back to its table";
+	}
+	LogPrint( "mapkit: EMP at " + origin + ": " + stunned + " zombies stunned, " + off.size + " perk machines off" + turbine + "\n" );
+	wait( 90 );
+	for ( i = 0; i < off.size; i++ )
+	{
+		if ( IsDefined( off[i] ) )
+		{
+			off[i].origin = off[i].origin + ( 0, 0, 10000 );
+			off[i].mapkit_emp_off = undefined;
+		}
+	}
+	LogPrint( "mapkit: EMP over, " + off.size + " perk machines back on\n" );
+}
+
+// the zombie stops where it stands, as Five's teleporters stop one (zombie_pentagon_teleporter), then hunts again
+mapkit_emp_stun( time )
+{
+	self endon( "death" );
+	self notify( "mapkit_emp_stun" );
+	self endon( "mapkit_emp_stun" );
+	self.ignoreall = true;
+	self notify( "stop_find_flesh" );
+	self notify( "zombie_acquire_enemy" );
+	self SetGoalPos( self.origin );
+	self.mapkit_emp_stunned = true;
+	self thread mapkit_emp_wake( time );
+	self waittill_any( "damage", "mapkit_emp_wake" );
+	self.mapkit_emp_stunned = undefined;
+	self.ignoreall = false;
+	self thread maps\_zombiemode_spawner::find_flesh();
+}
+
+mapkit_emp_wake( time )
+{
+	self endon( "death" );
+	self endon( "mapkit_emp_stun" );
+	wait( time );
+	self notify( "mapkit_emp_wake" );
+}
+
+// The Galvaknuckles' wall buys (BO2's _zm_weap_tazer_knuckles and _zm_melee_weapon, on retail's Bowie knife purchase,
+// _zombiemode_bowie): bought for the edit's cost, they replace the knife and the Bowie knife; a Bowie knife bought later
+// replaces them. The wall shows their world model. Without them loaded, the wall is left empty.
+mapkit_tazer_walls()
+{
+	for ( i = 0; i < bo1_mapkit_editcount(); i++ )
+	{
+		if ( bo1_mapkit_get( i, "kind" ) != "wallbuy" || mapkit_get_or( i, "trigger", "" ) != "tazer_upgrade" )
+		{
+			continue;
+		}
+		model = GetEnt( "mkbuy" + i, "targetname" );
+		trig = undefined;
+		triggers = GetEntArray( "tazer_upgrade", "targetname" );
+		for ( k = 0; k < triggers.size; k++ )
+		{
+			if ( IsDefined( triggers[k].target ) && triggers[k].target == "mkbuy" + i )
+			{
+				trig = triggers[k];
+			}
+		}
+		if ( !level.mapkit_tazer )
+		{
+			if ( IsDefined( trig ) )
+			{
+				trig Delete();
+			}
+			if ( IsDefined( model ) )
+			{
+				model Delete();
+			}
+			continue;
+		}
+		if ( IsDefined( model ) )
+		{
+			model SetModel( "t6_wpn_taser_knuckles_world" );
+		}
+		if ( IsDefined( trig ) )
+		{
+			trig thread mapkit_tazer_think( Int( mapkit_get_or( i, "cost", 6000 ) ) );
+		}
+	}
+	if ( level.mapkit_tazer )
+	{
+		level thread mapkit_melee_watch();
+	}
+}
+
+mapkit_tazer_think( cost )
+{
+	self SetHintString( "Hold ^3[{+activate}]^7 for Galvaknuckles [Cost: " + cost + "]" );
+	self SetCursorHint( "HINT_NOICON" );
+	self UseTriggerRequireLookAt();
+	for ( ;; )
+	{
+		self waittill( "trigger", player );
+		if ( !is_player_valid( player ) || player in_revive_trigger() || player isThrowingGrenade() || player is_drinking()
+			|| player isSwitchingWeapons() || player HasWeapon( "tazer_knuckles_zm" ) )
+		{
+			wait( 0.1 );
+			continue;
+		}
+		current = player GetCurrentWeapon();
+		if ( is_placeable_mine( current ) || is_equipment( current ) || current == "minigun_zm" )
+		{
+			wait( 0.1 );
+			continue;
+		}
+		if ( player.score < cost )
+		{
+			self play_sound_on_ent( "no_purchase" );
+			player maps\_zombiemode_audio::create_and_play_dialog( "general", "no_money", undefined, 1 );
+			continue;
+		}
+		player maps\_zombiemode_score::minus_to_player_score( cost );
+		play_sound_at_pos( "purchase", self.origin );
+		LogPrint( "mapkit: Galvaknuckles bought by " + player.playername + "\n" );
+		if ( player mapkit_give_tazer() )
+		{
+			self SetInvisibleToPlayer( player );
+		}
+	}
+}
+
+// retail give_bowie with the Galvaknuckles' own purchase animation (zombie_tazer_flourish, when loaded). Returns false
+// when the player went down meanwhile (he keeps his knife, as with retail's Bowie knife).
+mapkit_give_tazer()
+{
+	flourish = "zombie_tazer_flourish";
+	gun = self GetCurrentWeapon();
+	if ( bo1_mapkit_weaponloaded( flourish ) )
+	{
+		self increment_is_drinking();
+		self AllowLean( false );
+		self AllowAds( false );
+		self AllowSprint( false );
+		self AllowProne( false );
+		self AllowMelee( false );
+		wait( 0.05 );
+		if ( self GetStance() == "prone" )
+		{
+			self SetStance( "crouch" );
+		}
+		self GiveWeapon( flourish );
+		self SwitchToWeapon( flourish );
+		self waittill_any( "fake_death", "death", "player_downed", "weapon_change_complete" );
+		self AllowLean( true );
+		self AllowAds( true );
+		self AllowSprint( true );
+		self AllowProne( true );
+		self AllowMelee( true );
+		self TakeWeapon( flourish );
+		if ( self maps\_laststand::player_is_in_laststand() || is_true( self.intermission ) )
+		{
+			self.lastActiveWeapon = "none";
+			return false;
+		}
+	}
+	self GiveWeapon( "tazer_knuckles_zm" );
+	self set_player_melee_weapon( "tazer_knuckles_zm" );
+	self.mapkit_tazer = true;
+	for ( k = 0; k < 2; k++ )
+	{
+		knife = mapkit_choose( k == 0, "knife_zm", "bowie_knife_zm" );
+		if ( self HasWeapon( knife ) )
+		{
+			self TakeWeapon( knife );
+		}
+	}
+	// the Bowie knife's wall sells it again (retail hides it from its buyer for good)
+	bowies = GetEntArray( "bowie_upgrade", "targetname" );
+	for ( k = 0; k < bowies.size; k++ )
+	{
+		bowies[k] SetVisibleToPlayer( self );
+	}
+	if ( !bo1_mapkit_weaponloaded( flourish ) )
+	{
+		if ( gun == "knife_zm" || gun == "bowie_knife_zm" )
+		{
+			self SwitchToWeapon( "tazer_knuckles_zm" );
+		}
+		return true;
+	}
+	if ( self is_multiple_drinking() )
+	{
+		self decrement_is_drinking();
+		return true;
+	}
+	if ( gun == "knife_zm" || gun == "bowie_knife_zm" || gun == "none" || is_placeable_mine( gun ) || is_equipment( gun ) )
+	{
+		primaries = self GetWeaponsListPrimaries();
+		if ( IsDefined( primaries ) && primaries.size > 0 )
+		{
+			self SwitchToWeapon( primaries[0] );
+		}
+		else
+		{
+			self SwitchToWeapon( "tazer_knuckles_zm" );
+			self decrement_is_drinking();
+			return true;
+		}
+	}
+	else
+	{
+		self SwitchToWeapon( gun );
+	}
+	self waittill( "weapon_change_complete" );
+	if ( !self maps\_laststand::player_is_in_laststand() && !is_true( self.intermission ) )
+	{
+		self decrement_is_drinking();
+	}
+	return true;
+}
+
+// one melee weapon at a time: a Bowie knife bought with the Galvaknuckles held takes their place (retail's Bowie wall
+// does not know them); a player who lost them (bled out, then respawned with the knife) can buy them again
+mapkit_melee_watch()
+{
+	for ( ;; )
+	{
+		wait( 0.5 );
+		players = get_players();
+		for ( p = 0; p < players.size; p++ )
+		{
+			player = players[p];
+			if ( !is_true( player.mapkit_tazer ) || player is_drinking() )
+			{
+				continue;
+			}
+			if ( player HasWeapon( "tazer_knuckles_zm" ) && !player HasWeapon( "bowie_knife_zm" ) )
+			{
+				continue;
+			}
+			if ( player HasWeapon( "tazer_knuckles_zm" ) )
+			{
+				player TakeWeapon( "tazer_knuckles_zm" );
+				player set_player_melee_weapon( "bowie_knife_zm" );
+				LogPrint( "mapkit: Galvaknuckles replaced by the Bowie knife for " + player.playername + "\n" );
+			}
+			player.mapkit_tazer = undefined;
+			triggers = GetEntArray( "tazer_upgrade", "targetname" );
+			for ( k = 0; k < triggers.size; k++ )
+			{
+				triggers[k] SetVisibleToPlayer( player );
+			}
+		}
+	}
 }
 
 // Machines that fall from the sky (BO2's Nuketown, maps\mp\zm_nuked_perks): a perk or pap edit with "sky" lands on one
@@ -3119,6 +3567,7 @@ mapkit_check()
 	mapkit_check_buildables( player );
 	mapkit_check_turbine( player );
 	mapkit_check_denizen( player );
+	mapkit_check_emp( player );
 	// mapkit-fix-3c: the switch and the perk that must refuse can sit behind doors (sluice_works: switch in the control
 	// room, the only reachable perk solo Quick Revive; live doctor "the press never reached perk"). Without electric doors
 	// the progression opens everything with the power off first; electric doors need the power, so they keep the old order.
@@ -3215,7 +3664,7 @@ mapkit_check()
 		if ( kind != "window" && kind != "perk" && kind != "room" && kind != "box" && kind != "stairs" && kind != "node" && kind != "zone"
 			&& kind != "wallbuy" && kind != "spawner" && kind != "spawn" && kind != "door" && kind != "debris" && kind != "mysterybox"
 			&& kind != "pap" && kind != "powerswitch" && kind != "light" && kind != "riser" && kind != "bus" && kind != "bank" && kind != "farrespawn" && kind != "fx"
-			&& kind != "buildable" && kind != "piece" && kind != "buildpart" && kind != "denizens" )
+			&& kind != "buildable" && kind != "piece" && kind != "buildpart" && kind != "denizens" && kind != "emp" )
 		{
 			LogPrint( "mapkit: check " + kind + " " + mapkit_name( i ) + " SKIP (no runtime check for this kind yet)\n" );
 		}
@@ -3533,6 +3982,111 @@ mapkit_check_turbine( player )
 	}
 }
 
+// the box's EMP grenade (treasure_chest_give_weapon, as the box gives it), then thrown by the test client (tactical
+// button) beside the planted turbine: PASS once it went off and sent the turbine back to its table
+mapkit_check_emp( player )
+{
+	if ( !mapkit_has_kind( "emp" ) )
+	{
+		return;
+	}
+	if ( !level.mapkit_emp )
+	{
+		LogPrint( "mapkit: check emp SKIP (emp_grenade_zm not loaded: the bo2weapons mod.ff is not stacked)\n" );
+		return;
+	}
+	player maps\_zombiemode_weapons::treasure_chest_give_weapon( "emp_grenade_zm" );
+	wait( 1 );
+	if ( !player HasWeapon( "emp_grenade_zm" ) || !player is_player_tactical_grenade( "emp_grenade_zm" ) )
+	{
+		LogPrint( "mapkit: check emp FAIL not given by the box (tactical " + mapkit_choose( IsDefined( player get_player_tactical_grenade() ), player get_player_tactical_grenade(), "none" ) + ")\n" );
+		return;
+	}
+	LogPrint( "mapkit: check emp PASS given by the box: " + player GetAmmoCount( "emp_grenade_zm" ) + " grenades, holding " + player GetCurrentWeapon() + "\n" );
+	b = level.mapkit_turbine;
+	if ( !IsDefined( b ) || b.state != "planted" )
+	{
+		LogPrint( "mapkit: check emp SKIP throw (no planted turbine to send back)\n" );
+		return;
+	}
+	wait( 3 );
+	if ( player GetCurrentWeapon() == "emp_grenade_zm" )
+	{
+		LogPrint( "mapkit: check emp FAIL the box left the grenade in hand\n" );
+	}
+	level.mapkit_emp_seen = undefined;
+	level thread mapkit_check_emp_seen();
+	mapkit_test_visit( b.at, b.at );
+	SetDvar( "bo1_testclient_press", "" ); // no use press: it would take the turbine
+	// a zombie near, to see it stunned (the god client draws them; up to 60 s)
+	near = undefined;
+	for ( waited = 0; !IsDefined( near ) && waited < mapkit_test_wait( 60000 ); waited += 500 )
+	{
+		wait( 0.5 );
+		zombies = GetAiSpeciesArray( "axis", "all" );
+		for ( i = 0; i < zombies.size; i++ )
+		{
+			if ( IsAlive( zombies[i] ) && is_true( zombies[i].completed_emerging_into_playable_area )
+				&& DistanceSquared( zombies[i].origin, player.origin ) < 300 * 300 )
+			{
+				near = zombies[i];
+			}
+		}
+	}
+	f = AnglesToForward( ( 0, player.angles[1], 0 ) );
+	look = b.at + f * 120;
+	SetDvar( "bo1_testclient_look", look[0] + "," + look[1] + "," + look[2] );
+	SetDvar( "bo1_testclient_press", "15," + ( GetTime() + 1000 ) + ",4000,300" );
+	start = GetTime();
+	limit = mapkit_test_wait( 25000 );
+	while ( !IsDefined( level.mapkit_emp_seen ) && GetTime() - start < limit )
+	{
+		wait( 0.5 );
+	}
+	SetDvar( "bo1_testclient_press", "" );
+	if ( !IsDefined( level.mapkit_emp_seen ) )
+	{
+		LogPrint( "mapkit: check emp FAIL not thrown in " + ( limit / 1000 ) + " s (player at " + player.origin + ", " + player GetAmmoCount( "emp_grenade_zm" ) + " left)\n" );
+		return;
+	}
+	wait( 0.5 );
+	if ( IsDefined( near ) && IsAlive( near ) )
+	{
+		at = near.origin;
+		wait( 3 );
+		if ( !IsAlive( near ) )
+		{
+			LogPrint( "mapkit: check emp SKIP stun (the zombie died)\n" );
+		}
+		else if ( is_true( near.mapkit_emp_stunned ) && Distance( near.origin, at ) < 16 )
+		{
+			LogPrint( "mapkit: check emp PASS a zombie " + Int( Distance( at, level.mapkit_emp_seen ) ) + " units away stunned, still after 3 s\n" );
+		}
+		else
+		{
+			LogPrint( "mapkit: check emp FAIL a zombie " + Int( Distance( at, level.mapkit_emp_seen ) ) + " units away not stunned (moved " + Int( Distance( near.origin, at ) ) + ")\n" );
+		}
+	}
+	else
+	{
+		LogPrint( "mapkit: check emp SKIP stun (no zombie came near in time)\n" );
+	}
+	if ( b.state == "table" )
+	{
+		LogPrint( "mapkit: check emp PASS went off at " + level.mapkit_emp_seen + ", " + Int( Distance( level.mapkit_emp_seen, b.at ) ) + " units from the turbine, which is back on its table\n" );
+	}
+	else
+	{
+		LogPrint( "mapkit: check emp FAIL went off at " + level.mapkit_emp_seen + ", " + Int( Distance( level.mapkit_emp_seen, b.at ) ) + " units from the turbine, still " + b.state + "\n" );
+	}
+}
+
+mapkit_check_emp_seen()
+{
+	level waittill( "emp_detonate", origin );
+	level.mapkit_emp_seen = origin;
+}
+
 // a Denizen sent at the test client standing on a node of a Denizen zone: PASS once it clings, then once a knife
 // (melee press) throws it off
 mapkit_check_denizen( player )
@@ -3674,6 +4228,11 @@ mapkit_check_wallbuys( player )
 		if ( !IsDefined( weapon ) )
 		{
 			weapon = "m14_zm";
+		}
+		if ( !bo1_mapkit_weaponloaded( weapon ) )
+		{
+			LogPrint( "mapkit: check wallbuy " + weapon + " SKIP (not loaded: the Galvaknuckles need the bo2weapons mod.ff)\n" );
+			continue;
 		}
 		mapkit_test_funds( player );
 		// Each placement must sell its weapon, even when multiple wall buys offer the same gun.
@@ -4030,6 +4589,69 @@ mapkit_boardshots_cam( player, i, press )
 	{
 		SetDvar( "bo1_testclient_press", "" );
 	}
+}
+
+mapkit_galvashots()
+{
+	flag_wait( "all_players_spawned" );
+	wait( 5 );
+	player = get_players()[0];
+	level.mapkit_shot = 0;
+	level.mapkit_shots = "";
+	if ( !level.mapkit_tazer || !level.mapkit_emp )
+	{
+		LogPrint( "mapkit: galvashots SKIP (Galvaknuckles or EMP not loaded)\n" );
+		return;
+	}
+	o = player.origin;
+	SetDvar( "bo1_testclient_goto", o[0] + "," + o[1] + "," + o[2] );
+	look = o + AnglesToForward( ( 0, player.angles[1], 0 ) ) * 200 + ( 0, 0, 40 );
+	SetDvar( "bo1_testclient_look", look[0] + "," + look[1] + "," + look[2] );
+	wait( 2 );
+	player thread mapkit_give_tazer();
+	for ( k = 0; k < 6; k++ )
+	{
+		wait( 0.5 );
+		mapkit_galvashots_shot( "purchase, holding " + player GetCurrentWeapon() );
+	}
+	wait( 2 );
+	mapkit_galvashots_shot( "after the purchase, holding " + player GetCurrentWeapon() + ", knuckles " + player HasWeapon( "tazer_knuckles_zm" ) + ", knife " + player HasWeapon( "knife_zm" ) );
+	SetDvar( "bo1_testclient_press", "2," + GetTime() + ",2500,200" );
+	for ( k = 0; k < 8; k++ )
+	{
+		wait( 0.3 );
+		mapkit_galvashots_shot( "melee" );
+	}
+	SetDvar( "bo1_testclient_press", "" );
+	player maps\_zombiemode_weapons::treasure_chest_give_weapon( "emp_grenade_zm" );
+	wait( 1.5 );
+	mapkit_galvashots_shot( "EMP from the box, holding " + player GetCurrentWeapon() + ", " + player GetAmmoCount( "emp_grenade_zm" ) + " grenades" );
+	level.mapkit_emp_seen = undefined;
+	level thread mapkit_check_emp_seen();
+	look = o + AnglesToForward( ( 0, player.angles[1], 0 ) ) * 250;
+	SetDvar( "bo1_testclient_look", look[0] + "," + look[1] + "," + look[2] );
+	wait( 1 );
+	SetDvar( "bo1_testclient_press", "15," + GetTime() + ",6000,300" );
+	for ( k = 0; k < 12 && !IsDefined( level.mapkit_emp_seen ); k++ )
+	{
+		wait( 0.25 );
+		mapkit_galvashots_shot( "throw" );
+	}
+	SetDvar( "bo1_testclient_press", "" );
+	for ( k = 0; k < 4; k++ )
+	{
+		wait( 0.2 );
+		mapkit_galvashots_shot( "EMP went off at " + mapkit_choose( IsDefined( level.mapkit_emp_seen ), level.mapkit_emp_seen, "nowhere yet" ) );
+	}
+	LogPrint( "mapkit: galvashots DONE\n" );
+}
+
+mapkit_galvashots_shot( what )
+{
+	level.mapkit_shot++;
+	level.mapkit_shots = level.mapkit_shots + level.mapkit_shot + " ";
+	LogPrint( "mapkit: galvashots shot " + level.mapkit_shot + " " + what + "\n" );
+	SetDvar( "bo1_shots", level.mapkit_shots );
 }
 
 mapkit_boardshots_shot( i, what )

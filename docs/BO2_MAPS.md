@@ -794,9 +794,9 @@ Denizens. The decompiled BO2 scripts (`zm_nuked_perks`, `zm_transit_buildables`,
   `mapkit_skyperks_fast 1`): the five machines landed in 2 minutes, crates hidden under each, no script error.
 - **Bowie knife and claymores** on Nuketown and TranZit: BO2's `bowie_upgrade` and `claymore_purchase` triggers become
   wall buys of BO1's own purchases (`"trigger"`; the engine names the trigger so). BO2's Galvaknuckles wall
-  (`tazer_upgrade`) has no BO1 weapon and is left out. A first Windows run gave 5 script errors: that exe predated the
-  engine's `"trigger"` (`cm_mapkit.cpp` built a second earlier), so both were plain wall buys of weapons BO1's table
-  lacks; none with the rebuilt exe. Self-test: both bought on Nuketown and TranZit.
+  (`tazer_upgrade`) has no BO1 weapon and was left out at first (it came with the bo2weapons mod, below). A first
+  Windows run gave 5 script errors: that exe predated the engine's `"trigger"` (`cm_mapkit.cpp` built a second
+  earlier), so both were plain wall buys of weapons BO1's table lacks; none with the rebuilt exe. Self-test: both bought on Nuketown and TranZit.
 - **Buildables** (TranZit): the power switch, Pack-a-Punch and the turbine are built from three pieces each, lying on
   one of their BO2 spots (`piece` edits drawn by `bo2_mesh.py` groups; 20 spots, the models from
   `so_zclassic_zm_transit.ff`). The power switch shows its parts at the switch as they are built in (`buildpart`).
@@ -819,6 +819,39 @@ Denizens. The decompiled BO2 scripts (`zm_nuked_perks`, `zm_transit_buildables`,
   Denizen clinging (blurred view) then knifed off; no script error. Linux self-tests (all checks, timescale 4):
   Nuketown 109/0 (the Bowie knife and claymore walls; the machines stand at their edits there), TranZit 315/3
   (`riser101` to `riser103`, which fail the same way in the 298/4 run before; the old fourth failure passes).
+
+### The Galvaknuckles and the EMP grenade (2026-11-18)
+
+The fourth item of the same request. Both are BO2 weapons BO1 lacks, so they come from the player's bo2weapons
+`mod.ff` (`tools/bo2/bo2_weapon.py` EXTRAS, docs/BO2_WEAPONS.md), and MapKit runs them only when that mod is stacked
+(`+set fs_mods "mapkit bo2weapons"`); `games_mp.log` says `mapkit: Galvaknuckles on, EMP grenade in the box` or
+`not loaded`. The decompiled `_zm_weap_tazer_knuckles`, `_zm_melee_weapon` and `_zm_weap_emp_bomb` are the reference.
+
+- **Galvaknuckles** (Nuketown's and TranZit's `tazer_upgrade` wall, 6000 points): a wallbuy edit with that
+  `"trigger"`. `_mapkit.gsc` sells them as retail sells the Bowie knife: their purchase animation, then they replace
+  the knife and the Bowie knife (BO2's melee weapons replace each other: a Bowie knife bought later replaces them, and
+  the Bowie wall sells again). 1500 melee damage (BO2's), the Bowie knife's sounds. The wall shows their world model
+  (the layout says `tag_origin`, so a game without the mod loads no missing model; the script then removes the wall).
+- **EMP grenade** (TranZit's box, `emp` edit): a special grenade, given in place of the Monkey Bombs and the reverse,
+  thrown with the special grenade button. Where it goes off: BO1's blue power-up wave (BO2's effect is not in BO1);
+  zombies within 600 units stand still 20 s or until hurt; players within 420 are shaken 2 s; perk machines within
+  420 refuse purchases 90 s; a planted turbine within 420 goes back to its table (BO2 breaks it). Left out: the
+  machines' lights going dark, Pack-a-Punch, the doors' local power, the traps, the Avogadro.
+- The box's retail give (`treasure_chest_give_weapon`) goes on after the offhand override, which the Monkey Bomb skips
+  with an early return: it switched the player to the grenade itself. MapKit switches him back to his gun.
+- `bo2_layout.py build()` reused `name` in its loops: the layouts' `"name"` field held the last chest or Denizen name
+  (unused at runtime). Fixed; the layouts otherwise differ by the new wall and the `emp` edit only.
+- Checks. Linux self-tests (timescale 4, `fs_mods "mapkit bo2weapons"`): TranZit 315/7. Its new checks pass: the
+  Galvaknuckles wall bought, the EMP given by the box with the gun kept in hand, thrown, a zombie 221 units away
+  stunned and still 3 s later, the turbine 225 units away sent back to its table. The failures: `riser101`-`103` as
+  before; the power switch's lever, which the draw now lays beside its table, where the client stops 85 units short of
+  the table centre it walks to and never presses (the same check failed once on 2026-11-18 with another spot); the
+  switch check that follows; `depot_baricade3` (a spawn draw). Nuketown 108/2 with the mod (the Galvaknuckles bought,
+  then replaced by the Bowie knife); `riser7` and `riser16` fail with the mod stacked even on the old layout without
+  the wall (107/2), and pass without it (109/0, the wall removed: `SKIP`). Windows client (`mapkit_galvashots 1`,
+  screenshots): the knuckles drawn on BO1's hands through their purchase animation, the EMP from the box with the
+  pistol kept in hand, thrown and gone off, the shake greying the view; no script error. The knuckles' swing is not
+  seen on the shots taken during the melee presses.
 
 ## What comes out of `zm_nuked`
 
