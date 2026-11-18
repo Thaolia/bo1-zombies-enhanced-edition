@@ -32,7 +32,7 @@ French version: `README.fr.md`. The full, detailed reference is [below](#detaile
 - **A player launcher** (`zmclient`). It plays solo with mods, joins servers, opens a two-window split screen, and
   installs the game files from your own copy.
 - **Mods** that stack: horde, nightmare, MapKit, no perks, zombie counter, the BO2 weapons, dual-wield Pack-a-Punch
-  weapons.
+  weapons, hit marker, unlimited Pack-a-Punch, faster zombie spawns.
 - **Black Ops II maps**: Nuketown, TranZit, Mob of the Dead and Buried, as native BO1 maps.
 - **Speedrun info**: the settings that change a run and a SHA-512 over the program and its zones, shown on screen.
 
@@ -87,6 +87,7 @@ the maps are listed as « Mapkit : … native (Black Ops II, monde BSP) ». Deta
 | `tools/make_dist.sh` | builds the ready-to-copy packages of every platform |
 | `tools/bo2` | turns a Black Ops II map into a MapKit layout and a native BO1 map |
 | `tools/dualwield` | builds the dual-wield Pack-a-Punch mod from your zones |
+| `tools/unlimitedpap` | writes the unlimited Pack-a-Punch mod's script from your zones |
 | `tools/switch_setup` | completes a Switch SD card folder from your install |
 | `tools/server_status.py`, `tools/server_rcon.py` | query a server, send rcon commands |
 
@@ -152,7 +153,9 @@ On the console the game starts in a text menu, where you choose:
 - the start kit: one screen for the points (1 000 to 100 000 instead of the game's 500), the power on from the start,
   a Pack-a-Punch always on at the start points, and the perks a solo player gets on arrival (mods/admin's
   `zm_startpoints` / `zm_startpower` / `zm_startpap` / `zm_startperks`; a perk only when the map has its machine), and
-  the far zombies' replacement (`zm_farrespawn`);
+  the far zombies' replacement (`zm_farrespawn`); the same screen stacks the hit marker (mods/hitmarker), the unlimited
+  Pack-a-Punch (mods/unlimitedpap, when its script is on the SD card) and the faster spawns (mods/spawnrate: 2 to 10
+  times, with or without the sprint to the barriers);
 - the renderer (deko3d or OpenGL), the resolution (720p, or 540p / 480p for more frames, 540p advised online: the console scales the image to the
   screen), the frame-rate cap, shadows, the props' distance (normal, reduced or short: `r_lodScaleRigid` 1, 1.5 or 2,
   scenery objects drawn simpler and less far for more frames on the native BO2 maps), texture filtering and the
@@ -305,7 +308,9 @@ for Stamin-Up). The extraction is game data, so `--bo2` cannot be combined with
 `--no-game-data`. `--dualwield DIR` does the same for your own build of `mods/dualwield` (dual-wield Ray Gun
 and Thundergun after Pack-a-Punch, made by `tools/dualwield/dualwield_mod.py` from your game's zones alone, or from
 your copy of the "Relaxing Dual Wield" mod, which adds the PPSh; see `mods/dualwield/README.md`), in every package,
-Switch included. Nuketown has over 2 000 props: ZmClient's Lancement view, "Modèles affichés par image" at 4096
+Switch included. Every package with game data also gets `mods/unlimitedpap`'s Pack-a-Punch script, written from your
+`common_zombie_patch.ff` by `tools/unlimitedpap/make_perks.py` (the retail script with the mod's 13 changed lines;
+`mods/unlimitedpap/README.md`). Nuketown has over 2 000 props: ZmClient's Lancement view, "Modèles affichés par image" at 4096
 (`r_mod_sceneModels`), draws them all; 1024 (retail) drops the farthest.
 
 ##### Release on GitHub

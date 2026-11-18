@@ -36,6 +36,8 @@ bool SameSettings(const LauncherSettings &a, const LauncherSettings &b)
            a.texFilter == b.texFilter && a.startPoints == b.startPoints && a.startPerks == b.startPerks &&
            a.startPower == b.startPower && a.startPap == b.startPap && a.farRespawn == b.farRespawn && a.lanAuto == b.lanAuto && a.joinBo2Weapons == b.joinBo2Weapons && a.dualWield == b.dualWield &&
            a.joinDualWield == b.joinDualWield && a.runInfo == b.runInfo && a.height == b.height &&
+           a.hitmarker == b.hitmarker && a.unlimitedPap == b.unlimitedPap && a.spawnRate == b.spawnRate &&
+           a.spawnRush == b.spawnRush &&
            std::memcmp(&a.pad, &b.pad, sizeof(a.pad)) == 0;
 }
 } // namespace
@@ -302,6 +304,30 @@ int main()
     Check(Launcher_BuildLaunchLine(joinBoth, "").find(" +set fs_mods bo2weapons dualwield ") != std::string::npos &&
               Launcher_BuildLaunchLine(joinDualOff, "").find("dualwield") == std::string::npos,
           "a join loads the dual-wield weapons beside the BO2 ones, by default, and can leave them out");
+    LauncherSettings mods;
+    mods.hitmarker = true;
+    mods.unlimitedPap = true;
+    mods.spawnRate = 5;
+    mods.spawnRush = false;
+    const bool upapNoScript = Launcher_BuildLaunchLine(mods, "").find("unlimitedpap") == std::string::npos;
+    mods.unlimitedPapInstalled = true;
+    LauncherSettings modsDeadOps = mods;
+    while (std::string(kLauncherMaps[modsDeadOps.map].bsp) != "zombietron")
+        ++modsDeadOps.map;
+    LauncherSettings modsJoin = mods;
+    modsJoin.join = true;
+    modsJoin.serverHost = "192.168.1.20";
+    const std::string modsLine = Launcher_BuildLaunchLine(modsDeadOps, "");
+    Check(upapNoScript &&
+              Launcher_BuildLaunchLine(mods, "").find(" +set fs_mods zinfo hitmarker unlimitedpap spawnrate "
+                                                      "+set spawnrate_mult 5 +set spawnrate_rush 0 ") !=
+                  std::string::npos &&
+              modsLine.find("hitmarker") == std::string::npos && modsLine.find("spawnrate") == std::string::npos &&
+              Launcher_BuildLaunchLine(modsJoin, "").find("hitmarker") == std::string::npos &&
+              SameSettings(Launcher_ParseSettings(Launcher_FormatSettings(mods)), mods) &&
+              Launcher_ParseSettings("spawnrate=7\n").spawnRate == 0,
+          "a solo game stacks hitmarker, unlimitedpap (with its script on the SD card) and spawnrate, not on Dead Ops "
+          "Arcade nor on a join; menu.cfg keeps them");
     LauncherSettings run;
     run.runInfo = 2;
     Check(Launcher_BuildLaunchLine(run, "").find(" +set bo1_runinfo 2") != std::string::npos &&

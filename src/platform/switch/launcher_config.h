@@ -50,6 +50,9 @@ extern const LauncherPropDistance kLauncherPropDistances[];
 extern const int kLauncherPropDistanceCount;
 extern const int kLauncherFarRespawns[];
 extern const int kLauncherFarRespawnCount;
+// mods/spawnrate's spawnrate_mult choices (0 = off), as ZmClient's SPAWN_RATE_CHOICES.
+extern const int kLauncherSpawnRates[];
+extern const int kLauncherSpawnRateCount;
 struct LauncherPerk
 {
     const char *key;   // the name mods/admin's admin_perk_name takes, and menu.cfg's
@@ -107,6 +110,14 @@ struct LauncherSettings
     bool startPower = false;       // mods/admin's zm_startpower: the map's power switch used at the start
     bool startPap = false;         // mods/admin's zm_startpap: a Pack-a-Punch, always on, at the start points
     int farRespawn = 0;            // one of kLauncherFarRespawns: mods/admin's zm_farrespawn
+    bool hitmarker = false;        // mods/hitmarker: an X at the crosshair on each hit
+    // mods/unlimitedpap: Pack-a-Punch again and again, price and damage doubled. Only when unlimitedPapInstalled: its
+    // script is written from the player's own zones (tools/unlimitedpap/make_perks.py), which the menu checks on the
+    // SD card (not kept in menu.cfg).
+    bool unlimitedPap = false;
+    bool unlimitedPapInstalled = false;
+    int spawnRate = 0;             // one of kLauncherSpawnRates: mods/spawnrate's spawnrate_mult, 0 off
+    bool spawnRush = true;         // mods/spawnrate's spawnrate_rush: zombies sprint to their barrier
     LauncherBackend backend = LAUNCHER_BACKEND_DEKO3D;
     int height = 720; // 720, 540 or 480: the game's frame (r_customMode), which the console scales to the screen
     int maxFps = 60;  // 30 or 60

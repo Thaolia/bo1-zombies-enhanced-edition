@@ -33,7 +33,7 @@ Version anglaise : `README.md`. La référence complète et détaillée se trouv
 - **Un lanceur pour les joueurs** (`zmclient`). Il lance une partie solo avec des mods, rejoint des serveurs, ouvre
   un écran partagé en deux fenêtres et installe les fichiers du jeu depuis votre propre copie.
 - **Des mods** qui se cumulent : horde, nightmare, MapKit, sans atouts, compteur de zombies, les armes de BO2, les
-  armes doublées après le Pack-a-Punch.
+  armes doublées après le Pack-a-Punch, le hit marker, le Pack-a-Punch illimité, l'apparition plus rapide des zombies.
 - **Des cartes de Black Ops II** : Nuketown, TranZit, Mob of the Dead et Buried, en cartes BO1 natives.
 - **Infos speedrun** : les réglages qui changent une partie et un SHA-512 du programme et de ses zones, affichés à
   l'écran.
@@ -89,6 +89,7 @@ Solo de ZmClient, les cartes s'appellent « Mapkit : … native (Black Ops II, m
 | `tools/make_dist.sh` | construit les paquets prêts à copier de chaque plateforme |
 | `tools/bo2` | transforme une carte de Black Ops II en disposition MapKit et en carte BO1 native |
 | `tools/dualwield` | construit le mod des armes doublées à partir de vos zones |
+| `tools/unlimitedpap` | écrit le script du mod Pack-a-Punch illimité à partir de vos zones |
 | `tools/switch_setup` | complète le dossier de la carte SD de la Switch depuis votre installation |
 | `tools/server_status.py`, `tools/server_rcon.py` | interrogent un serveur, envoient des commandes rcon |
 
@@ -170,7 +171,9 @@ Au lancement, un menu texte s'ouvre avant le jeu. On y choisit :
   activé par défaut ;
 - le **départ** : un écran pour les points (de 1 000 à 100 000, au lieu des 500 du jeu), le courant mis dès le
   départ et les atouts donnés à l'arrivée sur la map en solo (mod admin). Un atout n'est donné que si la map a sa
-  machine ;
+  machine. Le même écran ajoute le hit marker (mod hitmarker), le Pack-a-Punch illimité (mod unlimitedpap, quand son
+  script est sur la carte SD) et l'apparition plus rapide des zombies (mod spawnrate : de 2 à 10 fois, avec ou sans
+  le sprint jusqu'aux barricades) ;
 - le rendu (deko3d ou OpenGL), la résolution (720p, ou 540p / 480p pour plus de FPS, 540p conseillé en ligne : la console agrandit l'image à
   l'écran), la limite de FPS (30 ou 60), les ombres, la distance des props (normale, réduite ou courte :
   `r_lodScaleRigid` 1, 1,5 ou 2, les objets du décor dessinés plus simples et moins loin, pour plus de FPS sur les maps
@@ -395,6 +398,9 @@ ZmClient et ZmAdmin (Nuitka) sous Windows, le programme Linux, `ffconv.exe` et Z
 extraction est une donnée du jeu : `--bo2` ne se combine pas avec `--no-game-data`. `--dualwield DIR` fait de même,
 dans tous les paquets (Switch comprise), pour votre propre construction de `mods/dualwield` : le Pack-a-Punch double le
 Ray Gun et le Thundergun. `tools/dualwield/dualwield_mod.py` la fait depuis les seules zones de votre jeu, ou depuis
-votre copie du mod « Relaxing Dual Wield », qui ajoute le PPSh (`mods/dualwield/README.md`). Nuketown a plus de 2 000 props :
+votre copie du mod « Relaxing Dual Wield », qui ajoute le PPSh (`mods/dualwield/README.md`). Chaque paquet avec les
+données du jeu reçoit aussi le script Pack-a-Punch de `mods/unlimitedpap`, écrit depuis votre `common_zombie_patch.ff`
+par `tools/unlimitedpap/make_perks.py` (le script d'origine avec les 13 lignes changées par le mod ;
+`mods/unlimitedpap/README.md`). Nuketown a plus de 2 000 props :
 dans la vue Lancement de ZmClient, « Modèles affichés par image » à 4096 (`r_mod_sceneModels`) les dessine tous,
 1024 (le jeu d'origine) laisse tomber les plus lointains.

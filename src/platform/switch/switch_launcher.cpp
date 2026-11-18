@@ -161,6 +161,10 @@ enum Item
     ITEM_KIT_PERK_LAST = ITEM_KIT_PERK_FIRST + 7,
     ITEM_KIT_FAR,
     ITEM_KIT_DUAL,
+    ITEM_KIT_HIT,
+    ITEM_KIT_UPAP,
+    ITEM_KIT_SPAWN,
+    ITEM_KIT_RUSH,
     ITEM_KIT_BACK,
     ITEM_COUNT
 };
@@ -194,7 +198,7 @@ const ItemInfo kItems[ITEM_COUNT] = {
     {VIEW_MAIN, 14, "Infos speedrun", "Reglages et hash du programme et des zones: au chargement, ou aussi en jeu."},
     {VIEW_MAIN, 15, "God mode", "Les zombies ne peuvent pas tuer le joueur (partie solo)."},
     {VIEW_MAIN, 16, "Compteur zombies", "Zombies en vie et restants dans la manche, a cote du tableau des scores."},
-    {VIEW_MAIN, 17, "Depart", "A: points et atouts donnes a l'arrivee sur la map (partie solo)."},
+    {VIEW_MAIN, 17, "Depart", "A: points, atouts et mods de la partie solo (hit marker, PaP illimite...)."},
     {VIEW_MAIN, 19, "Rendu", "deko3d: le plus rapide. OpenGL: l'ancien chemin, plus lent."},
     {VIEW_MAIN, 20, "Resolution", "720p: celle de l'ecran. 540p, 480p: image moins nette, plus de FPS (en ligne)."},
     {VIEW_MAIN, 21, "Limite de FPS", "30: plus stable et plus econome en batterie. 60: plus fluide."},
@@ -231,7 +235,11 @@ const ItemInfo kItems[ITEM_COUNT] = {
 #undef KIT_PERK
     {VIEW_KIT, 17, "Zombies eloignes", "Gauche/Droite: un zombie plus loin que ca de tous et non vu est remplace."},
     {VIEW_KIT, 18, "Armes doublees", "Oui: le Pack-a-Punch double Ray Gun et Thundergun (et PPSh) (mods/dualwield)."},
-    {VIEW_KIT, 19, "RETOUR", "Revient au menu (aussi: bouton B)."},
+    {VIEW_KIT, 19, "Hit marker", "Oui: un X au centre de l'ecran a chaque zombie touche (mods/hitmarker)."},
+    {VIEW_KIT, 20, "Pack-a-Punch illimite", "Oui: repack sans fin, prix et degats doubles a chaque fois (mods/unlimitedpap)."},
+    {VIEW_KIT, 21, "Apparition zombies", "Gauche/Droite: zombies qui sortent plus vite, pauses courtes (mods/spawnrate)."},
+    {VIEW_KIT, 22, "  Sprint aux barricades", "Oui: chaque zombie court jusqu'a sa barricade, puis reprend sa vitesse."},
+    {VIEW_KIT, 23, "RETOUR", "Revient au menu (aussi: bouton B)."},
 };
 static_assert(ITEM_KIT_PERK_LAST - ITEM_KIT_PERK_FIRST + 1 == 8, "one kit line per kLauncherPerks entry");
 static_assert(sizeof(kItems) / sizeof(kItems[0]) == ITEM_COUNT, "one kItems line per Item");
@@ -240,7 +248,7 @@ const int kControllerFirstRow = 28;
 const int kControllerMaxRows = 8; // handheld + players 1-7: the rows up to DEMARRER
 const int kPadInfoRow = 28;
 const int kNetInfoRow = 24;
-const int kKitInfoRow = 20;
+const int kKitInfoRow = 25;
 const int kHelpRow = 37;
 const int kStatusRow = 38;
 const int kFooterRow = 40;
@@ -269,6 +277,10 @@ bool Selectable(const LauncherSettings &s, View view, int item)
         return s.bo2WeaponsInstalled;
     if (item == ITEM_NET_DUAL || item == ITEM_KIT_DUAL)
         return s.dualWieldInstalled;
+    if (item == ITEM_KIT_UPAP)
+        return s.unlimitedPapInstalled;
+    if (item == ITEM_KIT_RUSH)
+        return s.spawnRate > 0;
     return true;
 }
 
@@ -327,7 +339,13 @@ std::string ValueText(const LauncherSettings &s, int item)
         int perks = 0;
         for (int i = 0; i < kLauncherPerkCount; ++i)
             perks += (s.startPerks >> i) & 1;
-        const std::string dual = s.dualWield && s.dualWieldInstalled ? ", armes doublees" : "";
+        std::string dual = s.dualWield && s.dualWieldInstalled ? ", armes doublees" : "";
+        if (s.hitmarker)
+            dual += ", hit marker";
+        if (s.unlimitedPap && s.unlimitedPapInstalled)
+            dual += ", PaP illimite";
+        if (s.spawnRate > 0)
+            dual += ", zombies x" + std::to_string(s.spawnRate);
         if (!s.startPoints && !perks && !s.startPower && !s.startPap && !s.farRespawn)
             return "Celui du jeu" + dual;
         std::string text = s.startPoints ? std::to_string(s.startPoints) + " points" : "500 points";
@@ -375,6 +393,14 @@ std::string ValueText(const LauncherSettings &s, int item)
         return s.dualWieldInstalled ? YesNo(s.joinDualWield) : "absentes de la carte SD";
     case ITEM_KIT_DUAL:
         return s.dualWieldInstalled ? YesNo(s.dualWield) : "absentes de la carte SD";
+    case ITEM_KIT_HIT:
+        return YesNo(s.hitmarker);
+    case ITEM_KIT_UPAP:
+        return s.unlimitedPapInstalled ? YesNo(s.unlimitedPap) : "script absent de la carte SD";
+    case ITEM_KIT_SPAWN:
+        return s.spawnRate > 0 ? std::to_string(s.spawnRate) + " fois plus vite" : std::string("Celle du jeu");
+    case ITEM_KIT_RUSH:
+        return YesNo(s.spawnRush);
     case ITEM_NET_SCAN:
         if (!s_searched)
             return "pas encore lancee";
@@ -420,6 +446,24 @@ void Change(LauncherSettings *s, int item, int dir)
     case ITEM_KIT_DUAL:
         s->dualWield = !s->dualWield;
         break;
+    case ITEM_KIT_HIT:
+        s->hitmarker = !s->hitmarker;
+        break;
+    case ITEM_KIT_UPAP:
+        s->unlimitedPap = !s->unlimitedPap;
+        break;
+    case ITEM_KIT_RUSH:
+        s->spawnRush = !s->spawnRush;
+        break;
+    case ITEM_KIT_SPAWN:
+    {
+        int at = 0;
+        while (at < kLauncherSpawnRateCount && kLauncherSpawnRates[at] != s->spawnRate)
+            ++at;
+        at = (at % kLauncherSpawnRateCount + dir + kLauncherSpawnRateCount) % kLauncherSpawnRateCount;
+        s->spawnRate = kLauncherSpawnRates[at];
+        break;
+    }
     case ITEM_MAP:
         do
             s->map = (s->map + dir + kLauncherMapCount) % kLauncherMapCount;
@@ -883,12 +927,15 @@ LauncherResult Launcher_Run(const char *buildStamp, char *line, size_t lineSize,
     struct stat bo2weapons;
     s.bo2WeaponsInstalled = stat("sdmc:/switch/bo1zm/mods/bo2weapons/mod.ff", &bo2weapons) == 0;
     s.dualWieldInstalled = stat("sdmc:/switch/bo1zm/mods/dualwield/mod.ff", &bo2weapons) == 0;
-    Log("menu.cfg read: map %s, backend %s, server %s (%s), BO2 weapons %s, dual wield %s",
+    s.unlimitedPapInstalled =
+        stat("sdmc:/switch/bo1zm/mods/unlimitedpap/maps/_zombiemode_perks.gsc", &bo2weapons) == 0;
+    Log("menu.cfg read: map %s, backend %s, server %s (%s), BO2 weapons %s, dual wield %s, unlimited PaP %s",
         Launcher_MapKey(s.map).c_str(),
         Launcher_BackendName(s.backend),
         s.serverHost.empty() ? "-" : Launcher_ServerAddress(s).c_str(), s.join ? "join" : "solo",
         !s.bo2WeaponsInstalled ? "not on the SD card" : s.joinBo2Weapons ? "loaded to join" : "off",
-        !s.dualWieldInstalled ? "not on the SD card" : s.dualWield ? "solo on" : "solo off");
+        !s.dualWieldInstalled ? "not on the SD card" : s.dualWield ? "solo on" : "solo off",
+        !s.unlimitedPapInstalled ? "not on the SD card" : s.unlimitedPap ? "on" : "off");
     Screen screen;
     screen.buildStamp = buildStamp;
     // The first battery query logs through stdout (switch_main.cpp's BootLog), which the console would print over the

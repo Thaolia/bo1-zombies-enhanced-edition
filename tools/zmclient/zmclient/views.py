@@ -13,7 +13,8 @@ from . import help as H
 from .dirbrowser import FolderDialog, start_folder
 from .gamecfg import BY_NAME, SETTINGS, valid_bind_key, validate
 from .profile import (BO2_WEAPON_CHOICES, DEFAULT_PORT, MAP_LABELS, START_PERKS, bo2_weapons_available,
-                      bo2_weapons_installed, dual_wield_installed, FAR_RESPAWN_CHOICES, START_POINT_CHOICES, check_extra, map_installed, map_label, nightmare_available,
+                      bo2_weapons_installed, dual_wield_installed, FAR_RESPAWN_CHOICES, SPAWN_RATE_CHOICES,
+                      START_POINT_CHOICES, check_extra, unlimited_pap_installed, map_installed, map_label, nightmare_available,
                       parse_size, quote_command, resolve_map, solo_maps, specials_available, split_on, valid_host,
                       valid_name, valid_password)
 
@@ -191,6 +192,10 @@ def _points(n):
 
 def _far(n):
     return f"au-delà de {n:,}".replace(",", " ") if n else "non"
+
+
+def _spawn_rate(n):
+    return f"{n} fois plus vite" if n else "celle du jeu"
 
 
 def _name(text):
@@ -497,6 +502,16 @@ class SoloView(RowsView):
             Row("quickrestart", "R relance après la fin", _yes(p["quickrestart"]), self.toggle("quickrestart")),
             bo2_row(self, "bo2_weapons", root, bsp=bsp),
             dual_row(self, "dual_wield", root, bsp=bsp),
+            Row("hitmarker", "Hit marker", _yes(p["hitmarker"]), self.toggle("hitmarker")),
+            Row("unlimited_pap", "Pack-a-Punch illimité", _yes(p["unlimited_pap"]), self.toggle("unlimited_pap"),
+                disabled=None if unlimited_pap_installed(root) else
+                "pas de mods/unlimitedpap/maps/_zombiemode_perks.gsc : à écrire depuis vos zones "
+                "(tools/unlimitedpap/make_perks.py)"),
+            Row("spawn_rate", "Apparition des zombies", _spawn_rate(p["spawn_rate"]),
+                self.choose("spawn_rate", "Apparition des zombies",
+                            [(n, _spawn_rate(n), H.SPAWN_RATE_HELP[n]) for n in SPAWN_RATE_CHOICES])),
+            Row("spawn_rush", "Sprint jusqu'aux barricades", _yes(p["spawn_rush"]), self.toggle("spawn_rush"),
+                disabled=None if p["spawn_rate"] else "apparition des zombies : celle du jeu"),
             section("Départ"),
             Row("start_points", "Points de départ", _points(p["start_points"]),
                 self.choose("start_points", "Points de départ",

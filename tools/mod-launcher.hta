@@ -119,8 +119,29 @@ function args() {
     a += " +set fs_mods" + (el("zinfo").checked ? " zinfo" : "") + (el("noperks").checked ? " noperks +set noperks 1" : "");
   }
   if (!el("difficulty").disabled) a = nightmareFlags(el("difficulty").value, a, m[0]); // Normal = 0: unchanged
+  // after the others (ZmClient's solo_mod_flags): spawnrate last, it wraps horde's spawner
+  if (el("hitmarker").checked) a = addMod(a, "hitmarker"); // an X at the crosshair on each hit
+  if (el("unlimitedpap").checked) a = addMod(a, "unlimitedpap"); // needs tools/unlimitedpap/make_perks.py's script
+  if (el("spawnrate").checked) {
+    var sm = parseFloat(el("spawnmult").value);
+    a = addMod(a, "spawnrate") + " +set spawnrate_mult " + (sm > 0 ? sm : 3);
+    if (!el("sprintbarrier").checked) a += " +set spawnrate_rush 0";
+  }
   if (el("quickrestart").checked) a += " +set bo1_mod_quickrestart 1"; // R after game over: SP_QuickRestart
   return a + " +devmap " + m[0];
+}
+
+// Adds a mod to the line's "+set fs_mods a b c" (the list runs to the next " +"), or starts one naming fs_game's mod
+// first: fs_mods must name it, or its hooks do not run (ZmClient's stack_mod).
+function addMod(a, mod) {
+  var i = a.indexOf("+set fs_mods ");
+  if (i < 0) {
+    var g = a.match(/\+set fs_game mods\/(\S+)/);
+    return a + " +set fs_mods " + (g ? g[1] + " " : "") + mod;
+  }
+  var j = a.indexOf(" +", i + 13);
+  if (j < 0) j = a.length;
+  return a.slice(0, j) + " " + mod + a.slice(j);
 }
 
 function play() {
@@ -163,6 +184,10 @@ function play() {
   <label><input type="checkbox" id="fps" onclick="refresh()"> FPS counter</label>
   <label><input type="checkbox" id="zinfo" checked onclick="refresh()"> Tab: zombie counter</label>
   <label><input type="checkbox" id="noperks" onclick="refresh()"> No perk machines <span class="note">with or without horde; Pack-a-Punch and the box stay</span></label>
+  <label><input type="checkbox" id="hitmarker" onclick="refresh()"> Hit marker <span class="note">an X at the crosshair when you hit a zombie: white body, orange head, red kill</span></label>
+  <label><input type="checkbox" id="unlimitedpap" onclick="refresh()"> Unlimited Pack-a-Punch <span class="note">price and damage double with each pack; its script comes from your zones (tools/unlimitedpap/make_perks.py)</span></label>
+  <label><input type="checkbox" id="spawnrate" onclick="refresh()"> Faster zombie spawns <input class="n" id="spawnmult" value="3" onkeyup="refresh()"> times <span class="note">retail rounds, shorter pauses between them</span></label>
+  <label><input type="checkbox" id="sprintbarrier" checked onclick="refresh()"> Zombies sprint to the barriers <span class="note">with faster spawns, then back to the round's speed</span></label>
   <label><input type="checkbox" id="quickrestart" checked onclick="refresh()"> R restarts after game over <span class="note">same map, same settings</span></label>
 </fieldset>
 <button onclick="play()">Play</button>

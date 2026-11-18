@@ -92,9 +92,11 @@ class ModFlagsParity(unittest.TestCase):
                                                            (True, False, True, False, False, 2),
                                                            (True, True, True, True, True, 1),
                                                            (False, True, False, True, True, 1)]:
-            combos.append(dict(horde=horde, zinfo=zinfo, noperks=noperks, quickrestart=quick, napalm=napalm,
-                               sonic=not napalm, difficulty=diff, maxz="400", round="5", spawnall=horde,
-                               unjam=not noperks, clearround=noperks))
+            # mods/hitmarker and mods/spawnrate stacked after the others (off, both, spawnrate alone without the rush)
+            for hit, rate, rush in [(False, 0, True), (True, 3, True), (False, 5, False)]:
+                combos.append(dict(horde=horde, zinfo=zinfo, noperks=noperks, quickrestart=quick, napalm=napalm,
+                                   sonic=not napalm, difficulty=diff, maxz="400", round="5", spawnall=horde,
+                                   unjam=not noperks, clearround=noperks, hitmarker=hit, spawnrate=rate, rush=rush))
         with tempfile.TemporaryDirectory() as tmp:
             probe = os.path.join(tmp, "probe.json")
             with open(probe, "w") as f:
@@ -107,7 +109,9 @@ class ModFlagsParity(unittest.TestCase):
                     ids = {"horde": c["horde"], "zinfo": c["zinfo"], "noperks": c["noperks"],
                            "quickrestart": c["quickrestart"], "napalm": c["napalm"], "sonic": c["sonic"],
                            "difficulty": str(c["difficulty"]), "maxz": c["maxz"], "round": c["round"],
-                           "spawnall": c["spawnall"], "unjam": c["unjam"], "clearround": c["clearround"]}
+                           "spawnall": c["spawnall"], "unjam": c["unjam"], "clearround": c["clearround"],
+                           "hitmarker": c["hitmarker"], "spawnrate": bool(c["spawnrate"]),
+                           "spawnmult": str(c["spawnrate"] or 3), "sprintbarrier": c["rush"]}
                     cases.append({"map": str(i), "ids": ids, "combo": c})
             with open(probe, "w") as f:
                 json.dump(cases, f)
@@ -126,7 +130,8 @@ class ModFlagsParity(unittest.TestCase):
                                ("horde_sonic", c["sonic"]), ("difficulty", c["difficulty"]),
                                ("horde_max", int(c["maxz"])), ("horde_round", int(c["round"])),
                                ("horde_spawn_all", c["spawnall"]), ("horde_unjam", c["unjam"]),
-                               ("horde_clear_round", c["clearround"])):
+                               ("horde_clear_round", c["clearround"]), ("hitmarker", c["hitmarker"]),
+                               ("spawn_rate", c["spawnrate"]), ("spawn_rush", c["rush"])):
                 p[key] = value
             self.assertTrue(line.startswith(base + " ") and line.endswith(" +devmap " + m[0]), line)
             middle = line[len(base):-len(" +devmap " + m[0])].split()
@@ -318,6 +323,24 @@ class CommandLine(unittest.TestCase):
                 json.dump({"bo2_weapons": 7, "host_bo2_weapons": 2}, f)
             q = P.Profile(path)
             self.assertEqual((q["bo2_weapons"], q["host_bo2_weapons"]), (0, 2))
+
+    def test_new_mods(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            p = P.Profile()
+            p["map"], p["hitmarker"], p["spawn_rate"], p["spawn_rush"] = "zombie_theater", True, 5, False
+            self.assertIn("+set fs_mods zinfo hitmarker spawnrate +set spawnrate_mult 5 +set spawnrate_rush 0",
+                          " ".join(P.solo_mod_flags(p, tmp)))
+            # unlimitedpap's script is written from the player's zones: without it the line is refused
+            p["unlimited_pap"] = True
+            self.assertTrue(any("_zombiemode_perks.gsc" in w for w in P.problems(p, tmp)))
+            self.assertNotIn("unlimitedpap", P.solo_mod_flags(p, tmp))
+            os.makedirs(os.path.join(tmp, "mods", "unlimitedpap", "maps"))
+            open(os.path.join(tmp, "mods", "unlimitedpap", "maps", "_zombiemode_perks.gsc"), "w").close()
+            self.assertEqual(P.problems(p, tmp), [])
+            self.assertIn("+set fs_mods zinfo hitmarker unlimitedpap spawnrate ", " ".join(P.solo_mod_flags(p, tmp)))
+            # a MapKit map without zinfo: fs_game's mod named first
+            p["map"], p["zinfo"], p["hitmarker"], p["spawn_rate"] = "mapkit:aldric_sanatorium", False, False, 0
+            self.assertIn("+set fs_mods mapkit unlimitedpap", " ".join(P.solo_mod_flags(p, tmp)))
 
     def test_dual_wield(self):
         with tempfile.TemporaryDirectory() as tmp:
