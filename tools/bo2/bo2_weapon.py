@@ -28,7 +28,8 @@ What changes on the way:
   (fly_hamr_mag_out -> wpn_hk21_mag_out) or disabled when BO1 has none: BO1 has no BO2 sound aliases.
 --all takes every BO2 box weapon of the dumps with its Pack-a-Punch version, picks the BO1 reference by class
 (reference_for) and writes mp/bo2weapons.csv, the list mods/bo2weapons registers. It also takes the scripted
-weapons of EXTRAS that MapKit's BO2 maps sell (the Galvaknuckles, the EMP grenade), which stay out of that list.
+weapons of EXTRAS that MapKit's BO2 maps sell (the Galvaknuckles, the EMP grenade, the Jet Gun, the shield), which
+stay out of that list; the Jet Gun's reference is Five's Death Machine (--bo1-map <zombie_pentagon dump>).
 The output is the player's own game data: keep it out of the repository.
 """
 import argparse
@@ -211,6 +212,8 @@ class Project:
     def __init__(self, args):
         self.dumps = args.dump
         self.bo1 = args.bo1
+        # BO1 map dumps searched after self.bo1 for a reference weapon and its animations only (Five's Death Machine)
+        self.bo1_maps = getattr(args, "bo1_map", None) or []
         self.raw = os.path.join(args.out, "zone_raw", PROJECT)
         self.zone_source = os.path.join(args.out, "zone_source")
         self.images = {}       # (BO2 image name, specular mixed in) -> zone image name
@@ -222,6 +225,14 @@ class Project:
         self.lines = []        # zone file entries
         self.notes = []
         self.weapons = []      # converted BO2 weapons, in order
+
+    def bo1_file(self, kind, name):
+        """The first BO1 dump (self.bo1, then self.bo1_maps) holding <kind>/<name>, or None."""
+        for folder in [self.bo1] + self.bo1_maps:
+            path = os.path.join(folder, kind, name)
+            if os.path.exists(path):
+                return path
+        return None
 
     def find(self, kind, name):
         """The first dump holding <kind>/<name> (BO2 zones share most weapon assets), or None."""
@@ -420,9 +431,9 @@ class Project:
         hands of the Galvaknuckles' purchase, a grenade icon) stays BO1's: a BO2 copy in mod.ff would replace it for
         BO1's own weapons."""
         t6 = read_weapon(self.find("weapons", bo2_name))
-        ref = read_weapon(os.path.join(self.bo1, "weapons", bo1_name))
+        ref = read_weapon(self.bo1_file("weapons", bo1_name))
         t6d = dict(t6)
-        aliases = reference_aliases(self.bo1, dict(ref))
+        aliases = reference_aliases(self.bo1_file, dict(ref))
         attachments = attached_models(t6d)
         out, kept, from_ref = [], 0, 0
         for key, ref_value in ref:
@@ -442,8 +453,8 @@ class Project:
                 if not self.xmodel(value, attachments.get(key, ())):
                     value = ref_value
             elif value and (ANIM_KEY.search(key) or self.find("xanim", value)
-                            or os.path.exists(os.path.join(self.bo1, "xanim", ref_value or "-"))):
-                if extra and os.path.exists(os.path.join(self.bo1, "xanim", value)):
+                            or self.bo1_file("xanim", ref_value or "-")):
+                if extra and self.bo1_file("xanim", value):
                     pass
                 elif not self.xanim(value, aliases):
                     value = ref_value  # BO2's anim is not in the dumps (the Mark II's dive to prone)
@@ -460,6 +471,8 @@ class Project:
         # one ends the game (Actor_GetWeaponAccuracyFromGraph_SP: "No 'AI vs AI' accuracy graph"); BO1's box weapons
         # have none, so an empty one takes BO1's SMG graph
         for key, value in OVERRIDES.get(bo2_name, {}).items():
+            if key not in dict(out):
+                raise SystemExit(f"{bo2_name}: override {key} is no key of BO1's weapon file")
             if value.startswith("@"):
                 value = dict(out)[value[1:]]
             out = [(k, value if k == key else v) for k, v in out]
@@ -481,7 +494,7 @@ class Project:
     def bo1_reference(self, name):
         """name if the BO1 dump has it, else its base weapon (no _upgraded)."""
         for candidate in (name, name.replace("_upgraded", "", 1)):
-            if os.path.exists(os.path.join(self.bo1, "weapons", candidate)):
+            if self.bo1_file("weapons", candidate):
                 return candidate
         raise SystemExit(f"BO1 reference {name}: not in {self.bo1}/weapons")
 
@@ -516,7 +529,8 @@ class Project:
             return
         path = os.path.join(self.raw, "english", "localizedstrings", "bo2weapons.str")
         os.makedirs(os.path.dirname(path), exist_ok=True)
-        with open(path, "w", encoding="latin-1", newline="\r\n") as f:
+        # BO1's text is Windows-1252 (a character it lacks becomes "?")
+        with open(path, "w", encoding="cp1252", errors="replace", newline="\r\n") as f:
             f.write('VERSION             "1"\nCONFIG              "C:/projects/cod/t5/bin/StringEd.cfg"\n'
                     'FILENOTES           ""\n\n')
             for key, text in strings:
@@ -751,14 +765,15 @@ def notetrack_table(data):
     return None
 
 
-def reference_aliases(bo1, ref):
-    """The sound aliases the reference weapon's animations play (sndnt# notetracks), by action: mag_out -> alias."""
+def reference_aliases(bo1_file, ref):
+    """The sound aliases the reference weapon's animations play (sndnt# notetracks), by action: mag_out -> alias.
+    bo1_file(kind, name): the BO1 dump's path of an asset, or None."""
     found = {}
     for key, value in ref.items():
         if not ANIM_KEY.search(key) or not value:
             continue
-        path = os.path.join(bo1, "xanim", value)
-        if not os.path.exists(path):
+        path = bo1_file("xanim", value)
+        if path is None:
             continue
         with open(path, "rb") as f:
             for alias in re.findall(rb"sndnt#([\w]+)\0", f.read()):
@@ -783,17 +798,35 @@ SKIP = re.compile(r"^(blunder|slipgun|slowgun|staff_|tower_trap|minigun|knife_ba
                   r"electrocuted|defaultweapon|quadrotor|jetgun|riotshield|tomb_shield|alcatraz_shield)|_extclip|_stalker")
 # --all: the scripted weapons MapKit's BO2 maps sell (mods/mapkit _mapkit.gsc), each with the BO1 weapon it works like.
 # The Galvaknuckles replace the knife as the Bowie knife does, through a purchase animation of their own; the EMP
-# grenade is a special grenade thrown like the Monkey Bomb.
+# grenade is a special grenade thrown like the Monkey Bomb. The Jet Gun spins up as Five's Death Machine does
+# (minigun_zm: a --bo1-map dump of zombie_pentagon); the shield is held like a pistol that shoots nothing.
 EXTRAS = (("tazer_knuckles_zm", "bowie_knife_zm"), ("zombie_tazer_flourish", "zombie_bowie_flourish"),
-          ("emp_grenade_zm", "zombie_cymbal_monkey"))
-# The EXTRAS' names BO2's zombie zones lack (the EMP grenade's is in its multiplayer strings)
-EXTRA_NAMES = {"WEAPON_EMP_GRENADE": "EMP Grenade"}
+          ("emp_grenade_zm", "zombie_cymbal_monkey"), ("jetgun_zm", "minigun_zm"), ("riotshield_zm", "m1911_zm"))
+# The EXTRAS' names BO2's zombie zones lack (the EMP grenade's is in its multiplayer strings), and the English of
+# EXTRA_HINTS when the localize dump lacks them
+EXTRA_NAMES = {"WEAPON_EMP_GRENADE": "EMP Grenade",
+               "ZOMBIE_EQUIP_JETGUN_HOWTO": "Press ^3[{+actionslot 1}]^7 to equip the Jet Gun",
+               "ZOMBIE_EQUIP_RIOTSHIELD_HOWTO": "Press ^3[{+actionslot 1}]^7 to equip the Zombie Shield"}
+# The hint BO1's equipment system (_zombiemode_equipment) shows when _mapkit.gsc gives an EXTRAS weapon
+EXTRA_HINTS = {"jetgun_zm": "ZOMBIE_EQUIP_JETGUN_HOWTO", "riotshield_zm": "ZOMBIE_EQUIP_RIOTSHIELD_HOWTO"}
 # Values set after the merge ("@key": the merged weapon's value of key). The EMP takes the Monkey Bomb's class (BO1
 # throws a "Flash Grenade" as a flash bang) and a plain grenade explosion with no effect or sound: its 1 damage within
 # 1 unit hurts nobody, and the script plays the pulse (the Monkey's satchel blast would look like an explosion). Its
 # projectile is its own world model, not the Monkey (REF_KEY takes projectileModel from the reference).
+# The Jet Gun and the shield fire bullets of 0 damage with no flash, shell, tracer or shot sound: _mapkit.gsc does what
+# they do. The Jet Gun's clip is its heat left (100 rounds, one per 0.06 s: BO2's overheatRate of 17 % a second), with
+# no stock (no reload) and no engine overheat; BO2's effect starts at 20 % of its 3 s spin-up, so it spins up in 0.6 s
+# (a Minigun fires only once fully spun). The shield never runs out and fires its bash animation.
+NO_SHOT = {"damage": "0", "minDamage": "0", "viewFlashEffect": "", "worldFlashEffect": "", "viewShellEjectEffect": "",
+           "worldShellEjectEffect": "", "viewLastShotEjectEffect": "", "worldLastShotEjectEffect": "",
+           "tracerFrequency": "0", "fireSound": "", "fireSoundPlayer": "", "lastShotSound": "", "lastShotSoundPlayer": ""}
 OVERRIDES = {"emp_grenade_zm": {"offhandClass": "Smoke Grenade", "projExplosionType": "grenade",
-                                "projExplosionEffect": "", "projExplosionSound": "", "projectileModel": "@worldModel"}}
+                                "projExplosionEffect": "", "projExplosionSound": "", "projectileModel": "@worldModel"},
+             "jetgun_zm": dict(NO_SHOT, loopFireSound="", loopFireSoundPlayer="", loopFireEndSound="",
+                               loopFireEndSoundPlayer="", unlimitedAmmo="0", overheatWeapon="0", clipSize="100",
+                               maxAmmo="0", startAmmo="0", fireTime="0.06", spinUpTime="0.6"),
+             "riotshield_zm": dict(NO_SHOT, emptyFireSound="", emptyFireSoundPlayer="", unlimitedAmmo="1",
+                                   clipSize="1", maxAmmo="1", startAmmo="1", fireAnim="@meleeAnim")}
 # The BO1 reference of a BO2 weapon by class (sounds, effects, tracer, accuracy graph, notetrack sounds)
 UPGRADED_REF = {"m16_zm": "m16_gl_upgraded_zm", "gl_m16_upgraded_zm": "gl_m16_upgraded_zm"}
 VO = {"mg": "mg", "smg": "smg", "spread": "shotgun", "pistol": "pistol", "rocketlauncher": "launcher",
@@ -835,11 +868,12 @@ def reference_for(name, d):
 
 
 def read_strings(folder):
-    """REFERENCE -> text from the .str files of an OAT localize dump (the player's BO2 language)."""
+    """REFERENCE -> text from the .str files of an OAT localize dump (the player's BO2 language). OAT writes them in
+    UTF-8; read as Latin-1, an accented name reached BO1 as two characters ("ExÃ©cuteur")."""
     out = {}
     for path in glob.glob(os.path.join(folder, "**", "*.str"), recursive=True):
         key = None
-        with open(path, encoding="latin-1") as f:
+        with open(path, encoding="utf-8") as f:
             for line in f:
                 m = re.match(r"REFERENCE\s+(\S+)", line)
                 if m:
@@ -878,6 +912,9 @@ def main():
     ap.add_argument("--dump", action="append", required=True,
                     help="OAT dump of a BO2 zone holding weapons (repeat; searched in this order)")
     ap.add_argument("--bo1", required=True, help="OAT dump of a BO1 zone with the reference weapons and materials")
+    ap.add_argument("--bo1-map", action="append", default=[],
+                    help="OAT dump of a BO1 map zone with more reference weapons (repeat): zombie_pentagon's "
+                         "minigun_zm for the Jet Gun")
     ap.add_argument("--out", required=True, help="OAT Linker project folder (base folder)")
     ap.add_argument("--weapon", action="append", default=[], help="BO2 weapon:BO1 reference weapon")
     ap.add_argument("--all", action="store_true", help="every BO2 box weapon of the dumps (references by class)")
@@ -907,10 +944,15 @@ def main():
             p.weapon_tree(upgrade, UPGRADED_REF.get(ref, ref.replace("_zm", "_upgraded_zm")))
         table.append((base, upgrade or "", vo))
     for name, ref in (EXTRAS if args.all else ()):
-        if p.find("weapons", name):
-            p.weapon(name, ref, extra=True)
-    for name in p.weapons:
-        key = dict(read_weapon(p.find("weapons", name))).get("displayName", "")
+        if not p.find("weapons", name):
+            continue
+        if not p.bo1_file("weapons", ref):
+            p.notes.append(f"{name}: its BO1 reference {ref} is not in the BO1 dumps (--bo1-map), left out")
+            continue
+        p.weapon(name, ref, extra=True)
+    keys = [dict(read_weapon(p.find("weapons", name))).get("displayName", "") for name in p.weapons]
+    keys += [EXTRA_HINTS[name] for name in p.weapons if name in EXTRA_HINTS]
+    for key in keys:
         if key and key not in strings and key in bo2_strings:
             strings[key] = bo2_strings[key]
         elif key in EXTRA_NAMES and key not in strings:

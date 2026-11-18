@@ -1135,6 +1135,13 @@ main_end()
 	{
 		level thread mapkit_galvashots();
 	}
+	// +set mapkit_galvashots 2: the same for the Jet Gun (spun up, fired, the heat spent) and the shield (raised,
+	// bashing), then their finished models on the tables; with +set mapkit_jetdebug 1, the Jet Gun fired at a zombie
+	// at the end, and a "jetdebug" line per zombie it looks at (the self-test's Jet Gun check logs them too)
+	if ( GetDvar( "mapkit_galvashots" ) == "2" )
+	{
+		level thread mapkit_jetshots();
+	}
 	// mapkit-fix-4b: +set mapkit_clipshots 1 (passive god test client): the player walks from 64 in front into every
 	// machine's centre and must stop outside its clip; zombies are sampled for standing inside a clip ("mapkit: clipshots")
 	if ( GetDvar( "mapkit_clipshots" ) == "1" && GetDvar( "mapkit_boardshots" ) != "1" ) // with boardshots: after its END
@@ -1752,6 +1759,7 @@ mapkit_buildables()
 		return;
 	}
 	level.mapkit_builds = [];
+	level.mapkit_equip_tables = [];
 	for ( i = 0; i < bo1_mapkit_editcount(); i++ )
 	{
 		if ( bo1_mapkit_get( i, "kind" ) != "buildable" )
@@ -1765,7 +1773,18 @@ mapkit_buildables()
 		b.pieces = StrTok( bo1_mapkit_get( i, "pieces" ), "," );
 		b.built = [];
 		b.spawned = [];
-		if ( b.name == "turbine" )
+		weapon = mapkit_get_or( i, "weapon", "" );
+		if ( weapon != "" )
+		{
+			if ( !mapkit_equip_on( weapon ) )
+			{
+				mapkit_build_drop( b.name );
+				LogPrint( "mapkit: buildable " + b.name + " left out (" + weapon + " not loaded: the bo2weapons mod.ff is not stacked)\n" );
+				continue;
+			}
+			b.weapon = weapon;
+		}
+		else if ( b.name == "turbine" )
 		{
 			b.turbine = GetEnt( "mapkit_turbine", "targetname" );
 			if ( !IsDefined( b.turbine ) )
@@ -1794,6 +1813,18 @@ mapkit_buildables()
 		level.mapkit_builds[ level.mapkit_builds.size ] = b;
 		b thread mapkit_build_table();
 		LogPrint( "mapkit: buildable " + b.name + " at " + b.origin + ", " + b.pieces.size + " pieces\n" );
+	}
+}
+
+// a buildable left out: none of its pieces lies anywhere
+mapkit_build_drop( name )
+{
+	for ( i = 0; i < bo1_mapkit_editcount(); i++ )
+	{
+		if ( bo1_mapkit_get( i, "kind" ) == "piece" && bo1_mapkit_get( i, "buildable" ) == name )
+		{
+			bo1_mapkit_visible( i, 0 );
+		}
 	}
 }
 
@@ -1891,6 +1922,12 @@ mapkit_piece_label( model )
 	case "p6_zm_buildable_turbine_fan": return "turbine fan";
 	case "p6_zm_buildable_turbine_rudder": return "turbine rudder";
 	case "p6_zm_buildable_turbine_mannequin": return "turbine mannequin";
+	case "p6_zm_buildable_jetgun_wires": return "Jet Gun wires";
+	case "p6_zm_buildable_jetgun_engine": return "Jet Gun engine";
+	case "p6_zm_buildable_jetgun_guages": return "Jet Gun gauges";
+	case "p6_zm_buildable_jetgun_handles": return "Jet Gun handles";
+	case "t6_wpn_zmb_shield_dolly": return "shield dolly";
+	case "t6_wpn_zmb_shield_door": return "shield car door";
 	}
 	return "part";
 }
@@ -1935,6 +1972,14 @@ mapkit_build_label( name )
 	if ( name == "pap" )
 	{
 		return "Pack-a-Punch table";
+	}
+	if ( name == "jetgun" )
+	{
+		return "Jet Gun";
+	}
+	if ( name == "riotshield" )
+	{
+		return "Zombie Shield";
 	}
 	return name;
 }
@@ -1996,6 +2041,24 @@ mapkit_wait_use( origin, radius, owner, state )
 	}
 }
 
+// the press that built a table's last piece in is not a press to take what it made
+mapkit_wait_release( origin )
+{
+	for ( held = true; held; )
+	{
+		wait( 0.05 );
+		held = false;
+		players = get_players();
+		for ( p = 0; p < players.size; p++ )
+		{
+			if ( players[p] UseButtonPressed() && Distance2DSquared( players[p].origin, origin ) < 128 * 128 )
+			{
+				held = true;
+			}
+		}
+	}
+}
+
 mapkit_table_hint( origin, text )
 {
 	trig = Spawn( "trigger_radius_use", origin - ( 0, 0, 96 ), 0, 96, 192 );
@@ -2039,6 +2102,13 @@ mapkit_build_table()
 	}
 	trig Delete();
 	self.done = true;
+	if ( IsDefined( self.weapon ) )
+	{
+		mapkit_build_show_part( self.name, "weapon" );
+		LogPrint( "mapkit: buildable " + self.name + " built\n" );
+		self thread mapkit_equip_table();
+		return;
+	}
 	if ( IsDefined( self.turbine ) )
 	{
 		LogPrint( "mapkit: buildable " + self.name + " built\n" );
@@ -2086,20 +2156,7 @@ mapkit_turbine()
 	self.state = "table";
 	t Show();
 	self.take = mapkit_table_hint( self.origin, "Hold ^3[{+activate}]^7 to take the turbine" );
-	// the press that built the last piece in is not a press to take it
-	for ( held = true; held; )
-	{
-		wait( 0.05 );
-		held = false;
-		players = get_players();
-		for ( p = 0; p < players.size; p++ )
-		{
-			if ( players[p] UseButtonPressed() && Distance2DSquared( players[p].origin, self.origin ) < 128 * 128 )
-			{
-				held = true;
-			}
-		}
-	}
+	mapkit_wait_release( self.origin );
 	for ( ;; )
 	{
 		at = self.origin;
@@ -2581,6 +2638,56 @@ mapkit_extras_start()
 		LogPrint( "mapkit: Galvaknuckles " + mapkit_choose( level.mapkit_tazer, "on", "not loaded" ) + ", EMP grenade "
 			+ mapkit_choose( level.mapkit_emp, "in the box", mapkit_choose( mapkit_has_kind( "emp" ), "not loaded", "not on this map" ) ) + "\n" );
 	}
+	// the Jet Gun and the shield of the buildable edits with "weapon": BO1's equipment (action slot 1, one at a time)
+	level.mapkit_jetgun = mapkit_buildable_weapon( "jetgun_zm" ) && bo1_mapkit_weaponloaded( "jetgun_zm" );
+	if ( level.mapkit_jetgun )
+	{
+		mapkit_equip_register( "jetgun_zm", &"ZOMBIE_EQUIP_JETGUN_HOWTO", "thunder" );
+	}
+	level.mapkit_shield = mapkit_buildable_weapon( "riotshield_zm" ) && bo1_mapkit_weaponloaded( "riotshield_zm" );
+	if ( level.mapkit_shield )
+	{
+		mapkit_equip_register( "riotshield_zm", &"ZOMBIE_EQUIP_RIOTSHIELD_HOWTO", "favorite" );
+		maps\_zombiemode::register_player_damage_callback( ::mapkit_shield_damage );
+	}
+	if ( mapkit_buildable_weapon( "jetgun_zm" ) || mapkit_buildable_weapon( "riotshield_zm" ) )
+	{
+		LogPrint( "mapkit: Jet Gun " + mapkit_choose( level.mapkit_jetgun, "on", "not loaded" ) + ", shield "
+			+ mapkit_choose( level.mapkit_shield, "on", "not loaded" ) + "\n" );
+	}
+}
+
+mapkit_buildable_weapon( weapon )
+{
+	for ( i = 0; i < bo1_mapkit_editcount(); i++ )
+	{
+		if ( bo1_mapkit_get( i, "kind" ) == "buildable" && mapkit_get_or( i, "weapon", "" ) == weapon )
+		{
+			return true;
+		}
+	}
+	return false;
+}
+
+// retail's equipment system (_zombiemode_equipment, Moon's hacker): equipment_give puts it on action slot 1 with its
+// hint, a second item replaces the first, laststand takes it, and is_equipment keeps the box, the walls and the perk
+// machines from taking it as the gun in hand
+mapkit_equip_register( weapon, howto, vox )
+{
+	// retail is_limited_equipment returns nothing without this list (Moon's alone sets it): equipment_take then stops
+	// on "cannot cast undefined to bool"
+	if ( !IsDefined( level._limited_equipment ) )
+	{
+		level._limited_equipment = [];
+	}
+	maps\_zombiemode_equipment::include_zombie_equipment( weapon );
+	maps\_zombiemode_equipment::register_equipment( weapon, howto, howto, vox );
+	register_equipment_for_level( weapon );
+}
+
+mapkit_equip_on( weapon )
+{
+	return ( weapon == "jetgun_zm" && level.mapkit_jetgun ) || ( weapon == "riotshield_zm" && level.mapkit_shield );
 }
 
 mapkit_has_trigger( trigger )
@@ -2698,8 +2805,7 @@ mapkit_emp_detonate( grenade )
 	{
 		z = zombies[i];
 		// one still climbing out of the ground or through a window keeps going: its own script owns it until then
-		if ( IsDefined( z ) && IsAlive( z ) && is_true( z.completed_emerging_into_playable_area )
-			&& DistanceSquared( z.origin, origin ) < 600 * 600 )
+		if ( IsDefined( z ) && IsAlive( z ) && mapkit_zombie_in_play( z ) && DistanceSquared( z.origin, origin ) < 600 * 600 )
 		{
 			z thread mapkit_emp_stun( 20 );
 			stunned++;
@@ -2977,6 +3083,342 @@ mapkit_melee_watch()
 				triggers[k] SetVisibleToPlayer( player );
 			}
 		}
+	}
+}
+
+// A finished Jet Gun or shield (BO2's persistent buildable tables): any player takes one from the table, again after
+// losing it, into BO1's equipment slot; the finished weapon lies on the table (buildpart "weapon")
+mapkit_equip_table()
+{
+	label = mapkit_build_label( self.name );
+	level.mapkit_equip_tables[ self.weapon ] = self;
+	self.take = mapkit_table_hint( self.origin, "Hold ^3[{+activate}]^7 to take the " + label );
+	mapkit_wait_release( self.origin );
+	for ( ;; )
+	{
+		player = mapkit_wait_use( self.origin, 96 );
+		if ( player HasWeapon( self.weapon ) || player is_drinking() )
+		{
+			wait( 0.5 );
+			continue;
+		}
+		player mapkit_equip_give( self.weapon );
+		while ( IsDefined( player ) && player UseButtonPressed() )
+		{
+			wait( 0.05 );
+		}
+	}
+}
+
+mapkit_equip_give( weapon )
+{
+	self maps\_zombiemode_equipment::equipment_give( weapon );
+	if ( weapon == "jetgun_zm" )
+	{
+		self SetWeaponAmmoClip( weapon, 100 );
+		self SetWeaponAmmoStock( weapon, 0 );
+		self thread mapkit_jetgun_watch();
+	}
+	else
+	{
+		self.mapkit_shield_wear = 0;
+		self thread mapkit_shield_watch();
+	}
+	self SwitchToWeapon( weapon );
+	self PlaySound( "zmb_powerup_grabbed" );
+	LogPrint( "mapkit: " + weapon + " taken by " + self.playername + "\n" );
+}
+
+// the Jet Gun blown up or the shield broken: gone from the player, who takes another at its table
+mapkit_equip_lose( weapon, why )
+{
+	held = self GetCurrentWeapon() == weapon;
+	if ( self is_player_equipment( weapon ) )
+	{
+		self maps\_zombiemode_equipment::equipment_take();
+	}
+	else
+	{
+		self TakeWeapon( weapon );
+	}
+	primaries = self GetWeaponsListPrimaries();
+	if ( held && IsDefined( primaries ) && primaries.size > 0 )
+	{
+		self SwitchToWeapon( primaries[0] );
+	}
+	self IPrintLn( why );
+	LogPrint( "mapkit: " + weapon + " lost by " + self.playername + "\n" );
+}
+
+// BO2's _zm_weap_jetgun, simplified. The clip is the heat left: the engine spends a round per 0.06 s of firing (BO2's
+// 17 % a second) and the script gives one back per second otherwise (BO2's cooldownRate), stowed too. While it fires,
+// every 0.25 s, the zombies in front within 128 units are ground up (gibbed and killed) and the ones farther, up to
+// 1024, in BO2's 0.7 cone and in sight, are pulled 48 units toward it where the way is clear. Firing it dry
+// overheats it: BO2 blows it up and scatters its pieces; here it blows up and its table gives another. Not done: its
+// effects and sounds (BO1 has none: the Death Machine's spin plays), the power-ups it pulls in, reversing it.
+mapkit_jetgun_watch()
+{
+	self notify( "mapkit_jetgun_watch" );
+	self endon( "mapkit_jetgun_watch" );
+	self endon( "disconnect" );
+	self endon( "jetgun_zm_taken" );
+	self thread mapkit_jetgun_shots();
+	cool = 0;
+	next = 0;
+	while ( self HasWeapon( "jetgun_zm" ) )
+	{
+		wait( 0.05 );
+		clip = self GetWeaponAmmoClip( "jetgun_zm" );
+		if ( clip <= 0 )
+		{
+			// a thread of its own: equipment_take's "jetgun_zm_taken" ends this one
+			self thread mapkit_jetgun_overheat();
+			return;
+		}
+		if ( self GetCurrentWeapon() == "jetgun_zm" && IsDefined( self.mapkit_jet_shot ) && GetTime() - self.mapkit_jet_shot < 200 )
+		{
+			cool = 0;
+			if ( GetTime() >= next )
+			{
+				next = GetTime() + 250;
+				self mapkit_jetgun_blow();
+			}
+			continue;
+		}
+		if ( clip < 100 )
+		{
+			cool += 0.05;
+			if ( cool >= 1 )
+			{
+				cool -= 1;
+				self SetWeaponAmmoClip( "jetgun_zm", clip + 1 );
+			}
+		}
+	}
+}
+
+mapkit_jetgun_shots()
+{
+	self endon( "mapkit_jetgun_watch" );
+	self endon( "disconnect" );
+	self endon( "jetgun_zm_taken" );
+	for ( ;; )
+	{
+		self waittill( "weapon_fired" );
+		if ( self GetCurrentWeapon() == "jetgun_zm" )
+		{
+			self.mapkit_jet_shot = GetTime();
+		}
+	}
+}
+
+mapkit_jetgun_blow()
+{
+	view_pos = self GetEye();
+	angles = self GetPlayerAngles();
+	forward = AnglesToForward( angles );
+	flat = AnglesToForward( ( 0, angles[1], 0 ) );
+	debug = GetDvar( "mapkit_jetdebug" ) == "1";
+	zombies = get_array_of_closest( self.origin, GetAiSpeciesArray( "axis", "all" ), undefined, undefined, 1024 );
+	for ( i = 0; i < zombies.size; i++ )
+	{
+		z = zombies[i];
+		if ( !IsAlive( z ) || is_true( z.mapkit_jet_ground ) || is_true( z.in_the_ground ) )
+		{
+			continue;
+		}
+		at = z GetCentroid();
+		to = z.origin - self.origin;
+		side = VectorDot( flat, VectorNormalize( ( to[0], to[1], 0 ) ) );
+		dot = VectorDot( forward, VectorNormalize( at - view_pos ) );
+		if ( debug )
+		{
+			LogPrint( "mapkit: jetdebug zombie " + Int( Distance2D( self.origin, z.origin ) ) + " away, front " + side + ", dot " + dot + ", sight " + SightTracePassed( view_pos, at, false, self ) + ", in play " + mapkit_zombie_in_play( z ) + ", entrance " + is_true( z.got_to_entrance ) + "\n" );
+		}
+		// within 128 units and in front (BO2's grind range): a zombie clawing at the player is beside the muzzle and
+		// below the eye, out of a cone from either
+		if ( Distance2DSquared( self.origin, z.origin ) < 128 * 128 && side > 0.5 )
+		{
+			z mapkit_jetgun_grind( self );
+			continue;
+		}
+		// farther, in BO2's cone and in sight; one still climbing out of the ground or through a window keeps going:
+		// its own script owns it until then
+		if ( dot >= 0.7 && mapkit_zombie_in_play( z ) && SightTracePassed( view_pos, at, false, self ) )
+		{
+			z mapkit_jetgun_pull( self.origin );
+		}
+	}
+}
+
+// out of the ground or in through its window. Retail marks a window's zombie at the end of the window's traversal,
+// which MapKit's windows never send: one that reached its window and walked 128 units away from it is in too.
+mapkit_zombie_in_play( z )
+{
+	if ( is_true( z.completed_emerging_into_playable_area ) )
+	{
+		return true;
+	}
+	return is_true( z.got_to_entrance ) && IsDefined( z.first_node ) && DistanceSquared( z.origin, z.first_node.origin ) > 128 * 128;
+}
+
+mapkit_jetgun_grind( player )
+{
+	self.mapkit_jet_ground = true;
+	self.a.gib_ref = random( array( "guts", "right_arm", "left_arm" ) );
+	self thread animscripts\zombie_death::do_gib();
+	self DoDamage( self.health + 666, player.origin, player );
+	if ( !IsDefined( level.mapkit_jet_kills ) )
+	{
+		level.mapkit_jet_kills = 0;
+	}
+	level.mapkit_jet_kills++;
+}
+
+mapkit_jetgun_pull( to )
+{
+	dir = to - self.origin;
+	dir = VectorNormalize( ( dir[0], dir[1], 0 ) );
+	from = self.origin + ( 0, 0, 24 );
+	dest = from + dir * 48;
+	if ( DistanceSquared( PlayerPhysicsTrace( from, dest ), dest ) > 1 )
+	{
+		return;
+	}
+	floor = PlayerPhysicsTrace( dest, dest - ( 0, 0, 72 ) );
+	if ( DistanceSquared( floor, dest - ( 0, 0, 72 ) ) < 1 )
+	{
+		return; // no floor under it: a ledge
+	}
+	self ForceTeleport( floor, self.angles );
+	self.mapkit_jet_pulled = true;
+}
+
+mapkit_jetgun_overheat()
+{
+	playsoundatposition( "wpn_grenade_explode", self.origin );
+	Earthquake( 0.5, 0.75, self.origin, 300 );
+	self mapkit_equip_lose( "jetgun_zm", "The Jet Gun overheated and blew up: take another one at its table" );
+}
+
+// BO2's _zm_weap_riotshield, simplified. Held, the shield stops the zombies' blows from in front; stowed, the blows
+// from behind (BO2 straps it on the back). Each blow stopped wears it by the blow's damage, up to 2250 (BO2's
+// riotshield_hit_points), then it breaks. Firing it or a melee with it in hand bashes the zombies in front within 90
+// units (BO2's fling range): 2500 damage each, flung when killed, 100 more wear per zombie. Not done: planting it
+// (BO2's fire), its damaged models, the model on the back.
+mapkit_shield_damage( eInflictor, eAttacker, iDamage, iDFlags, sMeansOfDeath, sWeapon, vPoint, vDir, sHitLoc, modelIndex, psOffsetTime )
+{
+	if ( !IsDefined( eAttacker ) || !is_true( eAttacker.is_zombie ) || !self HasWeapon( "riotshield_zm" ) )
+	{
+		return -1;
+	}
+	angles = self GetPlayerAngles();
+	to = eAttacker.origin - self.origin;
+	dot = VectorDot( AnglesToForward( ( 0, angles[1], 0 ) ), VectorNormalize( ( to[0], to[1], 0 ) ) );
+	held = self GetCurrentWeapon() == "riotshield_zm";
+	if ( ( held && dot < 0.2 ) || ( !held && dot > -0.2 ) )
+	{
+		return -1;
+	}
+	blow = 50;
+	if ( IsDefined( eAttacker.meleeDamage ) )
+	{
+		blow = eAttacker.meleeDamage;
+	}
+	self thread mapkit_shield_hit( blow, held );
+	return 0;
+}
+
+mapkit_shield_hit( amount, held )
+{
+	if ( !IsDefined( self.mapkit_shield_wear ) )
+	{
+		self.mapkit_shield_wear = 0;
+	}
+	self.mapkit_shield_wear += amount;
+	if ( self.mapkit_shield_wear >= 2250 )
+	{
+		Earthquake( 1.0, 0.75, self.origin, 100 );
+		self mapkit_equip_lose( "riotshield_zm", "Your shield broke: take another one at its table" );
+		return;
+	}
+	if ( held )
+	{
+		Earthquake( 0.5, 0.5, self.origin, 100 );
+	}
+}
+
+mapkit_shield_watch()
+{
+	self notify( "mapkit_shield_watch" );
+	self endon( "mapkit_shield_watch" );
+	self endon( "disconnect" );
+	self endon( "riotshield_zm_taken" );
+	self thread mapkit_shield_shots();
+	was = false;
+	while ( self HasWeapon( "riotshield_zm" ) )
+	{
+		wait( 0.05 );
+		melee = self MeleeButtonPressed();
+		if ( melee && !was && self GetCurrentWeapon() == "riotshield_zm" )
+		{
+			self mapkit_shield_bash();
+		}
+		was = melee;
+	}
+}
+
+mapkit_shield_shots()
+{
+	self endon( "mapkit_shield_watch" );
+	self endon( "disconnect" );
+	self endon( "riotshield_zm_taken" );
+	for ( ;; )
+	{
+		self waittill( "weapon_fired" );
+		if ( self GetCurrentWeapon() == "riotshield_zm" )
+		{
+			self mapkit_shield_bash();
+		}
+	}
+}
+
+mapkit_shield_bash()
+{
+	view_pos = self GetEye();
+	forward = self GetWeaponForwardDir();
+	zombies = get_array_of_closest( view_pos, GetAiSpeciesArray( "axis", "all" ), undefined, undefined, 90 );
+	hit = 0;
+	for ( i = 0; i < zombies.size; i++ )
+	{
+		z = zombies[i];
+		if ( !IsAlive( z ) )
+		{
+			continue;
+		}
+		at = z GetCentroid();
+		if ( VectorDot( forward, VectorNormalize( at - view_pos ) ) < 0 || 0 == z DamageConeTrace( view_pos, self ) )
+		{
+			continue;
+		}
+		z DoDamage( 2500, self.origin, self );
+		if ( z.health <= 0 )
+		{
+			fling = VectorNormalize( at - view_pos );
+			z StartRagdoll();
+			z LaunchRagdoll( ( fling[0], fling[1], abs( fling[2] ) ) * 150 );
+		}
+		hit++;
+	}
+	if ( hit > 0 )
+	{
+		if ( !IsDefined( level.mapkit_shield_bashes ) )
+		{
+			level.mapkit_shield_bashes = 0;
+		}
+		level.mapkit_shield_bashes += hit;
+		// a thread of its own: a broken shield's "riotshield_zm_taken" ends the watch that bashed
+		self thread mapkit_shield_hit( 100 * hit, false );
 	}
 }
 
@@ -3568,6 +4010,8 @@ mapkit_check()
 	mapkit_check_turbine( player );
 	mapkit_check_denizen( player );
 	mapkit_check_emp( player );
+	mapkit_check_jetgun( player );
+	mapkit_check_shield( player );
 	// mapkit-fix-3c: the switch and the perk that must refuse can sit behind doors (sluice_works: switch in the control
 	// room, the only reachable perk solo Quick Revive; live doctor "the press never reached perk"). Without electric doors
 	// the progression opens everything with the power off first; electric doors need the power, so they keep the old order.
@@ -4018,21 +4462,8 @@ mapkit_check_emp( player )
 	level thread mapkit_check_emp_seen();
 	mapkit_test_visit( b.at, b.at );
 	SetDvar( "bo1_testclient_press", "" ); // no use press: it would take the turbine
-	// a zombie near, to see it stunned (the god client draws them; up to 60 s)
-	near = undefined;
-	for ( waited = 0; !IsDefined( near ) && waited < mapkit_test_wait( 60000 ); waited += 500 )
-	{
-		wait( 0.5 );
-		zombies = GetAiSpeciesArray( "axis", "all" );
-		for ( i = 0; i < zombies.size; i++ )
-		{
-			if ( IsAlive( zombies[i] ) && is_true( zombies[i].completed_emerging_into_playable_area )
-				&& DistanceSquared( zombies[i].origin, player.origin ) < 300 * 300 )
-			{
-				near = zombies[i];
-			}
-		}
-	}
+	// a zombie near, to see it stunned
+	near = mapkit_check_zombie_near( player, 300, true );
 	f = AnglesToForward( ( 0, player.angles[1], 0 ) );
 	look = b.at + f * 120;
 	SetDvar( "bo1_testclient_look", look[0] + "," + look[1] + "," + look[2] );
@@ -4085,6 +4516,246 @@ mapkit_check_emp_seen()
 {
 	level waittill( "emp_detonate", origin );
 	level.mapkit_emp_seen = origin;
+}
+
+// a zombie within radius of the player, out of the ground (and, with emerged, in play: mapkit_zombie_in_play); the god
+// client draws them; up to 60 s
+mapkit_check_zombie_near( player, radius, emerged )
+{
+	for ( waited = 0; waited < mapkit_test_wait( 60000 ); waited += 500 )
+	{
+		wait( 0.5 );
+		zombies = GetAiSpeciesArray( "axis", "all" );
+		for ( i = 0; i < zombies.size; i++ )
+		{
+			if ( IsAlive( zombies[i] ) && !is_true( zombies[i].in_the_ground ) && DistanceSquared( zombies[i].origin, player.origin ) < radius * radius
+				&& ( !is_true( emerged ) || mapkit_zombie_in_play( zombies[i] ) ) )
+			{
+				return zombies[i];
+			}
+		}
+	}
+	return undefined;
+}
+
+// no zombie came near: one that is out of the ground is put 60 units in front of the player (BO2's tables stand away
+// from the zombies' paths, TranZit's diner shield table among them)
+mapkit_check_zombie_bring( player )
+{
+	angles = player GetPlayerAngles();
+	spot = player.origin + AnglesToForward( ( 0, angles[1], 0 ) ) * 60;
+	floor = PlayerPhysicsTrace( spot + ( 0, 0, 40 ), spot - ( 0, 0, 64 ) );
+	// up to 60 s: the round may be between waves
+	for ( waited = 0; waited < mapkit_test_wait( 60000 ); waited += 500 )
+	{
+		zombies = GetAiSpeciesArray( "axis", "all" );
+		for ( i = 0; i < zombies.size; i++ )
+		{
+			if ( IsAlive( zombies[i] ) && mapkit_zombie_in_play( zombies[i] ) )
+			{
+				zombies[i] ForceTeleport( floor, ( 0, angles[1] + 180, 0 ) );
+				LogPrint( "mapkit: check zombie brought in front of the player, to " + floor + "\n" );
+				return zombies[i];
+			}
+		}
+		wait( 0.5 );
+	}
+	return undefined;
+}
+
+// a Jet Gun or shield table: the test client walks to it and presses use; PASS once he holds the weapon
+mapkit_check_take( t )
+{
+	mapkit_test_visit( t.origin, t.origin );
+	start = GetTime();
+	limit = mapkit_test_wait( 25000 );
+	while ( !self HasWeapon( t.weapon ) && GetTime() - start < limit )
+	{
+		wait( 0.5 );
+	}
+	SetDvar( "bo1_testclient_press", "" );
+	if ( !self HasWeapon( t.weapon ) )
+	{
+		LogPrint( "mapkit: check " + t.name + " FAIL not taken from its table in " + ( limit / 1000 ) + " s (player at " + self.origin + ", table at " + t.origin + ")\n" );
+		return false;
+	}
+	wait( 1.5 );
+	if ( self GetCurrentWeapon() != t.weapon || !self is_player_equipment( t.weapon ) )
+	{
+		LogPrint( "mapkit: check " + t.name + " FAIL taken but holding " + self GetCurrentWeapon() + ", equipment " + mapkit_choose( self is_player_equipment( t.weapon ), "set", "not set" ) + "\n" );
+		return false;
+	}
+	LogPrint( "mapkit: check " + t.name + " PASS taken from its table, in hand as the player's equipment\n" );
+	return true;
+}
+
+mapkit_check_table( weapon, name )
+{
+	if ( !mapkit_buildable_weapon( weapon ) )
+	{
+		return undefined;
+	}
+	if ( !mapkit_equip_on( weapon ) )
+	{
+		LogPrint( "mapkit: check " + name + " SKIP (" + weapon + " not loaded: the bo2weapons mod.ff is not stacked)\n" );
+		return undefined;
+	}
+	if ( !IsDefined( level.mapkit_equip_tables ) || !IsDefined( level.mapkit_equip_tables[ weapon ] ) )
+	{
+		LogPrint( "mapkit: check " + name + " FAIL its table has nothing to take (not built)\n" );
+		return undefined;
+	}
+	return level.mapkit_equip_tables[ weapon ];
+}
+
+// the built Jet Gun: taken from its table, fired at a zombie that comes near (PASS once one is ground up or pulled),
+// then fired dry (PASS once it blew up), then taken again
+mapkit_check_jetgun( player )
+{
+	t = mapkit_check_table( "jetgun_zm", "jetgun" );
+	if ( !IsDefined( t ) || !player mapkit_check_take( t ) )
+	{
+		return;
+	}
+	near = mapkit_check_zombie_near( player, 400, true );
+	if ( !IsDefined( near ) )
+	{
+		near = mapkit_check_zombie_bring( player );
+	}
+	if ( !IsDefined( near ) )
+	{
+		LogPrint( "mapkit: check jetgun SKIP blow (no zombie came near in time)\n" );
+	}
+	else
+	{
+		kills = 0;
+		if ( IsDefined( level.mapkit_jet_kills ) )
+		{
+			kills = level.mapkit_jet_kills;
+		}
+		at = Int( Distance( near.origin, player.origin ) );
+		SetDvar( "bo1_testclient_press", "0," + GetTime() + ",100000,100000" );
+		start = GetTime();
+		// 5 s: the heat lasts 6.6 s
+		while ( GetTime() - start < 5000 && IsAlive( near ) )
+		{
+			look = near GetCentroid();
+			SetDvar( "bo1_testclient_look", look[0] + "," + look[1] + "," + look[2] );
+			wait( 0.25 );
+		}
+		SetDvar( "bo1_testclient_press", "" );
+		heat = 100 - player GetWeaponAmmoClip( "jetgun_zm" );
+		if ( IsDefined( level.mapkit_jet_kills ) && level.mapkit_jet_kills > kills )
+		{
+			LogPrint( "mapkit: check jetgun PASS fired at a zombie " + at + " units away: " + mapkit_choose( is_true( near.mapkit_jet_pulled ), "pulled in and ", "" ) + "ground up (" + level.mapkit_jet_kills + " so far), heat " + heat + " %\n" );
+		}
+		else if ( IsAlive( near ) && is_true( near.mapkit_jet_pulled ) )
+		{
+			LogPrint( "mapkit: check jetgun PASS fired at a zombie " + at + " units away: pulled toward the gun, not ground up in 5 s, heat " + heat + " %\n" );
+		}
+		else
+		{
+			LogPrint( "mapkit: check jetgun FAIL fired " + ( GetTime() - start ) + " ms at a zombie " + at + " units away: neither ground up nor pulled (alive " + IsAlive( near ) + ", heat " + heat + " %, holding " + player GetCurrentWeapon() + ")\n" );
+		}
+	}
+	player SetWeaponAmmoClip( "jetgun_zm", 3 );
+	SetDvar( "bo1_testclient_press", "0," + GetTime() + ",100000,100000" );
+	start = GetTime();
+	while ( player HasWeapon( "jetgun_zm" ) && GetTime() - start < 8000 )
+	{
+		wait( 0.25 );
+	}
+	SetDvar( "bo1_testclient_press", "" );
+	if ( player HasWeapon( "jetgun_zm" ) )
+	{
+		LogPrint( "mapkit: check jetgun FAIL fired dry for 8 s, not overheated (heat left " + player GetWeaponAmmoClip( "jetgun_zm" ) + ")\n" );
+		return;
+	}
+	wait( 1 );
+	LogPrint( "mapkit: check jetgun PASS fired dry: blew up, holding " + player GetCurrentWeapon() + "\n" );
+	player mapkit_check_take( t );
+}
+
+// the built shield: taken from its table; a blow from in front and one from behind through the damage callback, as a
+// zombie's comes (PASS when only the first is stopped); a bash at a zombie that comes near (PASS once it is killed);
+// worn out (PASS once it broke)
+mapkit_check_shield( player )
+{
+	t = mapkit_check_table( "riotshield_zm", "riotshield" );
+	if ( !IsDefined( t ) || !player mapkit_check_take( t ) )
+	{
+		return;
+	}
+	angles = player GetPlayerAngles();
+	f = AnglesToForward( ( 0, angles[1], 0 ) );
+	blow = SpawnStruct();
+	blow.is_zombie = true;
+	blow.origin = player.origin + f * 40;
+	front = player mapkit_shield_damage( undefined, blow, 50, 0, "MOD_MELEE", "none", blow.origin, f * -1, "torso_upper", 0, 0 );
+	blow.origin = player.origin - f * 40;
+	back = player mapkit_shield_damage( undefined, blow, 50, 0, "MOD_MELEE", "none", blow.origin, f, "torso_upper", 0, 0 );
+	wait( 0.1 );
+	if ( front == 0 && back == -1 && player.mapkit_shield_wear == 50 )
+	{
+		LogPrint( "mapkit: check riotshield PASS in hand: stops a blow from in front (wear 50), not one from behind\n" );
+	}
+	else
+	{
+		LogPrint( "mapkit: check riotshield FAIL in hand: front " + front + ", back " + back + ", wear " + player.mapkit_shield_wear + "\n" );
+	}
+	near = mapkit_check_zombie_near( player, 300, true );
+	if ( !IsDefined( near ) )
+	{
+		near = mapkit_check_zombie_bring( player );
+	}
+	if ( !IsDefined( near ) )
+	{
+		LogPrint( "mapkit: check riotshield SKIP bash (no zombie came near in time)\n" );
+	}
+	else
+	{
+		bashes = 0;
+		if ( IsDefined( level.mapkit_shield_bashes ) )
+		{
+			bashes = level.mapkit_shield_bashes;
+		}
+		SetDvar( "bo1_testclient_press", "0," + GetTime() + ",700,300" );
+		start = GetTime();
+		while ( GetTime() - start < 15000 && IsAlive( near ) )
+		{
+			look = near GetCentroid();
+			SetDvar( "bo1_testclient_look", look[0] + "," + look[1] + "," + look[2] );
+			wait( 0.25 );
+		}
+		SetDvar( "bo1_testclient_press", "" );
+		got = 0;
+		if ( IsDefined( level.mapkit_shield_bashes ) )
+		{
+			got = level.mapkit_shield_bashes - bashes;
+		}
+		if ( !IsAlive( near ) && got > 0 )
+		{
+			LogPrint( "mapkit: check riotshield PASS bashed a zombie dead, wear " + player.mapkit_shield_wear + "\n" );
+		}
+		else if ( IsAlive( near ) )
+		{
+			LogPrint( "mapkit: check riotshield FAIL bash: the zombie still alive " + Int( Distance( near.origin, player.origin ) ) + " units away after 15 s, " + got + " bashes\n" );
+		}
+		else
+		{
+			LogPrint( "mapkit: check riotshield FAIL bash: the zombie died of something else, " + got + " bashes\n" );
+		}
+	}
+	player mapkit_shield_hit( 2250, true );
+	wait( 0.5 );
+	if ( player HasWeapon( "riotshield_zm" ) )
+	{
+		LogPrint( "mapkit: check riotshield FAIL worn out (wear " + player.mapkit_shield_wear + "), still held\n" );
+	}
+	else
+	{
+		LogPrint( "mapkit: check riotshield PASS worn out: broke, holding " + player GetCurrentWeapon() + "\n" );
+	}
 }
 
 // a Denizen sent at the test client standing on a node of a Denizen zone: PASS once it clings, then once a knife
@@ -4642,6 +5313,121 @@ mapkit_galvashots()
 	{
 		wait( 0.2 );
 		mapkit_galvashots_shot( "EMP went off at " + mapkit_choose( IsDefined( level.mapkit_emp_seen ), level.mapkit_emp_seen, "nowhere yet" ) );
+	}
+	LogPrint( "mapkit: galvashots DONE\n" );
+}
+
+mapkit_jetshots()
+{
+	flag_wait( "all_players_spawned" );
+	wait( 5 );
+	player = get_players()[0];
+	level.mapkit_shot = 0;
+	level.mapkit_shots = "";
+	if ( !level.mapkit_jetgun || !level.mapkit_shield )
+	{
+		LogPrint( "mapkit: galvashots SKIP (Jet Gun or shield not loaded)\n" );
+		return;
+	}
+	o = player.origin;
+	SetDvar( "bo1_testclient_goto", o[0] + "," + o[1] + "," + o[2] );
+	look = o + AnglesToForward( ( 0, player.angles[1], 0 ) ) * 200 + ( 0, 0, 40 );
+	SetDvar( "bo1_testclient_look", look[0] + "," + look[1] + "," + look[2] );
+	wait( 2 );
+	player mapkit_equip_give( "jetgun_zm" );
+	for ( k = 0; k < 4; k++ )
+	{
+		wait( 0.5 );
+		mapkit_galvashots_shot( "Jet Gun taken, holding " + player GetCurrentWeapon() );
+	}
+	SetDvar( "bo1_testclient_press", "0," + GetTime() + ",100000,100000" );
+	for ( k = 0; k < 10; k++ )
+	{
+		wait( 0.4 );
+		mapkit_galvashots_shot( "Jet Gun firing, heat left " + player GetWeaponAmmoClip( "jetgun_zm" ) );
+	}
+	SetDvar( "bo1_testclient_press", "" );
+	wait( 1 );
+	mapkit_galvashots_shot( "Jet Gun released, heat left " + player GetWeaponAmmoClip( "jetgun_zm" ) );
+	player mapkit_equip_give( "riotshield_zm" );
+	for ( k = 0; k < 4; k++ )
+	{
+		wait( 0.5 );
+		mapkit_galvashots_shot( "shield taken, holding " + player GetCurrentWeapon() + ", Jet Gun " + player HasWeapon( "jetgun_zm" ) );
+	}
+	SetDvar( "bo1_testclient_press", "0," + GetTime() + ",1500,200" );
+	for ( k = 0; k < 6; k++ )
+	{
+		wait( 0.3 );
+		mapkit_galvashots_shot( "shield bash (fire)" );
+	}
+	SetDvar( "bo1_testclient_press", "2," + GetTime() + ",1500,200" );
+	for ( k = 0; k < 6; k++ )
+	{
+		wait( 0.3 );
+		mapkit_galvashots_shot( "shield bash (melee)" );
+	}
+	SetDvar( "bo1_testclient_press", "" );
+	// the shield in hand hides most of the view
+	primaries = player GetWeaponsListPrimaries();
+	player SwitchToWeapon( primaries[0] );
+	for ( k = 0; k < level.mapkit_builds.size; k++ )
+	{
+		b = level.mapkit_builds[k];
+		if ( !IsDefined( b.weapon ) )
+		{
+			continue;
+		}
+		mapkit_build_show_part( b.name, "weapon" );
+		// looked at from the path node nearest to it (the table's own origin is inside the table)
+		at = b.origin;
+		stand = undefined;
+		for ( i = 0; i < bo1_mapkit_editcount(); i++ )
+		{
+			if ( i % 500 == 0 )
+			{
+				wait( 0.05 );
+			}
+			kind = bo1_mapkit_get( i, "kind" );
+			if ( kind == "buildpart" && bo1_mapkit_get( i, "buildable" ) == b.name )
+			{
+				at = bo1_mapkit_get( i, "origin" );
+			}
+			else if ( kind == "node" && ( !IsDefined( stand ) || DistanceSquared( bo1_mapkit_get( i, "origin" ), b.origin ) < DistanceSquared( stand, b.origin ) ) )
+			{
+				stand = bo1_mapkit_get( i, "origin" );
+			}
+		}
+		mapkit_test_visit( stand, at );
+		SetDvar( "bo1_testclient_press", "" );
+		wait( 4 );
+		mapkit_galvashots_shot( "the finished " + mapkit_build_label( b.name ) + " on its table at " + at + ", player " + Int( Distance( player.origin, at ) ) + " units away" );
+		wait( 1 );
+	}
+	if ( GetDvar( "mapkit_jetdebug" ) == "1" )
+	{
+		player mapkit_equip_give( "jetgun_zm" );
+		near = mapkit_check_zombie_near( player, 600, true );
+		if ( !IsDefined( near ) )
+		{
+			near = mapkit_check_zombie_bring( player );
+		}
+		if ( IsDefined( near ) )
+		{
+			SetDvar( "bo1_testclient_press", "0," + GetTime() + ",100000,100000" );
+			for ( k = 0; k < 24 && IsAlive( near ); k++ )
+			{
+				look = near GetCentroid();
+				SetDvar( "bo1_testclient_look", look[0] + "," + look[1] + "," + look[2] );
+				wait( 0.25 );
+				if ( k % 4 == 3 )
+				{
+					mapkit_galvashots_shot( "Jet Gun at a zombie " + Int( Distance( player.origin, near.origin ) ) + " units away" );
+				}
+			}
+			SetDvar( "bo1_testclient_press", "" );
+			LogPrint( "mapkit: jetdebug end, zombie alive " + IsAlive( near ) + ", kills " + mapkit_choose( IsDefined( level.mapkit_jet_kills ), level.mapkit_jet_kills, 0 ) + "\n" );
+		}
 	}
 	LogPrint( "mapkit: galvashots DONE\n" );
 }

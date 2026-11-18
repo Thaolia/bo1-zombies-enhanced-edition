@@ -49,6 +49,7 @@ goes back to the menu when it enters ("The server uses weapon ..., which this ga
   The LSAT's digital ammo counter is left out.
 - **Emblem and clan tag** surfaces are left out of the models.
 - **Left out**: the scripted weapons (Jet Gun, staffs, Blundergat, Slowgun, Sliquifier...), the equipment, and BO2
-  weapons BO1 already has under the same name. Two scripted ones are in `mod.ff` for MapKit's BO2 maps, outside the
-  box list: the Galvaknuckles (Nuketown's and TranZit's wall) and the EMP grenade (TranZit's box), run by
-  `mods/mapkit` (`mods/mapkit/MAPKIT.md`, `wallbuy` and `emp`). `bo2weapons_box` 1 and 2 keep the EMP in the box.
+  weapons BO1 already has under the same name. Four scripted ones are in `mod.ff` for MapKit's BO2 maps, outside the
+  box list: the Galvaknuckles (Nuketown's and TranZit's wall), the EMP grenade (TranZit's box), the Jet Gun and the
+  shield (built at TranZit's tables), run by `mods/mapkit` (`mods/mapkit/MAPKIT.md`, `wallbuy`, `emp` and
+  `buildable`). `bo2weapons_box` 1 and 2 keep the EMP in the box.

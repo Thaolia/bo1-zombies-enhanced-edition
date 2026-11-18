@@ -52,6 +52,21 @@ class BuildableParts(unittest.TestCase):
         self.assertEqual(sorted(parts["pieces"]), sorted(bo2_layout.BUILDABLES["turbine"]["pieces"]))
         self.assertTrue(all(len(spots) == 1 for spots in parts["pieces"].values()))
 
+    def test_equipment_spots_by_weapon_name_and_table_weapon(self):
+        ents = [
+            {"classname": "trigger_use", "targetname": "riotshield_zm_buildable_trigger", "origin": "0 0 0",
+             "script_gameobjectname": "zclassic"},
+            struct("riotshield_zm_t6_wpn_zmb_shield_dolly", "1 0 0"),
+            struct("riotshield_zm_t6_wpn_zmb_shield_door", "2 0 0"),
+            struct("riotshield_zm_t6_wpn_zmb_shield_door", "3 0 0"),
+            {"classname": "script_model", "targetname": "buildable_riotshield", "origin": "4 0 0",
+             "model": "t6_wpn_zmb_shield_world", "script_gameobjectname": "zclassic"},
+        ]
+        parts = bo2_layout.buildable_parts(ents)["riotshield"]
+        self.assertEqual([g for g, _ in parts["pieces"]["t6_wpn_zmb_shield_door"]],
+                         ["piece:riotshield:shield_door:0", "piece:riotshield:shield_door:1"])
+        self.assertEqual([(g, e["origin"]) for g, e in parts["built"]["weapon"]], [("built:riotshield:weapon", "4 0 0")])
+
 
 if __name__ == "__main__":
     unittest.main()
