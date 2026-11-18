@@ -1078,6 +1078,21 @@ gb::Texture *CreateTexture(const TextureDesc &desc)
     lm.dimensions[1] = desc.height;
     lm.dimensions[2] = desc.type == TextureType::Tex3D ? desc.depth : 1;
     lm.mipLevels = desc.levels ? desc.levels : 1;
+    // deko3d picks a block height from 1.5x the image height: 2 GOBs for 6 to 8 rows (a 32-pixel-tall DXT texture).
+    // Its level offsets shrink that block to the level's height for every level, but a copy into level 0 keeps the
+    // unshrunk block (ImageInfo::fromImageView adjusts it only past level 0), so level 0's second GOB column lands
+    // on level 1: HUD icons sampled from their small mips showed their left half only. Pick the block height level 0
+    // fits in: the copies, the level offsets and the sampler then agree.
+    if (lm.type != DkImageType_3D && lm.mipLevels > 1 && !(lm.flags & DkImageFlags_UsageRender))
+    {
+        const uint32_t rows = IsBlockFormat(desc.format) ? (desc.height + 3u) / 4u : desc.height;
+        const uint32_t gobs = (rows + rows / 2 + 7) / 8;
+        uint32_t tile = gobs >= 16 ? 4 : gobs >= 8 ? 3 : gobs >= 4 ? 2 : gobs >= 2 ? 1 : 0;
+        while (tile && (8u << (tile - 1)) >= rows)
+            --tile;
+        lm.flags |= DkImageFlags_CustomTileSize;
+        lm.tileSize = DkTileSize(tile);
+    }
     if (lm.flags & DkImageFlags_UsageRender)
         Log("CreateTexture RT/DS: Format %d -> DkFmt %d, usage %d, %ux%u", int(desc.format), int(lm.format),
             int(desc.usage), desc.width, desc.height);
