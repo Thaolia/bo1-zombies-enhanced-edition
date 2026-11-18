@@ -279,6 +279,22 @@ bool s_psmTried = false, s_psmUp = false;
 
 // The battery charge for the on-screen counter (cl_scrn_mp.cpp), or -1 without the psm service. Each query is an IPC
 // call, so the value is refreshed every 5 s rather than every frame.
+extern "C" int Bo1_StopThreadsForExit(unsigned timeoutMs); // win32_threads.cpp
+
+// atexit, from the engine's exit() (Sys_Quit): hbloader takes the process back, so the engine's threads must be gone
+// first (Bo1_StopThreadsForExit). One that does not stop within a second ends the whole process instead, back to the
+// HOME menu rather than hbmenu, but never into unmapped code.
+static void StopEngineThreadsAtExit()
+{
+    const int left = Bo1_StopThreadsForExit(1000);
+    if (left)
+    {
+        BootLog("exit: %d engine thread(s) still running after 1 s, ending the process", left);
+        svcExitProcess();
+    }
+    BootLog("exit: engine threads stopped. Shutdown complete");
+}
+
 extern "C" int Switch_BatteryPercent()
 {
     static int percent = -1;
@@ -375,6 +391,8 @@ int main(int, char **)
     ApplyPadLayout();
     BootLog("launch args = \"%s\"", args);
     Bo1_SetCommandLine(args);
+    BootLog("module base %p (ELF address 0: crash report addresses minus this go to addr2line)", (void *)_start);
+    std::atexit(StopEngineThreadsAtExit);
     BootLog("entering WinMain");
     const int rc = WinMain(GetModuleHandleA(nullptr), nullptr, args, 10 /* SW_SHOWDEFAULT */);
     BootLog("WinMain returned %d", rc);

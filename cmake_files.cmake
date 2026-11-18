@@ -2389,6 +2389,8 @@ set(SRC_PLATFORM_SWITCH
 	"${SRC_DIR}/platform/switch/switch_launcher.h"
 	"${SRC_DIR}/platform/switch/switch_net.cpp"
 	"${SRC_DIR}/platform/switch/switch_net.h"
+	"${SRC_DIR}/platform/switch/switch_perf.cpp"
+	"${SRC_DIR}/platform/switch/switch_perf.h"
 	"${SRC_DIR}/platform/switch/switch_libc_stubs.cpp"
 	"${SRC_DIR}/platform/switch/switch_main.cpp"
 	"${SRC_DIR}/platform/lan_browser.cpp"

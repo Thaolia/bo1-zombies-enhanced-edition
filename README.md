@@ -171,6 +171,10 @@ On the console the game starts in a text menu, where you choose:
 `launch.cfg` and `gfx.cfg`. An empty `skip_menu` file there boots without the menu, on those two files as they are
 (handy on an emulator). `docs/ARCHITECTURE.md` lists the files.
 
+In a game, leaving it from the pause menu (Start, then the leave game entry) closes the application cleanly and goes
+back to the homebrew menu, rather than to BO1's main menu (`bo1_quitOnDisconnect`, on by default on the console only).
+HOME still suspends the game as usual.
+
 No game data is distributed. A converter run on your own PC (`tools/ffconv`) turns your Steam install's
 fastfiles into the 64-bit format the port loads, and translates their shaders to GLSL:
 

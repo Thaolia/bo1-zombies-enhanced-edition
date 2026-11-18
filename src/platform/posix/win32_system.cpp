@@ -1382,6 +1382,11 @@ FARPROC GetProcAddress(HMODULE hModule, LPCSTR lpProcName)
 
 HRESULT SHGetFolderPathA(HWND, int csidl, HANDLE, DWORD, LPSTR pszPath)
 {
+    // a failure leaves an empty path: FS_GetOsFolderPath reads the buffer whatever the result, and on the console (no
+    // HOME) fs_userDocuments took the stack's leftover bytes, other ones at each FS restart, so ending a game asserted
+    // in Dvar_Register ("fs_userDocuments ... != ...", dvar.cpp:1831)
+    if (pszPath)
+        pszPath[0] = 0;
     const char *home = getenv("HOME");
     if (!home || !*home)
         return E_FAIL;

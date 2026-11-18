@@ -67,6 +67,11 @@ struct Bo1Thread : Bo1Object
     LPVOID parameter = nullptr;
     DWORD exitCode = 0;
     int priority = THREAD_PRIORITY_NORMAL;
+    bool created = false; // started by CreateThread (not the main thread or a library's)
+    // the console's per-thread CPU use (switch_perf.h): sampled by the thread itself at a sleep or wait
+    std::atomic<unsigned long long> cpuTicks{0};
+    std::atomic<int> cpuCore{-1};
+    long long lastSampleNs = 0;
     Bo1Event exited{true, false};
 
     // CreateThread(CREATE_SUSPENDED): the thread waits at startGate until ResumeThread brings the count to 0.
