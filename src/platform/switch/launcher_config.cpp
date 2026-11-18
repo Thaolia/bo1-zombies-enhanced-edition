@@ -70,6 +70,8 @@ const int kLauncherPropDistanceCount = int(sizeof(kLauncherPropDistances) / size
 
 const int kLauncherFarRespawns[] = {0, 1500, 2500, 4000};
 const int kLauncherFarRespawnCount = int(sizeof(kLauncherFarRespawns) / sizeof(kLauncherFarRespawns[0]));
+const int kLauncherSpawnRates[] = {0, 2, 3, 5, 10};
+const int kLauncherSpawnRateCount = int(sizeof(kLauncherSpawnRates) / sizeof(kLauncherSpawnRates[0]));
 const LauncherPerk kLauncherPerks[] = {
     {"jugg", "Juggernog"},   {"revive", "Quick Revive"}, {"speed", "Speed Cola"},       {"doubletap", "Double Tap"},
     {"staminup", "Stamin-Up"}, {"phd", "PhD Flopper"},   {"deadshot", "Deadshot Daiquiri"}, {"mule", "Mule Kick"},
@@ -241,6 +243,18 @@ void Apply(LauncherSettings *s, const std::string &key, const std::string &value
             if (value == std::to_string(kLauncherFarRespawns[i]))
                 s->farRespawn = kLauncherFarRespawns[i];
     }
+    else if (key == "hitmarker")
+        ParseBool(value, &s->hitmarker);
+    else if (key == "unlimitedpap")
+        ParseBool(value, &s->unlimitedPap);
+    else if (key == "spawnrate")
+    {
+        for (int i = 0; i < kLauncherSpawnRateCount; ++i)
+            if (value == std::to_string(kLauncherSpawnRates[i]))
+                s->spawnRate = kLauncherSpawnRates[i];
+    }
+    else if (key == "spawnrate_rush")
+        ParseBool(value, &s->spawnRush);
     else if (key == "resolution")
     {
         if (value == "480" || value == "540" || value == "720")
@@ -328,6 +342,10 @@ std::string Launcher_FormatSettings(const LauncherSettings &s)
     out += std::string("dualwield=") + (s.dualWield ? "1" : "0") + "\n";
     out += std::string("join_dualwield=") + (s.joinDualWield ? "1" : "0") + "\n";
     out += "far_respawn=" + std::to_string(s.farRespawn) + "\n";
+    out += std::string("hitmarker=") + (s.hitmarker ? "1" : "0") + "\n";
+    out += std::string("unlimitedpap=") + (s.unlimitedPap ? "1" : "0") + "\n";
+    out += "spawnrate=" + std::to_string(s.spawnRate) + "\n";
+    out += std::string("spawnrate_rush=") + (s.spawnRush ? "1" : "0") + "\n";
     out += "resolution=" + std::to_string(s.height) + "\n";
     out += "maxfps=" + std::to_string(s.maxFps) + "\n";
     out += std::string("shadows=") + (s.shadows ? "1" : "0") + "\n";
@@ -366,9 +384,17 @@ std::string Launcher_BuildLaunchLine(const LauncherSettings &s, const std::strin
         line += std::string(" +set fs_game mods/mapkit +set bo1_mod_mapkit ") + map.mapkit;
     // mods/dualwield needs a box: Dead Ops Arcade has none (ZmClient's bo2_weapons_available)
     const bool dual = !join && s.dualWield && s.dualWieldInstalled && strcmp(map.bsp, "zombietron") != 0;
-    if (!join && (s.tabInfo || kit || dual))
+    // mods/hitmarker, mods/unlimitedpap and mods/spawnrate: Dead Ops Arcade is not a round-based zombies map
+    const bool zm = !join && strcmp(map.bsp, "zombietron") != 0;
+    const bool hit = zm && s.hitmarker;
+    const bool upap = zm && s.unlimitedPap && s.unlimitedPapInstalled;
+    const bool rate = zm && s.spawnRate > 0;
+    if (!join && (s.tabInfo || kit || dual || hit || upap || rate))
         line += std::string(" +set fs_mods") + (mapkit ? " mapkit" : "") + (s.tabInfo ? " zinfo" : "") +
-                (kit ? " admin" : "") + (dual ? " dualwield" : "");
+                (kit ? " admin" : "") + (dual ? " dualwield" : "") + (hit ? " hitmarker" : "") +
+                (upap ? " unlimitedpap" : "") + (rate ? " spawnrate" : "");
+    if (rate)
+        line += " +set spawnrate_mult " + std::to_string(s.spawnRate) + (s.spawnRush ? "" : " +set spawnrate_rush 0");
     if (mapkit && map.zone)
         // `set` takes the rest of its line as the value (ZmClient passes the zones the same way)
         line += std::string(" +set bo1_mod_zones ") + map.zone + (map.extraZone ? std::string(" ") + map.extraZone : "") +

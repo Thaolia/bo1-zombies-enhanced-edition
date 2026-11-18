@@ -14,8 +14,9 @@ function grab(re) {
   return m[0];
 }
 var MAPS = eval("(" + grab(/\[\s*\["zombie_pentagon"[\s\S]*?\n\];/).replace(/;$/, "") + ")");
-// the functions as the .hta defines them, evaluated in this scope so they see el(), MAPS, R and P
-var source = grab(/function refresh\(\) \{[\s\S]*?\n\}/) + "\n" + grab(/function args\(\) \{[\s\S]*?\n\}/);
+// the functions as the .hta defines them (args() calls addMod), evaluated in this scope so they see el(), MAPS, R and P
+var source = grab(/function refresh\(\) \{[\s\S]*?\n\}/) + "\n" + grab(/function args\(\) \{[\s\S]*?\n\}/) + "\n" +
+  grab(/function addMod\(a, mod\) \{[\s\S]*?\n\}/);
 
 var cases = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
 var out = [];

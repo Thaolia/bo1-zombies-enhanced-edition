@@ -27,6 +27,14 @@ SPLIT_LAYOUT_HELP = {
 }
 DIFFICULTY_LABELS = {0: "Normal", 1: "Nightmare", 2: "Hell"}
 
+SPAWN_RATE_HELP = {
+    0: "le rythme du jeu d'origine",
+    2: "deux fois plus vite, pauses courtes entre les manches",
+    3: "trois fois plus vite (le réglage du mod)",
+    5: "cinq fois plus vite",
+    10: "dix fois plus vite : la manche sort presque d'un coup",
+}
+
 ROW_HELP = {
     "mode": "Comment jouer. Entrée : choisir.",
     "map": "La map de la partie solo. Les maps « Mapkit » sont construites par le mod mapkit sur une map de base.",
@@ -39,6 +47,17 @@ ROW_HELP = {
     "zinfo": "En tenant Tab, les zombies en vie et ceux qui restent dans la manche s'affichent à gauche (mod zinfo).",
     "noperks": "Pas de machines à atouts (mod noperks). Le Pack-a-Punch et la boîte restent.",
     "quickrestart": "Après la fin de partie, R relance la même map avec les mêmes réglages.",
+    "hitmarker": "Un X au centre de l'écran à chaque zombie touché (mod hitmarker) : blanc au corps, orange à la "
+                 "tête, rouge pour le coup qui tue. « hitmarker 0 » dans la console le cache.",
+    "unlimited_pap": "Le Pack-a-Punch reprend une arme déjà améliorée, autant de fois qu'on veut : chaque passage "
+                     "double le prix (5 000, 10 000, 20 000...) et les dégâts (mod unlimitedpap). Les munitions de "
+                     "réserve ne doublent pas. Son script est écrit depuis vos propres zones "
+                     "(tools/unlimitedpap/make_perks.py, que les paquets lancent).",
+    "spawn_rate": "Les zombies de chaque manche apparaissent plus vite, et la pause entre deux manches passe de 12 s à "
+                  "3 s (mod spawnrate). Nombre, santé et vitesse des zombies restent ceux du jeu. "
+                  "« spawnrate_mult » dans la console change la vitesse en jeu.",
+    "spawn_rush": "Avec l'apparition plus rapide : chaque zombie court jusqu'à sa barricade, puis reprend la vitesse "
+                  "de sa manche (spawnrate_rush).",
     "start_points": "Les points de chaque joueur à son arrivée sur la map, au lieu des 500 du jeu (mod admin, "
                     "zm_startpoints). Solo seulement : un serveur décide pour ses joueurs.",
     "start_power": "Le courant est mis à l'arrivée du premier joueur (mod admin, zm_startpower) : les machines, le "

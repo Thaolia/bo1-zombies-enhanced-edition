@@ -465,6 +465,14 @@ dualwield_data() { # <dest>
     rsync -a --delete "$DUALWIELD/images/" "$1/mods/dualwield/images/"
 }
 
+# mods/unlimitedpap's Pack-a-Punch script is the retail one with the mod's changes, written from the player's own
+# common_zombie_patch.ff (tools/unlimitedpap/make_perks.py) on every platform with game data. The copies of mods/ leave
+# out a copy a developer generated in the tree, so a package without game data never carries one.
+UPAP_SCRIPT=/unlimitedpap/maps/_zombiemode_perks.gsc
+unlimitedpap_data() { # <dest>
+    python3 "$ROOT/tools/unlimitedpap/make_perks.py" --game "$GAME" --out "$1/mods/unlimitedpap" > /dev/null
+}
+
 # The Switch's share of the player's Black Ops II extraction: the weapons (mod.ff and images, as on PC), and of the maps
 # the native ones only (the start menu offers those, not the MapKit meshes): each <layout>_bsp.json with its zone, BSP
 # and colour maps, and of its imports/<map>/ the node links, the blockers' props and their images, and the props
@@ -594,9 +602,9 @@ package_windows() {
     mkdir -p "$d/switch-tools"
     cp "$UAM_EXE" "$ROOT/build/uam/windows/uam-LICENSE.txt" "$ROOT/tools/ffconv/gen/make_dksh_pack.py" \
         "$d/switch-tools/"
-    rsync -a --delete "$ROOT/mods/" "$d/mods/"
+    rsync -a --delete --exclude "$UPAP_SCRIPT" "$ROOT/mods/" "$d/mods/"
     rsync -a "$ROOT/data/main/" "$d/main/"
-    if [ "$GAME_DATA" = 1 ]; then game_data "$d" video; bo2_data "$d"; dualwield_data "$d"; fi
+    if [ "$GAME_DATA" = 1 ]; then game_data "$d" video; bo2_data "$d"; dualwield_data "$d"; unlimitedpap_data "$d"; fi
     cat > "$d/Play.bat" << 'EOF'
 @echo off
 rem Black Ops 1 Zombies, 64-bit. "Play.bat" opens the game's menu (Zombies, Solo, a map).
@@ -703,12 +711,13 @@ package_linux() {
     mkdir -p "$d/main"
     cp "$WORK/linux/Release/BO1Zombies" "$ROOT/build/zmadmin/linux/zmadmin" "$ROOT/build/zmclient/linux/zmclient" \
         "$FFCONV_EXE" "$d/"
-    rsync -a --delete "$ROOT/mods/" "$d/mods/"
+    rsync -a --delete --exclude "$UPAP_SCRIPT" "$ROOT/mods/" "$d/mods/"
     rsync -a "$ROOT/data/main/" "$d/main/"
     if [ "$GAME_DATA" = 1 ]; then
         game_data "$d" video
         bo2_data "$d"
         dualwield_data "$d"
+        unlimitedpap_data "$d"
         cp "$ZONES/shaders.pack" "$d/"
     fi
     cat > "$d/play.sh" << 'EOF'
@@ -799,7 +808,7 @@ package_switch() {
     cp "$WORK/switch/Release/BO1Zombies.nro" "$sd/"
     # The start menu stacks mods/zinfo (Tab counter) and mods/admin (start points and perks): the engine reads mods
     # under its base folder, sdmc:/switch/bo1zm/mods (FS_Startup)
-    rsync -a --delete "$ROOT/mods/" "$sd/mods/"
+    rsync -a --delete --exclude "$UPAP_SCRIPT" "$ROOT/mods/" "$sd/mods/"
     # main/playlists_sp.info sets scr_zm_extra_perk_* (bg_misc.cpp, BG_SetZombieExternalDvars): without it retail
     # _zombiemode_ffotd removes Mule Kick, and on a MapKit empty base _zombiemode_perks::init then finds no machine and
     # returns before it sets packapunch_timeout (the Pack-a-Punch kept the weapon) and the Juggernog health
@@ -851,7 +860,7 @@ EOF
         return
     fi
     game_data "$sd"
-    if [ "$GAME_DATA" = 1 ]; then bo2_switch_data "$sd"; dualwield_data "$sd"; fi
+    if [ "$GAME_DATA" = 1 ]; then bo2_switch_data "$sd"; dualwield_data "$sd"; unlimitedpap_data "$sd"; fi
     cp "$ZONES/shaders.pack" "$WORK/dksh/shaders.dksh" "$sd/"
     # Bring-up switches (no menu, debug dumps, applet mode) never belong in a package.
     rm -f "$sd/skip_menu" "$sd/deko3d_debug" "$sd/allow_applet"
@@ -886,6 +895,9 @@ MENU DE DÉPART
   « Armes doublées » (écran Départ en solo, écran Serveur pour rejoindre) : quand ce paquet contient votre propre
   mods/dualwield (make_dist.sh --dualwield), le Pack-a-Punch double le Ray Gun et le Thundergun (et le PPSh,
   si ce mod a été fait avec l'archive « Relaxing Dual Wield »).
+  Écran Départ, aussi : « Hit marker » (un X à chaque zombie touché), « Pack-a-Punch illimité » (prix et dégâts
+  doublés à chaque passage ; son script est écrit depuis vos zones dans mods/unlimitedpap), « Apparition zombies »
+  (de 2 à 10 fois plus vite, pauses courtes entre les manches) et « Sprint aux barricades ».
   « Infos speedrun » : les réglages de la partie et un hash SHA-512 du programme et des zones chargées, en bas de
   l'écran de chargement (par défaut), ou aussi dans un coin en jeu ; le hash complet est dans boot.log (runinfo:).
 
@@ -902,12 +914,13 @@ package_openbsd() {
     step "openbsd: $d"
     mkdir -p "$d/main"
     for f in "${OPENBSD_FLAVORS[@]}"; do cp "$WORK/openbsd-$f/Release/BO1Zombies" "$d/BO1Zombies-$f"; done
-    rsync -a --delete "$ROOT/mods/" "$d/mods/"
+    rsync -a --delete --exclude "$UPAP_SCRIPT" "$ROOT/mods/" "$d/mods/"
     rsync -a "$ROOT/data/main/" "$d/main/"
     if [ "$GAME_DATA" = 1 ]; then
         game_data "$d" video
         bo2_data "$d"
         dualwield_data "$d"
+        unlimitedpap_data "$d"
         cp "$ZONES/shaders.pack" "$d/"
     fi
     # OpenBSD's base system has no bash: both scripts are POSIX sh (ksh).

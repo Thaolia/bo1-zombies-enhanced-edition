@@ -92,6 +92,8 @@ BO2_WEAPON_CHOICES = ((0, "non"), (1, "dans la boîte, avec celles de la map"),
 # mods/dualwield (mods/dualwield/README.md): dual-wield weapons after Pack-a-Punch, from the player's own copy of the
 # "Relaxing Dual Wield" mod, in mods/dualwield/mod.ff (tools/dualwield/dualwield_mod.py). The engine loads it beside
 # bo2weapons' (DB_ListModZones). A client joining a server that has them loads it too (join_dual_wield).
+# mods/spawnrate (mods/spawnrate/README.md): spawnrate_mult, the zombies' spawn speed as a multiple of retail's; 0 is off.
+SPAWN_RATE_CHOICES = (0, 2, 3, 5, 10)
 START_PERKS = (("jugg", "Juggernog"), ("revive", "Quick Revive"), ("speed", "Speed Cola"), ("doubletap", "Double Tap"),
                ("staminup", "Stamin-Up"), ("phd", "PhD Flopper"), ("deadshot", "Deadshot Daiquiri"),
                ("mule", "Mule Kick"))
@@ -119,6 +121,10 @@ DEFAULTS = {
     "difficulty": 0,                    # 0 Normal, 1 Nightmare, 2 Hell
     "bo2_weapons": 0,                   # one of BO2_WEAPON_CHOICES
     "dual_wield": False,                # mods/dualwield: Ray Gun, Thundergun (and PPSh) doubled by Pack-a-Punch
+    "hitmarker": False,                 # mods/hitmarker: an X at the crosshair on each hit
+    "unlimited_pap": False,             # mods/unlimitedpap: Pack-a-Punch again and again, price and damage doubled
+    "spawn_rate": 0,                    # one of SPAWN_RATE_CHOICES: mods/spawnrate's spawnrate_mult, 0 off
+    "spawn_rush": True,                 # mods/spawnrate's spawnrate_rush: zombies sprint to their barrier
     "name": "",
     "split": "off",                     # one of SPLIT_MODES
     "split_layout": "side",             # one of SPLIT_LAYOUTS
@@ -236,6 +242,8 @@ class Profile:
             self.data["run_info"] = DEFAULTS["run_info"]
         if self.data["far_respawn"] not in FAR_RESPAWN_CHOICES:
             self.data["far_respawn"] = DEFAULTS["far_respawn"]
+        if self.data["spawn_rate"] not in SPAWN_RATE_CHOICES:
+            self.data["spawn_rate"] = DEFAULTS["spawn_rate"]
         self.data["start_perks"] = [k for k, _ in START_PERKS if k in self.data["start_perks"]]
         self.data["extra"] = [e for e in self.data["extra"] if isinstance(e, dict) and isinstance(e.get("text"), str)]
         self.data["favorites"] = [f for f in self.data["favorites"] if isinstance(f, dict) and f.get("host")]
@@ -374,6 +382,13 @@ def dual_wield_installed(dist_root):
     return bool(dist_root) and os.path.isfile(os.path.join(dist_root, "mods", "dualwield", "mod.ff"))
 
 
+def unlimited_pap_installed(dist_root):
+    """mods/unlimitedpap's Pack-a-Punch script is there: written from the player's own zones
+    (tools/unlimitedpap/make_perks.py, which the packages run)."""
+    return bool(dist_root) and os.path.isfile(
+        os.path.join(dist_root, "mods", "unlimitedpap", "maps", "_zombiemode_perks.gsc"))
+
+
 def stack_mod(argv, name):
     """Stacks mods/<name> on the line's fs_mods, or adds one, naming fs_game's mod first as the engine stacks it
     (fs_mods must name the mod: an empty fs_mods runs no mod's hooks)."""
@@ -426,9 +441,19 @@ def solo_mod_flags(p, dist_root=None):
         a += " +set fs_mods" + (" zinfo" if p["zinfo"] else "") + (" noperks +set noperks 1" if p["noperks"] else "")
     if nightmare_available(bsp, layout):
         a = nightmare_flags(p["difficulty"], a, bsp)
-    if p["quickrestart"]:
-        a += " +set bo1_mod_quickrestart 1"
     argv = a.split()
+    # after the others, as mod-launcher.hta's args(): spawnrate last, it wraps horde's spawner
+    if p["hitmarker"]:
+        stack_mod(argv, "hitmarker")
+    if p["unlimited_pap"] and unlimited_pap_installed(dist_root):
+        stack_mod(argv, "unlimitedpap")
+    if p["spawn_rate"]:
+        stack_mod(argv, "spawnrate")
+        argv += ["+set", "spawnrate_mult", str(p["spawn_rate"])]
+        if not p["spawn_rush"]:
+            argv += ["+set", "spawnrate_rush", "0"]
+    if p["quickrestart"]:
+        argv += ["+set", "bo1_mod_quickrestart", "1"]
     if p["start_points"] or p["start_perks"] or p["start_power"] or p["start_pap"] or p["far_respawn"]:
         add_admin_mod(argv, bool(layout) and not p["horde"])
         if p["far_respawn"]:
@@ -568,6 +593,9 @@ def problems(p, dist_root=None):
     if wants_bo2_weapons(p, dist_root) and not bo2_weapons_installed(dist_root):
         out.append("armes de Black Ops II : pas de mods/bo2weapons/mod.ff (à construire depuis votre Black Ops II, "
                    "docs/BO2_WEAPONS.md)")
+    if p["mode"] == "solo" and p["unlimited_pap"] and not unlimited_pap_installed(dist_root):
+        out.append("Pack-a-Punch illimité : pas de mods/unlimitedpap/maps/_zombiemode_perks.gsc (à écrire depuis vos "
+                   "zones : tools/unlimitedpap/make_perks.py)")
     if wants_dual_wield(p, dist_root) and not dual_wield_installed(dist_root):
         out.append("armes doublées : pas de mods/dualwield/mod.ff (à construire depuis le mod « Relaxing Dual "
                    "Wield », mods/dualwield/README.md)")

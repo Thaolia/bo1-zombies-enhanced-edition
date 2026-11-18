@@ -429,3 +429,5 @@ __BO1Zombies
 # Retail game data, never committed (see CLAUDE.md)
 Call.of.Duty.Black.Ops.v87954/
 *.iso
+# The player's own retail Pack-a-Punch script with the mod's changes (tools/unlimitedpap/make_perks.py)
+mods/unlimitedpap/maps/_zombiemode_perks.gsc
