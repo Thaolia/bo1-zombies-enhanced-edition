@@ -148,6 +148,16 @@ BO1 weapon it works like. They stay out of `mp/bo2weapons.csv`: the box list doe
   `_lit` colour maps (DXT encoding: 186 bytes of the HAMR's 1.4 MB).
   Linker: the same 6 warnings as before (the Ray Gun Mark II's dive-to-prone anims), 0 errors; `ffconv --verify`
   passes (1 604 assets).
+- **The Avogadro's model** (added 2026-11-18). `EXTRA_MODELS` lists BO2 character models MapKit uses with no weapon:
+  `c_zom_avagadro_fb`, which `_mapkit.gsc` puts on TranZit's Avogadro, a BO1 AI of Five's electrician type (both
+  skeletons have the same 115 bones, so BO1's zombie animations drive it). `--all` converts each one found in a
+  `--dump` and adds it to the zone as an `xmodel` line; it is in BO2's `so_zclassic_zm_transit` zone, dumped on its
+  own (below; a dump with no `weapons/` folder is searched for models only). Its three colour maps are streamed from
+  an `.ipak` the Unlinker does not read, even with `--search-path` on the ipak aliases: `GENERATED_COLOURS` draws each
+  instead, 128 x 128, a dark field of the colour crossed by bright wavy veins (blue, violet, pale blue: our own
+  pixels, seeded by the image name so every run writes the same), with a `note:` line. Output with it: 108 xmodels,
+  770 xanims, 205 materials, 215 images; Linker 6 warnings (as before), 0 errors; `ffconv --verify` passes (1 670
+  assets).
 
 ## Build it
 
@@ -162,6 +172,9 @@ Paths are those of this machine. OAT must be built with both patches (`tools/bo2
       $U --include-assets image --image-format DDS -o $D/weapons/?zone? "$Z/$z.ff"
     done
     $U --include-assets localize -o $D/loc/?zone? "$Z"/fr_*.ff        # en_*.ff for English
+    # the Avogadro's model (EXTRA_MODELS), from TranZit's classic zone
+    $U --include-assets xmodel,material --model-format GLTF -o $D/avogadro/?zone? "$Z/so_zclassic_zm_transit.ff"
+    $U --include-assets image --image-format DDS -o $D/avogadro/?zone? "$Z/so_zclassic_zm_transit.ff"
     # BO1: the reference weapons, their anims and accuracy graphs, the material templates (one folder)
     B=<BO1 install>/zone/Common
     $U --include-assets weapon,xanim -o $D/bo1/?zone? "$B/common_zombie.ff"
@@ -170,6 +183,7 @@ Paths are those of this machine. OAT must be built with both patches (`tools/bo2
     mkdir -p $D/bo1ref; ln -s $D/bo1/common_zombie/{weapons,xanim,accuracy} $D/bo1mat/common_zombie/materials $D/bo1ref/
     # convert every box weapon (about an hour, mostly ImageMagick), then link
     tools/bo2/bo2_weapon.py --all $(for z in $ZM; do echo --dump $D/weapons/$z; done) \
+        --dump $D/avogadro/so_zclassic_zm_transit \
         --bo1 $D/bo1ref --bo1-map $D/bo1/zombie_pentagon --localize $D/loc --out ~/bo2tools/wmod
     cd ~/bo2tools/wmod && $L -b . -l $B/code_post_gfx.ff -l $B/common.ff -l $B/common_zombie.ff \
         -l $B/common_zombie_patch.ff -l $B/zombie_pentagon.ff mod      # zone_out/mod/mod.ff

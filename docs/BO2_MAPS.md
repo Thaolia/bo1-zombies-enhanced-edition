@@ -836,7 +836,8 @@ The fourth item of the same request. Both are BO2 weapons BO1 lacks, so they com
   thrown with the special grenade button. Where it goes off: BO1's blue power-up wave (BO2's effect is not in BO1);
   zombies within 600 units stand still 20 s or until hurt; players within 420 are shaken 2 s; perk machines within
   420 refuse purchases 90 s; a planted turbine within 420 goes back to its table (BO2 breaks it). Left out: the
-  machines' lights going dark, Pack-a-Punch, the doors' local power, the traps, the Avogadro.
+  machines' lights going dark, Pack-a-Punch, the doors' local power, the traps (the Avogadro, added later the same
+  day, is driven off: "The Avogadro" below).
 - The box's retail give (`treasure_chest_give_weapon`) goes on after the offhand override, which the Monkey Bomb skips
   with an early return: it switched the player to the grenade itself. MapKit switches him back to his gun.
 - `bo2_layout.py build()` reused `name` in its loops: the layouts' `"name"` field held the last chest or Denizen name
@@ -908,6 +909,65 @@ left out.
   Nuketown 109/1 (`riser7`, which fails with the mod stacked since the Galvaknuckles). With the previous `mod.ff`
   (no Jet Gun or shield): TranZit 316/6, both tables left out and their checks `SKIP`. win32-msvc builds (no C++
   change).
+
+### The Avogadro (2026-11-18)
+
+Asked by the user after the Jet Gun. BO2's decompiled `maps/mp/zombies/_zm_ai_avogadro.gsc` is the
+reference; the user chose BO2's model on a BO1 AI. `games_mp.log` says `mapkit: Avogadro in BO2's model` or `in the
+Pentagon thief's model (c_zom_avagadro_fb not loaded)`.
+
+- **Layout** (`bo2_layout.py` `avogadro_edits`): an `ent` spawner `mapkit_avogadro_spawner` of Five's
+  `actor_zombie_electrician` (the thief's AI type: `spawn_zombie` gives it the retail zombie's animations and
+  `find_flesh`), the `avogadro` edit (where it stands at first, and BO2's `core_mover`) and 35 `avogadrospot` edits,
+  BO2's `avogadro_location` structs with their zone and region (`AVOGADRO_REGIONS`, BO2's `init_regions`; the
+  duplicates dropped, the diner roof's spot has no region and is skipped). BO2 keeps it floating in the reactor, over
+  a pit 1 600 units deep (the collision's floor search fell to its bottom at -2463): it stands on the spot nearest
+  to the core instead, by the railing, at BO2's own height.
+- **Model**: `c_zom_avagadro_fb` from the bo2weapons `mod.ff` (`bo2_weapon.py` EXTRA_MODELS, docs/BO2_WEAPONS.md);
+  BO1's and BO2's zombie skeletons have the same 115 bones, so BO1's animations drive it. The script asks the new
+  builtin `bo1_mapkit_modelloaded` (`g_mapkit.cpp`: whether a loaded zone holds that xmodel, as
+  `bo1_mapkit_weaponloaded` does for a weapon) before `PrecacheModel`, so a game without the mod keeps the thief's
+  model instead of BO1's missing-model error. Its colour maps are drawn by the converter (the dump lacks them): blue
+  veins on a dark body.
+- **Behaviour** (`_mapkit.gsc` `mapkit_avogadro`): once the power is on, it waits for the first round's
+  `level.zombie_health` (`zombie_spawn_init` reads it: spawned before it, the script stopped there and `find_flesh`
+  never ran) and stands at the reactor until a player within 900 units sees it (or 60 s), then leaves for the sky
+  (the hellhound's lightning, `zmb_hellhound_bolt`). It comes back 2 to 4 rounds later (one round when it left for
+  having nobody within 3000 units for 3 s) on a spot 400 to 2500 units from a player (BO2 picks a spot of the region
+  its cloud hangs over), with lightning and a shake, and chases with `find_flesh`. Every 5 to 9 s, 120 to 600 units
+  away and in sight, it stops, its shield down, and throws a bolt at where the player's eye was 0.6 s before: 60
+  damage and BO1's `electrocution` shock for 1 s when the player has not moved 64 units. Every 3 to 6 s, farther
+  than 200 units, it dashes 160 units toward the player where `PlayerPhysicsTrace` finds the way and a floor (BO2's
+  phase; Five's thief trail). Its claws shock too (a player damage callback).
+- **Damage** (`actor_full_damage_func`, health 100 000 refreshed every 0.5 s): bullets, explosions, the nuke and the
+  Jet Gun do nothing, and 1000 damage of them heals a wound (BO2's `damage_absorbed`). A melee blow while its shield
+  is down (the 1 s after a bolt) wounds it, 2 wounds with the Galvaknuckles; on its shield the blow shocks the one
+  who struck. 4 wounds, or an EMP within 600 units, drive it off (BO2's `stun_avogadro`) until its next return. It
+  never dies (if killed anyway it is back two rounds later), never counts as a round's zombie
+  (`ignore_enemy_count`) and MapKit's far respawn leaves it alone (`ignore_distance_tracking`).
+- Not done: its attacks on the bus, its regions' storm clouds, the reactor's chamber and BO2's own effects and
+  sounds (BO1's hellhound lightning, tesla impact and thief trail stand in). `+set mapkit_avogadro 0` leaves it out.
+- `mapkit_galvashots 3` (Windows screenshots): no power wait, its spot forced 350 units in front of the player, 16
+  shots of it coming down and chasing, then a bolt and 6 shots.
+- **A server frame that never ended** (Linux self-tests, 4 runs of 6 with the Avogadro about): the server thread spun
+  in `Path_PredictionTrace` (`actor_navigation.cpp`), a zombie's lookahead trace on TranZit's diner. A stack dump of
+  the loop under gdb showed it: the trace ran 0.76 units, from (-6431.66, -7886.40, 3.69), hit an actor in code move
+  mode, so the loop (as retail's) cleared the actor bit and went on from the hit point; the hit's fraction stayed just
+  above the loop's 1e-4 exit, and 1e-4 of 0.76 units rounds to no move at x = -6431 (a float's step there is 0.0005).
+  Every pass then traced from the same point to the same actor, forever. Fix: a pass whose hit point did not move in x
+  and y returns "no path" (the lookahead shrinks), which is exactly the case that looped; win32-msvc changes there too
+  (retail loops the same way). Which actor blocked is not known; it was never seen without the Avogadro.
+- Checks. Windows client (`mapkit_galvashots 3`, screenshots): BO2's model with its drawn veins, animated by BO1, the
+  lightning as it comes down 350 units in front, the chase (415 to 329 units in 3 s), bolts (the view greys), no
+  script error. A first run spawned it before the first round set `level.zombie_health` (`zombie_spawn_init` stopped
+  with a script error and `find_flesh` never ran: it walked away): it waits for it now. Linux self-tests (timescale
+  4, `fs_mods "mapkit bo2weapons"`): every Avogadro check passes (spawned in BO2's model, came down near the player,
+  5000 bullet damage did nothing, a melee blow wounds it only shield down, 2 wounds with the Galvaknuckles the test
+  client holds, an EMP drove it off); with the power wait left out so it plays the whole run, three runs in parallel
+  339/3, 338/4 and 337/6 (the failures: `riser101`-`103`, a Jet Gun or power switch piece the test client carried but
+  never brought, `depot_baricade1`/`5`); with the power on the switch, 336/7. After the navigation fix five more runs
+  went to the end (339/4 alone), none stopped; the new check never fired in them (the loop's geometry is rare), so
+  the fix rests on the gdb dump. Nuketown 109/1 as before (`riser7`). win64-msvc and win32-msvc build.
 
 ## What comes out of `zm_nuked`
 
@@ -1371,7 +1431,7 @@ TranZit goes through the same tools, with what its size and its bus needed:
   and the bus ride. `pow_door_rr` is a SKIP: BO2's graph reaches its room by stairs below the doorway, so no link crosses
   it.
 - **Not done.** The props are unlit (TranZit's placements carry no `smodellight` colours), the fog and the lava,
-  the Avogadro and the other buildables (the bank and the bus's doors and calls came on 2026-11-15: "TranZit's bus and
+  the other buildables (the Avogadro came on 2026-11-18: "The Avogadro" above; the bank and the bus's doors and calls came on 2026-11-15: "TranZit's bus and
   bank" below; the power switch, Pack-a-Punch and turbine buildables, the Bowie knife, the claymores and simplified
   Denizens on 2026-11-18: "Nuketown's falling machines, TranZit's buildables and Denizens" below; the Galvaknuckles,
   the EMP grenade, the Jet Gun and the shield the same day, from the bo2weapons mod).

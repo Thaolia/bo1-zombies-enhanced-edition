@@ -52,4 +52,5 @@ goes back to the menu when it enters ("The server uses weapon ..., which this ga
   weapons BO1 already has under the same name. Four scripted ones are in `mod.ff` for MapKit's BO2 maps, outside the
   box list: the Galvaknuckles (Nuketown's and TranZit's wall), the EMP grenade (TranZit's box), the Jet Gun and the
   shield (built at TranZit's tables), run by `mods/mapkit` (`mods/mapkit/MAPKIT.md`, `wallbuy`, `emp` and
-  `buildable`). `bo2weapons_box` 1 and 2 keep the EMP in the box.
+  `buildable`). `bo2weapons_box` 1 and 2 keep the EMP in the box. The Avogadro's model (`c_zom_avagadro_fb`, from
+  BO2's `so_zclassic_zm_transit` zone) is in it too: MapKit dresses TranZit's Avogadro in it (`avogadro` edit).

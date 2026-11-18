@@ -36,6 +36,8 @@ imports/<map>/<map>.collision.bin: copy the .bin there in the run folder) and it
   - safelight / denizens (TranZit): BO2's safety lights (screecher_escape), and the Denizens' zones, with their brush
     models "mapkit_denizen<k>" carrying the screecher's model as mesh movers;
   - emp (TranZit, EMP_MAPS): BO2's EMP grenade joins the mystery box when the bo2weapons mod.ff holds it;
+  - avogadro / avogadrospot (TranZit): the Avogadro's core in the power station, with its spawner (an "ent" of Five's
+    electrician AI type), and BO2's avogadro_location spots it comes down on, each with its zone and region;
   - perkspot: every zm_random_machine landing spot (Nuketown's ten), where the machines fall: "solo" for the spots
     Quick Revive lands on in a solo game, "meshGroup" for BO2's crate pile there (drawn until a machine lands);
   - traverse: the node_negotiation pairs whose BO2 animscript has a BO1 one of about the same height (TRAVERSES);
@@ -231,6 +233,20 @@ DENIZEN_COUNT = 2
 DENIZEN_BOX = ([-8.0, -8.0, 0.0], [8.0, 8.0, 16.0])
 DENIZEN_PARK = 2048.0
 DENIZEN_ZONES = "_trans_,_amb_"
+# TranZit's Avogadro (zm_ai_avogadro), simplified (_mapkit.gsc mapkit_avogadro): a BO1 AI of Five's electrician type
+# (the Pentagon thief's) spawned in the power station's core once the power is on, dressed in BO2's model when the
+# bo2weapons mod.ff holds it. It comes down on BO2's avogadro_location spots, in the region of a player (BO2's
+# init_regions: a spot's zone names its region).
+AVOGADRO_CLASS = "actor_zombie_electrician"
+AVOGADRO_REGIONS = {
+    "bus": ("zone_pri", "zone_station_ext"),
+    "diner": ("zone_roadside_west", "zone_din", "zone_roadside_east", "zone_gas", "zone_gar"),
+    "farm": ("zone_far", "zone_far_ext", "zone_brn", "zone_farm_house"),
+    "cornfield": ("zone_amb_cornfield", "zone_cornfield_prototype"),
+    "power": ("zone_prr", "zone_pow", "zone_pcr", "zone_pow_warehouse"),
+    "town": ("zone_tow", "zone_bar", "zone_ban", "zone_ban_vault", "zone_town_north", "zone_town_west",
+             "zone_town_south", "zone_town_barber", "zone_town_church", "zone_town_east"),
+}
 
 
 def piece_short(model):
@@ -267,6 +283,37 @@ def buildable_parts(ents):
                                and e.get("classname") == "script_model"
                                and CLASSIC in e.get("script_gameobjectname", "")][:1]
         out[name] = {"trigger": trigger, "pieces": pieces, "built": built}
+    return out
+
+
+def avogadro_edits(ents):
+    """The Avogadro's spawner (an "ent" edit), its core ("avogadro") and the spots it comes down on
+    ("avogadrospot", with the zone and region): none without BO2's core_mover and avogadro_location structs."""
+    core = next((e for e in ents if e.get("targetname") == "core_mover"), None)
+    spots = [e for e in ents
+             if e.get("script_noteworthy") == "avogadro_location" and e.get("classname") == "script_struct"]
+    if core is None or not spots:
+        return []
+    region_of = {zone: region for region, zones in AVOGADRO_REGIONS.items() for zone in zones}
+    # BO2 keeps it floating in the reactor (core_mover hangs over a pit 1 600 units deep): a BO1 AI stands on the
+    # spot nearest to it instead, by the reactor's railing
+    o = vec(core["origin"])
+    stand = min(spots, key=lambda e: math.dist(vec(e["origin"]), o))
+    at = vec(stand["origin"])  # BO2's spots stand on the floor; the collision's floor search fell to the pit's bottom
+    out = [{"kind": "ent", "keys": {"classname": AVOGADRO_CLASS, "targetname": "mapkit_avogadro_spawner",
+                                    "model": "c_zom_electrician_body", "origin": [at[0], at[1], at[2] + 1],
+                                    "angles": [0, yaw(stand), 0], "spawnflags": 3, "count": 9999,
+                                    "script_forcespawn": 1, "script_string": "zombie_chaser"}},
+           {"kind": "avogadro", "origin": at, "yaw": yaw(stand), "core": o}]
+    seen = set()
+    for e in spots:
+        key = (e["origin"], e.get("targetname"))
+        if key in seen:
+            continue  # BO2 lists a few twice
+        seen.add(key)
+        zone = e.get("targetname", "").replace("_spawners", "")
+        out.append({"kind": "avogadrospot", "origin": vec(e["origin"]), "yaw": yaw(e), "zone": zone,
+                    "region": region_of.get(zone, "")})
     return out
 
 
@@ -1428,6 +1475,7 @@ def build(ents, col, name, collision, links_file=None, props=(), solid_props=())
         edits.append({"kind": "denizens", "zones": DENIZEN_ZONES, "count": DENIZEN_COUNT})
     if layout_name in EMP_MAPS:
         edits.append({"kind": "emp"})
+    edits += avogadro_edits(ents)
     # the doors' use volumes the deposit keeps clear of are the blocker edits', made before the bank, added after it
     blockers = blocker_edits(ents, submodels, zones, start_zones)
     bank = bank_edit(props, col, [e["origin"] for e in edits if e["kind"] == "node"],
