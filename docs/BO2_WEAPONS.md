@@ -121,6 +121,8 @@ BO1 weapon it works like. They stay out of `mp/bo2weapons.csv`: the box list doe
 | `tazer_knuckles_zm` (Galvaknuckles, melee, 1500 damage) | `bowie_knife_zm` | the `tazer_upgrade` wall buys of Nuketown and TranZit (`_mapkit.gsc` `mapkit_tazer_walls`) |
 | `zombie_tazer_flourish` (their purchase animation) | `zombie_bowie_flourish` | the same purchase |
 | `emp_grenade_zm` (special grenade) | `zombie_cymbal_monkey` | TranZit's box (`emp` edit, `mapkit_emp_detonate`) |
+| `jetgun_zm` (Jet Gun, equipment) | `minigun_zm` (Five's Death Machine, `--bo1-map`) | TranZit's Jet Gun table (`buildable` edit with `"weapon"`, `mapkit_jetgun_watch`) |
+| `riotshield_zm` (Zombie Shield, equipment) | `m1911_zm` | TranZit's shield table (`mapkit_shield_damage`, `mapkit_shield_bash`) |
 
 - A model, animation or icon that BO1 has under the same name stays BO1's (`weapon(..., extra=True)`): the
   purchase animation plays the perk bottle's `viewmodel_zombie_perksacola_*` in its cloth hands, and a BO2 copy of
@@ -130,6 +132,16 @@ BO1 weapon it works like. They stay out of `mp/bo2weapons.csv`: the box list doe
   unit hurts nobody; the script plays the pulse); its projectile is its own world model (`projectileModel` comes from
   the reference otherwise, which would throw a Monkey).
 - The EMP's name (`WEAPON_EMP_GRENADE`) is in BO2's multiplayer strings only: it takes `EXTRA_NAMES`' English.
+- **The Jet Gun and the shield** (added 2026-11-18, the fifth item). The Jet Gun's reference is the Death Machine,
+  which only Five's zone holds: `--bo1-map <zombie_pentagon dump>` (repeatable) adds a BO1 map dump searched after
+  `--bo1` for a reference weapon and its animations; without it the Jet Gun is left out (a `note:` line). BO2's fire
+  type `Jetgun` is no BO1 one, so it takes the Death Machine's `Minigun` (it spins up, then fires) and its spin
+  sounds. Both fire bullets of 0 damage with no flash, shell, tracer or shot sound (`NO_SHOT`): `_mapkit.gsc` does
+  what they do. The Jet Gun's clip is its heat left: 100 rounds, one per 0.06 s of firing (BO2's `overheatRate` of
+  17 % a second), no stock (no reload) and no engine overheat; it spins up in 0.6 s (BO2's effect starts at 20 % of
+  its 3 s spin-up, and a Minigun fires only once fully spun). The shield never runs out (`unlimitedAmmo`) and fires
+  its melee animation (`fireAnim` `@meleeAnim`). An override naming a key BO1's weapon file lacks stops the
+  converter. Their hints (`ZOMBIE_EQUIP_*_HOWTO`, `EXTRA_HINTS`) come from BO2's localize dump, else `EXTRA_NAMES`.
 - `--all` output: the three add 3 weapon files, 4 xmodels (each weapon's view and world model), 8 xanims (the
   knuckles' 6, the grenade's pull-pin and throw), 5 materials and 9 images (the converter's summary: 97 xmodels, 747
   xanims, 194 materials, 202 images). The other weapons' files come out the same, but for a few hundred bytes in some
@@ -153,11 +165,12 @@ Paths are those of this machine. OAT must be built with both patches (`tools/bo2
     # BO1: the reference weapons, their anims and accuracy graphs, the material templates (one folder)
     B=<BO1 install>/zone/Common
     $U --include-assets weapon,xanim -o $D/bo1/?zone? "$B/common_zombie.ff"
+    $U --include-assets weapon,xanim -o $D/bo1/?zone? "$B/zombie_pentagon.ff"   # the Jet Gun's reference
     $U --include-assets material -o $D/bo1mat/?zone? "$B/common_zombie.ff"
     mkdir -p $D/bo1ref; ln -s $D/bo1/common_zombie/{weapons,xanim,accuracy} $D/bo1mat/common_zombie/materials $D/bo1ref/
     # convert every box weapon (about an hour, mostly ImageMagick), then link
     tools/bo2/bo2_weapon.py --all $(for z in $ZM; do echo --dump $D/weapons/$z; done) \
-        --bo1 $D/bo1ref --localize $D/loc --out ~/bo2tools/wmod
+        --bo1 $D/bo1ref --bo1-map $D/bo1/zombie_pentagon --localize $D/loc --out ~/bo2tools/wmod
     cd ~/bo2tools/wmod && $L -b . -l $B/code_post_gfx.ff -l $B/common.ff -l $B/common_zombie.ff \
         -l $B/common_zombie_patch.ff -l $B/zombie_pentagon.ff mod      # zone_out/mod/mod.ff
 
@@ -211,7 +224,7 @@ The HAMR (proof of concept):
 - The Five-seven's left gun, in dual wield, is barely visible.
 - Scripted weapons (Jet Gun, staffs, Blundergat, Slowgun, Sliquifier, tomahawk, ballistic knife), equipment, the
   shields and Origins' extended-clip / stalker copies are left out (`SKIP`, or not a primary weapon), but for the
-  Galvaknuckles and the EMP grenade (`EXTRAS`, above). Weapons BO1
+  Galvaknuckles, the EMP grenade, TranZit's Jet Gun and shield (`EXTRAS`, above). Weapons BO1
   already has under the same name (`m14_zm`, `mp5k_zm`, `ray_gun_zm`...) keep BO1's.
 - Since 2026-11-16 every stacked mod's `mod.ff` loads (`DB_ListModZones`): the first as zone `mod`, the next ones
   as `mod_<name>`, all in the batch that loads `mod` (`mods/dualwield/README.md`).

@@ -31,7 +31,8 @@ imports/<map>/<map>.collision.bin: copy the .bin there in the run folder) and it
   - piece / buildpart / buildable (TranZit): each spot a buildable piece can lie on (BUILDABLES), the finished power
     switch's pieces, and the table a player builds at; the power switch and Pack-a-Punch edits get "buildable"; the
     turbine's table also gets an "ent" brush model "mapkit_turbine" carrying the finished turbine as a mesh mover, and
-    the doors BO2 opens with a turbine (local_electric_door) get "turbine";
+    the doors BO2 opens with a turbine (local_electric_door) get "turbine"; the Jet Gun's and the shield's tables get
+    "weapon" (sold when the bo2weapons mod.ff holds it) and a buildpart "weapon", the finished weapon on the table;
   - safelight / denizens (TranZit): BO2's safety lights (screecher_escape), and the Denizens' zones, with their brush
     models "mapkit_denizen<k>" carrying the screecher's model as mesh movers;
   - emp (TranZit, EMP_MAPS): BO2's EMP grenade joins the mystery box when the bo2weapons mod.ff holds it;
@@ -206,6 +207,15 @@ BUILDABLES = {
     "turbine": {"trigger": "turbine_buildable_trigger",
                 "pieces": ["p6_zm_buildable_turbine_fan", "p6_zm_buildable_turbine_rudder",
                            "p6_zm_buildable_turbine_mannequin"]},
+    # BO2 equipment built into a weapon a player takes from its table (_mapkit.gsc mapkit_equip_table): its spots are
+    # named after the weapon ("prefix"), and "table" is the script model of the finished weapon lying on the table,
+    # drawn once built (the buildpart edit of piece "weapon")
+    "jetgun": {"trigger": "jetgun_zm_buildable_trigger", "prefix": "jetgun_zm", "weapon": "jetgun_zm",
+               "table": "buildable_jetgun",
+               "pieces": ["p6_zm_buildable_jetgun_wires", "p6_zm_buildable_jetgun_engine",
+                          "p6_zm_buildable_jetgun_guages", "p6_zm_buildable_jetgun_handles"]},
+    "riotshield": {"trigger": "riotshield_zm_buildable_trigger", "prefix": "riotshield_zm", "weapon": "riotshield_zm",
+                   "table": "buildable_riotshield", "pieces": ["t6_wpn_zmb_shield_dolly", "t6_wpn_zmb_shield_door"]},
 }
 # The finished turbine (BO2's script model "buildable_turbine" on its table): a mesh mover on an undrawn brush model of
 # TURBINE_BOX (model space, its origin at the model's feet) that _mapkit.gsc shows on the table once built, then moves to
@@ -223,10 +233,19 @@ DENIZEN_PARK = 2048.0
 DENIZEN_ZONES = "_trans_,_amb_"
 
 
+def piece_short(model):
+    """p6_zm_buildable_jetgun_engine -> jetgun_engine, t6_wpn_zmb_shield_door -> shield_door (mesh group names)."""
+    for prefix in ("p6_zm_buildable_", "t6_wpn_zmb_"):
+        if model.startswith(prefix):
+            return model[len(prefix):]
+    return model
+
+
 def buildable_parts(ents):
     """{buildable: {"trigger": the table's trigger entity, "pieces": {model: [(group, spot struct)]},
-    "built": {model: [(group, script model)]}}} for the BUILDABLES the entities have. A group is the mesh group that
-    draws a piece on its spot (or built at its buildable), bo2_mesh.py's and the layout's name for it."""
+    "built": {model: [(group, script model)]}}} for the BUILDABLES the entities have; "built" also has the finished
+    weapon on a "table" buildable's table, as model "weapon". A group is the mesh group that draws a piece on its spot
+    (or built at its buildable), bo2_mesh.py's and the layout's name for it."""
     out = {}
     for name, b in BUILDABLES.items():
         trigger = next((e for e in ents if e.get("targetname") == b["trigger"]
@@ -234,14 +253,19 @@ def buildable_parts(ents):
         if trigger is None:
             continue
         pieces, built = {}, {}
+        prefix = b.get("prefix", name)
         for model in b["pieces"]:
-            targetname, claim = b.get("spots", {}).get(model, (f"{name}_{model}", None))
+            targetname, claim = b.get("spots", {}).get(model, (f"{prefix}_{model}", None))
             spots = [e for e in ents if e.get("targetname") == targetname and e.get("classname") == "script_struct"
                      and (claim is None or e.get("claim_location") == claim)]
-            pieces[model] = [(f"piece:{name}:{model[len('p6_zm_buildable_'):]}:{k}", e) for k, e in enumerate(spots)]
-            done = [e for e in ents if e.get("targetname") == f"{name}_{model}" and e.get("classname") == "script_model"
+            pieces[model] = [(f"piece:{name}:{piece_short(model)}:{k}", e) for k, e in enumerate(spots)]
+            done = [e for e in ents if e.get("targetname") == f"{prefix}_{model}" and e.get("classname") == "script_model"
                     and CLASSIC in e.get("script_gameobjectname", "")]
-            built[model] = [(f"built:{name}:{model[len('p6_zm_buildable_'):]}", e) for e in done]
+            built[model] = [(f"built:{name}:{piece_short(model)}", e) for e in done]
+        if "table" in b:
+            built["weapon"] = [(f"built:{name}:weapon", e) for e in ents if e.get("targetname") == b["table"]
+                               and e.get("classname") == "script_model"
+                               and CLASSIC in e.get("script_gameobjectname", "")][:1]
         out[name] = {"trigger": trigger, "pieces": pieces, "built": built}
     return out
 
@@ -1357,7 +1381,7 @@ def build(ents, col, name, collision, links_file=None, props=(), solid_props=())
             # the brush model spawns with angles 0 and its origin at its box's centre
             turbine_mover = {"model": TURBINE_MODEL, "entity": "mapkit_turbine",
                              "offset": [round((lo[k] + hi[k]) / 2, 2) for k in range(3)], "yaw": yaw(built)}
-        else:
+        elif "weapon" not in BUILDABLES[name]:
             machine = next((e for e in edits if e["kind"] == ("powerswitch" if name == "powerswitch" else "pap")), None)
             if machine is None:
                 continue
@@ -1369,9 +1393,14 @@ def build(ents, col, name, collision, links_file=None, props=(), solid_props=())
             for group, e in parts["built"][model]:
                 edits.append({"kind": "buildpart", "buildable": name, "piece": model, "origin": vec(e["origin"]),
                               "meshGroup": group})
+        for group, e in parts["built"].get("weapon", []):
+            edits.append({"kind": "buildpart", "buildable": name, "piece": "weapon", "origin": vec(e["origin"]),
+                          "meshGroup": group})
         trigger = parts["trigger"]
-        edits.append({"kind": "buildable", "name": name, "origin": vec(trigger["origin"]),
-                      "pieces": ",".join(parts["pieces"])})
+        edit = {"kind": "buildable", "name": name, "origin": vec(trigger["origin"]), "pieces": ",".join(parts["pieces"])}
+        if "weapon" in BUILDABLES[name]:
+            edit["weapon"] = BUILDABLES[name]["weapon"]
+        edits.append(edit)
     bus, mover = bus_edits(ents, col)
     if not bus:
         bus, mover = gondola_edits(ents, col)

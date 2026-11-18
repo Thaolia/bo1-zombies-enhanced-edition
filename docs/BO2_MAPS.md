@@ -853,6 +853,62 @@ The fourth item of the same request. Both are BO2 weapons BO1 lacks, so they com
   pistol kept in hand, thrown and gone off, the shake greying the view; no script error. The knuckles' swing is not
   seen on the shots taken during the melee presses.
 
+### The Jet Gun and the shield (2026-11-18)
+
+The fifth and last item of the same request. Both are TranZit buildables whose result is a BO2 weapon, from the
+player's bo2weapons `mod.ff` like the Galvaknuckles (`tools/bo2/bo2_weapon.py` EXTRAS: the Jet Gun on Five's Death
+Machine, which needs `--bo1-map` with Five's dump, the shield on the M1911; docs/BO2_WEAPONS.md). The decompiled
+`zm_transit_buildables`, `_zm_weap_jetgun`, `_zm_weap_riotshield` and `_zm_riotshield` are the reference.
+`games_mp.log` says `mapkit: Jet Gun on, shield on` or `not loaded`; without them both tables and their pieces are
+left out.
+
+- **Building** (`bo2_layout.py` BUILDABLES `jetgun`, `riotshield`): the Jet Gun's four pieces (wires, engine, gauges,
+  handles: 12 spots across the map) and the shield's two (dolly, car door: 6 spots around the diner) lie on BO2's
+  spots, named after the weapon (`jetgun_zm_<model>`). The buildable edit gets `"weapon"`; its `buildpart` `weapon`
+  is the finished weapon BO2 lays on the table (`buildable_jetgun`, `buildable_riotshield`), drawn once built. The
+  blockers mesh gains 22 groups and 6 images; the wires piece keeps no colour map (`battery_wires_col` is no DXT
+  image in the dump, `bo2_mesh.py` leaves it out).
+- **Taking**: any player holds use at the table to take one, again after losing it (BO2's tables are persistent).
+  They go into BO1's own equipment slot (retail `_zombiemode_equipment`, Moon's hacker): action slot 1 with BO2's
+  hint, one item at a time (taking the shield gives up the Jet Gun), taken at laststand, and `is_equipment` keeps the
+  box, the wall buys and the perk machines from trading it away. Retail `is_limited_equipment` returns nothing on a
+  map that never set `level._limited_equipment` (only Moon does), which stopped `equipment_take`: MapKit sets the
+  empty list.
+- **Jet Gun**: it spins up 0.6 s, then fires (shots of 0 damage). Its clip is the heat left, shown by the ammo
+  counter: a round per 0.06 s of firing (BO2's 17 % a second), one back per second otherwise (BO2's `cooldownRate`).
+  Every 0.25 s while it fires, the zombies in front within 128 units are gibbed and killed (a zombie clawing at the
+  player stands beside the muzzle and below the eye, out of a cone from either), and those farther, up to 1024, in
+  BO2's 0.7 cone from the eye and in sight, are pulled 48 units toward it where `PlayerPhysicsTrace` finds the way
+  clear and a floor. `DamageConeTrace`, which BO2 and BO1's Thundergun use from the muzzle, gave 0 from the eye for
+  every zombie in sight: `SightTracePassed` does it.
+- **In play**: only a zombie out of the ground and in through its window is pulled. Retail marks a window's zombie
+  (`completed_emerging_into_playable_area`) at the end of the window's traversal, which MapKit's windows never send,
+  so `mapkit_zombie_in_play` also takes one that reached its window and walked 128 units away from it. The EMP's stun
+  (above) used the retail flag alone and so never stunned a window's zombie; it uses the same test now. Fired dry, it blows up (the
+  grenade explosion's sound, a shake) and the table gives another; BO2 scatters its pieces instead. Not done: its
+  effects and sounds (BO1 has none; the Death Machine's spin plays), the power-ups it pulls in, reversing it.
+- **Shield**: held, it stops the zombies' blows from in front (a player damage callback, `mapkit_shield_damage`);
+  stowed, the blows from behind. Each blow stopped wears it by its damage, up to 2250 (BO2's hit points), then it
+  breaks. Firing it (its melee animation) or a melee with it in hand bashes the zombies in front within 90 units:
+  2500 damage, flung when killed, 100 more wear each. Not done: planting it, its damaged models, the model on the
+  back.
+- A function reached from a watch thread that ends on `<weapon>_taken` (`equipment_take` notifies it) runs in a thread
+  of its own: the first overheat stopped half-way, the Jet Gun still in hand with an empty clip.
+- `bo2_weapon.py` read BO2's localize dump as Latin-1, but OAT writes it in UTF-8: every accented name reached BO1 as
+  two characters ("ExÃ©cuteur", the box weapons' too). It reads UTF-8 and writes Windows-1252 now.
+- Checks. Windows client (`mapkit_galvashots 2`, screenshots): the Jet Gun drawn on BO1's hands, its heat going from
+  100 to 49 in 4 s of firing; the shield in hand, its bash (fire and melee); the finished Jet Gun and shield on their
+  tables; no script error; with `mapkit_jetdebug 1`, a zombie put in front of the player ground up. Linux
+  self-tests (timescale 4, `fs_mods "mapkit bo2weapons"`): TranZit 333/4: all six pieces built, the Jet Gun taken,
+  fired at a zombie 305 units away (pulled in and ground up, 12 % of its heat spent), fired dry (blew up), taken
+  again; the shield taken, stopping a blow from in front and not one from behind, worn out (broke); its bash `SKIP`
+  (no zombie in play came near in 120 s; the run before bashed one dead); the EMP stunned a zombie 222 units away.
+  The four failures: `riser101`-`103` as before, `depot_baricade1` (a spawn draw). Other runs failed on the test
+  client's walks: a power switch lever or a Jet Gun piece carried but never brought to its table (it stops short).
+  Nuketown 109/1 (`riser7`, which fails with the mod stacked since the Galvaknuckles). With the previous `mod.ff`
+  (no Jet Gun or shield): TranZit 316/6, both tables left out and their checks `SKIP`. win32-msvc builds (no C++
+  change).
+
 ## What comes out of `zm_nuked`
 
 With [OpenAssetTools](https://github.com/Laupetin/OpenAssetTools) 0.34.0 (GPL v3) and a world dumper written for it
@@ -1315,10 +1371,10 @@ TranZit goes through the same tools, with what its size and its bus needed:
   and the bus ride. `pow_door_rr` is a SKIP: BO2's graph reaches its room by stairs below the doorway, so no link crosses
   it.
 - **Not done.** The props are unlit (TranZit's placements carry no `smodellight` colours), the fog and the lava,
-  the Avogadro, the Jet Gun, the shield, the Galvaknuckles, the EMP and the other buildables (the bank and the bus's
-  doors and calls came on 2026-11-15: "TranZit's bus and bank" below; the power switch, Pack-a-Punch and turbine
-  buildables, the Bowie knife, the claymores and simplified Denizens on 2026-11-18: "Nuketown's falling machines,
-  TranZit's buildables and Denizens" below).
+  the Avogadro and the other buildables (the bank and the bus's doors and calls came on 2026-11-15: "TranZit's bus and
+  bank" below; the power switch, Pack-a-Punch and turbine buildables, the Bowie knife, the claymores and simplified
+  Denizens on 2026-11-18: "Nuketown's falling machines, TranZit's buildables and Denizens" below; the Galvaknuckles,
+  the EMP grenade, the Jet Gun and the shield the same day, from the bo2weapons mod).
 
 #### The user's first TranZit run (2026-11-11)
 
