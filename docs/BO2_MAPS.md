@@ -211,7 +211,10 @@ Pack-a-Punch. It now runs on the BSP world instead of its own mesh and collision
 - `CM_Mapkit_Empty()` meant two things: "the layout supplies the level script, entities and pathnodes" and "there is
   no world". `CM_Mapkit_WorldEmpty()` is the second one, false when the world comes from a BSP. The render, static
   model, collision, physics, PVS, sky and model lighting switches use it.
-- A `bo1_mod_zones` zone found nowhere else is read from `usermaps/<zone>/<zone>.ff` (`DB_ModXFileHandle`).
+- A `bo1_mod_zones` zone found nowhere else is read from `usermaps/<zone>/<zone>.ff` (`DB_ModXFileHandle`), under
+  `fs_homepath`, then under `fs_basepath`. The package's dedicated server runs with `fs_homepath` = `server/` while
+  `usermaps/` sits beside the program: until 2026-11-19 it ran native TranZit without `zombie_bo2transit` and
+  `zombie_bo2fx` ("Could not find zone" in its log), while its clients loaded them, and players saw wrong animations.
 - The server waits for the zones before it reads a BSP world. Queued just before, the extra zone was still loading
   while the static models looked up its xmodels, and the level zone linked its clipMap over the world being built:
   `cm.numStaticModels` became Five's 5 395 in the middle of the BSP's 2 082.

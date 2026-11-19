@@ -4628,6 +4628,16 @@ void __cdecl DB_ModXFileHandle(const char *zoneName, void **zoneFile, FF_DIR *zo
         {
             DB_BuildOSPath_FromSource(zoneName, FFD_USER_MAP, 0x100u, filename);
             *zoneFile = CreateFileA(filename, 0x80000000, 1u, 0, 3u, 0x60000000u, 0);
+            // the dedicated server's fs_homepath is server/ while the package's usermaps/ sits beside the program:
+            // without this the server ran the map without its zone (no zone script, no BO2 assets) and its
+            // clients, which load the zone, animated what the server did not have
+            if ( *zoneFile == (void *)-1 && fs_basepath && fs_homepath
+                && I_stricmp(fs_basepath->current.string, fs_homepath->current.string) )
+            {
+                Com_sprintf(filename, 0x100u, "%s\\%s\\%s\\%s.ff", fs_basepath->current.string, "usermaps", zoneName,
+                            zoneName);
+                *zoneFile = CreateFileA(filename, 0x80000000, 1u, 0, 3u, 0x60000000u, 0);
+            }
             if ( *zoneFile != (void *)-1 )
                 *zoneDir = FFD_USER_MAP;
         }
