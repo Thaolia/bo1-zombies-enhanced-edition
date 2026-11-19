@@ -1025,7 +1025,7 @@ admin_start_pap_precache()
 }
 
 
-// The retail Pack-a-Punch chain of maps\_zombiemode_perks (vending_weapon_upgrade: trigger zombie_vending_upgrade ->
+// The retail Pack-a-Punch chain of maps\_zombiemode_perks (vending_weapon_upgrade: a use trigger ->
 // its target, the machine), placed at the centre of the map's initial_spawn_points and on from the start: the
 // "Pack_A_Punch_on" notify that vending_weapon_upgrade waits for is sent at once. On a map whose power is still off,
 // that notify also lets the map's own Pack-a-Punch work. The maps without a machine of their own (Nacht der Untoten)
@@ -1082,7 +1082,9 @@ admin_start_pap()
 	machine.targetname = "admin_start_pap";
 	trig = Spawn( "trigger_radius_use", spot + out * 12 + ( 0, 0, 48 ), 0, 44, 70 );
 	trig SetIgnoreEntForTrigger( machine );
-	trig.targetname = "zombie_vending_upgrade";
+	// not "zombie_vending_upgrade": Five (pack_hideaway_init), Call of the Dead's lighthouse and Shangri-La's quest
+	// GetEnt their own machine by that name and fail on two. vending_weapon_upgrade only reads the trigger's target.
+	trig.targetname = "admin_start_pap_trigger";
 	trig.target = machine.targetname;
 	trig thread maps\_zombiemode_perks::vending_weapon_upgrade();
 	wait( 0.05 );

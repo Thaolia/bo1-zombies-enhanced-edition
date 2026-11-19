@@ -72,7 +72,9 @@ The game is made for 4; past that `_admin.gsc` gives a player what the first 4 g
   gets the flag set.
 - `zm_startpap 1`: a Pack-a-Punch, always on, at the centre of the map's `initial_spawn_points` (or on a ring of up to
   224 units around it, away from the start points and from any use trigger: Kino's centre is its teleporter pad),
-  read at the map's load. It is retail's `vending_weapon_upgrade` on a new trigger, and the `Pack_A_Punch_on` notify
+  read at the map's load. It is retail's `vending_weapon_upgrade` on a new trigger (named `admin_start_pap_trigger`,
+  not `zombie_vending_upgrade`: Five, Call of the Dead and Shangri-La look their own machine up by that name and
+  fail on two), and the `Pack_A_Punch_on` notify
   it waits for is sent at once, which also lets the map's own machine work before the power. Nacht der Untoten,
   which has no machine, gets one too.
 - `zm_farrespawn <units>` (0, the default, is off): retail Moon's distance tracking on every map. Every 5 s, a zombie
