@@ -598,6 +598,11 @@ namespace
     bool s_editScriptHidden[MK_MAX_EDITS]; // bo1_mapkit_visible( edit, false ) was called: an opened door or debris
     int s_editUseBModel[MK_MAX_EDITS]; // blockers have a separate touch volume reaching both sides
     float s_editBCenter[MK_MAX_EDITS][3]; // the entity origin (the brush is built around it)
+    // edit -> its JSON node: the edits array is a linked list, and scripts loop over every edit calling
+    // bo1_mapkit_get( i, ... ), which walked i links each time (TranZit's 6 181 edits: ~19 million steps per loop,
+    // seconds of server frame, "potential infinite loop")
+    int s_editNode[MK_MAX_EDITS];
+    int s_editNodeCount;
 
     int MkE_EditNode(int edit)
     {
@@ -1824,6 +1829,7 @@ void CM_Mapkit_Load(const char *mapName)
     memset(s_editScriptHidden, 0, sizeof(s_editScriptHidden));
     s_gapCount = 0;
     s_editsNode = -1;
+    s_editNodeCount = 0;
     s_layoutName[0] = 0;
     s_empty = false;
     s_nodeVisRange = 0.0f;
@@ -1875,6 +1881,8 @@ void CM_Mapkit_Load(const char *mapName)
         Com_PrintWarning(1, "mapkit: %s has no edits array\n", path);
         return;
     }
+    for (int c = s_json[s_editsNode].first; c >= 0 && s_editNodeCount < MK_MAX_EDITS; c = s_json[c].next)
+        s_editNode[s_editNodeCount++] = c;
     int e = 0;
     for (int c = s_json[s_editsNode].first; c >= 0; c = s_json[c].next, ++e)
     {
@@ -2077,7 +2085,7 @@ int CM_Mapkit_EditCount()
 
 int CM_Mapkit_GetField(int edit, const char *key, const char **str, float *vec)
 {
-    int node = MkJ_Child(s_editsNode, va("%d", edit));
+    int node = edit >= 0 && edit < s_editNodeCount ? s_editNode[edit] : MkJ_Child(s_editsNode, va("%d", edit));
     if (node < 0 || !key)
         return MKF_NONE;
     if (!strcmp(key, "_clipmins") || !strcmp(key, "_clipmaxs")) // mapkit-fix-4b: a machine edit's clip box
