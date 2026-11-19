@@ -16,6 +16,7 @@ namespace
 {
 const char kOob[4] = {'\xff', '\xff', '\xff', '\xff'};
 const char kStatusHead[] = "statusResponse\n";
+const char kModInfoHead[] = "modinfoResponse\n";
 const size_t kIpText = 16; // "255.255.255.255" and its 0 (newlib's netinet/in.h has no INET_ADDRSTRLEN)
 
 // "^1Name" -> "Name": the colour escapes the game's names and host names carry
@@ -165,3 +166,89 @@ std::vector<LanServer> LanBrowser_Scan(const std::vector<std::string> &targets, 
     });
     return found;
 }
+
+std::string LanBrowser_ModInfoRequest(const std::string &password)
+{
+    return std::string(kOob, 4) + "getmodinfo \"" + password + "\"";
+}
+
+bool LanBrowser_ParseModInfo(const char *data, size_t size, ServerModInfo *out)
+{
+    const size_t head = 4 + sizeof(kModInfoHead) - 1;
+    if (size < head || std::memcmp(data, kOob, 4) != 0 || std::memcmp(data + 4, kModInfoHead, head - 4) != 0)
+        return false;
+    std::string body(data + head, size - head);
+    while (!body.empty() && (body.back() == '\0' || body.back() == '\n'))
+        body.pop_back();
+    *out = ServerModInfo();
+    if (body == "refused")
+    {
+        out->refused = true;
+        return true;
+    }
+    out->fsGame = InfoValue(body, "fs_game");
+    out->fsMods = InfoValue(body, "fs_mods");
+    out->zones = InfoValue(body, "bo1_mod_zones");
+    out->bspWorld = InfoValue(body, "bo1_bspworld");
+    out->mapkit = InfoValue(body, "bo1_mod_mapkit");
+    return true;
+}
+
+bool LanBrowser_QueryModInfo(const std::string &address, int port, const std::string &password, int timeoutMs,
+                             ServerModInfo *out)
+{
+    sockaddr_in to = {};
+    to.sin_family = AF_INET;
+    to.sin_port = htons(uint16_t(port));
+    if (inet_pton(AF_INET, address.c_str(), &to.sin_addr) != 1)
+        return false;
+    const int sock = socket(AF_INET, SOCK_DGRAM, 0);
+    if (sock < 0)
+        return false;
+    bool answered = false;
+    if (connect(sock, reinterpret_cast<sockaddr *>(&to), sizeof(to)) == 0)
+    {
+        const std::string request = LanBrowser_ModInfoRequest(password);
+        const long long sentAt = NowMs();
+        // the server answers one such request every 50 ms: a second try covers a collision or a lost datagram
+        for (int attempt = 0; attempt < 2 && !answered; ++attempt)
+        {
+            send(sock, request.data(), request.size(), 0);
+            const long long until = attempt == 0 ? sentAt + timeoutMs / 2 : sentAt + timeoutMs;
+            for (;;)
+            {
+                const long long left = until - NowMs();
+                if (left <= 0)
+                    break;
+                pollfd fd = {sock, POLLIN, 0};
+                if (poll(&fd, 1, int(left)) <= 0)
+                    break;
+                char buffer[2048];
+                const ssize_t n = recv(sock, buffer, sizeof(buffer), 0);
+                if (n > 0 && LanBrowser_ParseModInfo(buffer, size_t(n), out))
+                {
+                    answered = true;
+                    break;
+                }
+            }
+        }
+    }
+    close(sock);
+    return answered;
+}
+
+std::string LanBrowser_ModInfoArgs(const ServerModInfo &info)
+{
+    std::string out;
+    const auto add = [&](const char *dvar, const std::string &value) {
+        if (!value.empty())
+            out += std::string(out.empty() ? "" : " ") + "+set " + dvar + " \"" + value + "\"";
+    };
+    add("fs_game", info.fsGame);
+    add("fs_mods", info.fsMods);
+    add("bo1_mod_zones", info.zones);
+    add("bo1_bspworld", info.bspWorld);
+    add("bo1_mod_mapkit", info.mapkit);
+    return out;
+}
+

@@ -40,3 +40,31 @@ std::vector<std::string> LanBrowser_Broadcasts(uint32_t address, uint32_t mask);
 // blocks longer than listenMs (plus the sends).
 std::vector<LanServer> LanBrowser_Scan(const std::vector<std::string> &targets, int firstPort, int portCount,
                                        int listenMs);
+
+// What a client must load to play on a server (SV_ModInfoRequest's "modinfoResponse"): empty strings for what the
+// server does not set. refused: the server has a player password and it was not the one sent.
+struct ServerModInfo
+{
+    bool refused = false;
+    std::string fsGame;   // fs_game
+    std::string fsMods;   // fs_mods
+    std::string zones;    // bo1_mod_zones
+    std::string bspWorld; // bo1_bspworld
+    std::string mapkit;   // bo1_mod_mapkit
+};
+
+// "getmodinfo" with the player password (g_password; empty for a server without one), quoted.
+std::string LanBrowser_ModInfoRequest(const std::string &password);
+
+// false if the datagram is not a modinfoResponse.
+bool LanBrowser_ParseModInfo(const char *data, size_t size, ServerModInfo *out);
+
+// Asks one server (dotted IPv4) and waits up to timeoutMs for its answer; false when none came (an older server
+// ignores the request). Uses a connected socket and recv, never recvfrom with an address: Ryujinx 1.1.1375 stops on
+// the latter.
+bool LanBrowser_QueryModInfo(const std::string &address, int port, const std::string &password, int timeoutMs,
+                             ServerModInfo *out);
+
+// The client's command line for those settings ("+set fs_mods \"a b\" ..."), fs_game first; empty when the server
+// sets none of them.
+std::string LanBrowser_ModInfoArgs(const ServerModInfo &info);

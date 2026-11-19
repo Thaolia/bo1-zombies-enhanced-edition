@@ -37,7 +37,7 @@ bool SameSettings(const LauncherSettings &a, const LauncherSettings &b)
            a.startPower == b.startPower && a.startPap == b.startPap && a.farRespawn == b.farRespawn && a.lanAuto == b.lanAuto && a.joinBo2Weapons == b.joinBo2Weapons && a.dualWield == b.dualWield &&
            a.joinDualWield == b.joinDualWield && a.runInfo == b.runInfo && a.height == b.height &&
            a.hitmarker == b.hitmarker && a.unlimitedPap == b.unlimitedPap && a.spawnRate == b.spawnRate &&
-           a.spawnRush == b.spawnRush &&
+           a.spawnRush == b.spawnRush && a.serverPassword == b.serverPassword && a.joinDetectMods == b.joinDetectMods &&
            std::memcmp(&a.pad, &b.pad, sizeof(a.pad)) == 0;
 }
 } // namespace
@@ -408,6 +408,42 @@ int main()
     Check(cfgLen == 18 && std::string(cfg) == "+set a 1  +set b 2", "launch.cfg: line breaks read as blanks, ends trimmed");
     char blank[8] = " \r\n\t ";
     Check(LaunchCfg_Normalize(blank, 5) == 0 && blank[0] == 0, "launch.cfg: a blank file is empty");
+
+    // the server's player password and its mods (getmodinfo)
+    LauncherSettings detect;
+    detect.join = true;
+    detect.serverHost = "192.168.1.20";
+    detect.serverPassword = "secret";
+    detect.joinDetectMods = false;
+    detect.bo2WeaponsInstalled = true;
+    Check(SameSettings(Launcher_ParseSettings(Launcher_FormatSettings(detect)), detect),
+          "menu.cfg keeps the password and the mods detection");
+    const std::string manualLine = Launcher_BuildLaunchLine(detect, "");
+    Check(manualLine.find(" +set password secret +set fs_mods bo2weapons +set cl_allowWanConnect") != std::string::npos,
+          "a join sends the password; without an answer, the manual BO2 weapons");
+    detect.serverModsKnown = true;
+    detect.serverModArgs = "+set fs_game \"mods/mapkit\" +set fs_mods \"mapkit dualwield\"";
+    const std::string told = Launcher_BuildLaunchLine(detect, "");
+    Check(told.find(" +set password secret +set fs_game \"mods/mapkit\" +set fs_mods \"mapkit dualwield\""
+                    " +set cl_allowWanConnect") != std::string::npos && told.find("bo2weapons") == std::string::npos,
+          "the server's answer replaces the manual choices");
+    detect.serverModArgs.clear();
+    Check(Launcher_BuildLaunchLine(detect, "").find("fs_mods") == std::string::npos,
+          "a server with nothing to load: no fs_mods");
+    detect.join = false;
+    Check(Launcher_BuildLaunchLine(detect, "").find("password") == std::string::npos, "solo sends no password");
+    Check(Launcher_ValidPassword("p4ss.word-_!") && !Launcher_ValidPassword("") && !Launcher_ValidPassword("a b") &&
+              !Launcher_ValidPassword("a;b") && !Launcher_ValidPassword("a+b") && !Launcher_ValidPassword("a\"b") &&
+              !Launcher_ValidPassword(std::string(32, 'x')),
+          "passwords: no blank, quote, ';' or '+', 31 characters at most");
+    const std::vector<std::string> files = Launcher_ServerModFiles(
+        "mapkit zinfo bo2weapons dualwield", "zombie_bo2transit zombie_cosmodrome zombie_bo2fx",
+        "maps/zombie_bo2transit.d3dbsp");
+    Check(files == std::vector<std::string>{"mods/bo2weapons/mod.ff", "mods/dualwield/mod.ff",
+                                            "usermaps/zombie_bo2transit/zombie_bo2transit.ff",
+                                            "usermaps/zombie_bo2fx/zombie_bo2fx.ff", "main/maps/zombie_bo2transit.d3dbsp"},
+          "a native TranZit server's files: two mod.ff, its two zones (Ascension's is retail), its world");
+    Check(Launcher_ServerModFiles("zinfo", "", "").empty(), "a plain server needs nothing more");
 
     if (g_failures)
     {

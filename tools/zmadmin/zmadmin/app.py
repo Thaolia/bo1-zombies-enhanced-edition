@@ -160,14 +160,15 @@ class App:
             self.msg(f"Mot de passe changé, mais servers.json n'a pas pu être écrit : {e}", C_ERR)
 
     # ------------------------------------------------------------------------------------------- local server
-    def launch_local(self, map_name, port, password, bo2_box=None, dual_wield=False):
+    def launch_local(self, game, port, password):
+        """game: the map and mods (gamemods.MOD_DEFAULTS' keys, launcher.server_game)."""
         try:
-            self.local.start(map_name, port, password, bo2_box, dual_wield)
+            self.local.start(game, port, password)
         except (OSError, RuntimeError) as e:
             return f"lancement impossible : {e}"
-        self.console.add(f"--- serveur local lancé : {H.map_label(map_name)}, port {port}, PID {self.local.pid} ---",
-                         C_OK)
-        self.msg(f"Serveur lancé (PID {self.local.pid}) : chargement de {H.map_label(map_name)}…", C_OK)
+        label = H.map_label(self.local.map)
+        self.console.add(f"--- serveur local lancé : {label}, port {port}, PID {self.local.pid} ---", C_OK)
+        self.msg(f"Serveur lancé (PID {self.local.pid}) : chargement de {label}…", C_OK)
         self.connect_local()
         return None
 

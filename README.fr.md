@@ -60,8 +60,10 @@ Version anglaise : `README.md`. La référence complète et détaillée se trouv
    - **Switch** : lancez le `.nro` en mode application (gardez R appuyé en lançant un jeu). Le menu de démarrage
      choisit la carte, le serveur à rejoindre, l'aide à la visée, le mode dieu, le kit de départ (points, courant,
      Pack-a-Punch, atouts), les graphismes, les commandes et les manettes. **+** lance la partie.
-   - **Serveur** : `Server.bat [carte] [port]` ou `./server.sh [carte] [port]`. Les joueurs le rejoignent avec
-     `Play.bat net <adresse>:<port>`, depuis ZmClient ou depuis l'écran **Serveur** de la Switch.
+   - **Serveur** : `Server.bat [carte] [port]` ou `./server.sh [carte] [port]`, ou depuis ZmAdmin ou ZmClient avec
+     n'importe quelle carte et n'importe quels mods (les cartes de BO2 aussi). Les joueurs le rejoignent avec
+     `Play.bat net <adresse>:<port>`, depuis ZmClient ou depuis l'écran **Serveur** de la Switch ; ZmClient et la
+     Switch demandent au serveur quels mods et quelle carte charger.
 
 ## Contenu Black Ops II
 

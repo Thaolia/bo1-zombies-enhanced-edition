@@ -44,6 +44,43 @@ void Serve(int sock, int timeoutMs)
     if (n == ssize_t(LanBrowser_Request().size()) && std::memcmp(buffer, LanBrowser_Request().data(), size_t(n)) == 0)
         sendto(sock, kReply.data(), kReply.size(), 0, reinterpret_cast<sockaddr *>(&from), size);
 }
+const std::string kModReply = std::string("\xff\xff\xff\xff", 4) +
+                              "modinfoResponse\n\\fs_game\\mods/mapkit\\fs_mods\\mapkit bo2weapons\\bo1_mod_zones\\"
+                              "zombie_bo2transit zombie_bo2fx\\bo1_bspworld\\maps/zombie_bo2transit.d3dbsp\\"
+                              "bo1_mod_mapkit\\bo2_zm_transit_bsp\n";
+const std::string kRefused = std::string("\xff\xff\xff\xff", 4) + "modinfoResponse\nrefused\n";
+
+// A server that answers getmodinfo as SV_ModInfoRequest does: the settings for "secret", refused otherwise. It
+// answers `answers` requests, then stops.
+void ServeModInfo(int sock, int answers, int timeoutMs)
+{
+    for (int i = 0; i < answers; ++i)
+    {
+        pollfd fd = {sock, POLLIN, 0};
+        if (poll(&fd, 1, timeoutMs) <= 0)
+            return;
+        char buffer[256];
+        sockaddr_in from = {};
+        socklen_t size = sizeof(from);
+        const ssize_t n = recvfrom(sock, buffer, sizeof(buffer), 0, reinterpret_cast<sockaddr *>(&from), &size);
+        const std::string got(buffer, n > 0 ? size_t(n) : 0);
+        const std::string &reply = got == LanBrowser_ModInfoRequest("secret") ? kModReply : kRefused;
+        sendto(sock, reply.data(), reply.size(), 0, reinterpret_cast<sockaddr *>(&from), size);
+    }
+}
+
+int LoopbackSocket(int *port)
+{
+    const int sock = socket(AF_INET, SOCK_DGRAM, 0);
+    sockaddr_in at = {};
+    at.sin_family = AF_INET;
+    at.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    bind(sock, reinterpret_cast<sockaddr *>(&at), sizeof(at));
+    socklen_t size = sizeof(at);
+    getsockname(sock, reinterpret_cast<sockaddr *>(&at), &size);
+    *port = ntohs(at.sin_port);
+    return sock;
+}
 } // namespace
 
 int main()
@@ -85,6 +122,41 @@ int main()
               found[0].hostname == "Chez Toto" && found[0].players == 2,
           "the scan finds the stand-in server with its address, port and status");
     Check(LanBrowser_Scan({"127.0.0.1"}, port, 1, 200).empty(), "nothing answers: an empty list after the wait");
+
+    // the server's mods (getmodinfo)
+    ServerModInfo info;
+    Check(LanBrowser_ModInfoRequest("secret") == std::string("\xff\xff\xff\xff", 4) + "getmodinfo \"secret\"",
+          "the request carries the password, quoted");
+    Check(LanBrowser_ParseModInfo(kModReply.data(), kModReply.size(), &info) && !info.refused &&
+              info.fsGame == "mods/mapkit" && info.fsMods == "mapkit bo2weapons" &&
+              info.zones == "zombie_bo2transit zombie_bo2fx" && info.bspWorld == "maps/zombie_bo2transit.d3dbsp" &&
+              info.mapkit == "bo2_zm_transit_bsp",
+          "a modinfoResponse parses");
+    Check(LanBrowser_ModInfoArgs(info) ==
+              "+set fs_game \"mods/mapkit\" +set fs_mods \"mapkit bo2weapons\" +set bo1_mod_zones "
+              "\"zombie_bo2transit zombie_bo2fx\" +set bo1_bspworld \"maps/zombie_bo2transit.d3dbsp\" +set "
+              "bo1_mod_mapkit \"bo2_zm_transit_bsp\"",
+          "the client's command line for them");
+    Check(LanBrowser_ParseModInfo(kRefused.data(), kRefused.size(), &info) && info.refused && info.fsMods.empty(),
+          "a refusal parses");
+    const std::string none = std::string("\xff\xff\xff\xff", 4) + "modinfoResponse\n\n";
+    Check(LanBrowser_ParseModInfo(none.data(), none.size(), &info) && !info.refused &&
+              LanBrowser_ModInfoArgs(info).empty(),
+          "a server with no mod: nothing to add");
+    Check(!LanBrowser_ParseModInfo(kReply.data(), kReply.size(), &info), "a statusResponse is no modinfoResponse");
+
+    int modPort = 0;
+    const int modServer = LoopbackSocket(&modPort);
+    std::thread modServing(ServeModInfo, modServer, 2, 2000);
+    ServerModInfo got;
+    Check(LanBrowser_QueryModInfo("127.0.0.1", modPort, "secret", 500, &got) && !got.refused &&
+              got.mapkit == "bo2_zm_transit_bsp",
+          "the query gets the stand-in server's mods with its password");
+    Check(LanBrowser_QueryModInfo("127.0.0.1", modPort, "wrong", 500, &got) && got.refused,
+          "a wrong password is refused");
+    modServing.join();
+    Check(!LanBrowser_QueryModInfo("127.0.0.1", modPort, "secret", 200, &got), "no answer: false after the wait");
+    close(modServer);
 
     if (failures)
         return 1;

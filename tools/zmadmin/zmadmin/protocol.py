@@ -131,6 +131,67 @@ def query_status(addr, timeout=1.0, sock=None):
             sock.close()
 
 
+class ModInfo:
+    """modinfoResponse (SV_ModInfoRequest, getmodinfo): what a client must load to play on the server. refused: the
+    server has a player password and it was not the one sent."""
+    DVARS = ("fs_game", "fs_mods", "bo1_mod_zones", "bo1_bspworld", "bo1_mod_mapkit")
+
+    def __init__(self, values=None, refused=False):
+        self.values = dict(values or {})
+        self.refused = refused
+
+    def get(self, key, default=""):
+        return self.values.get(key, default)
+
+    def args(self):
+        """The client's command line for them, in DVARS' order (fs_game first)."""
+        out = []
+        for dvar in self.DVARS:
+            if self.values.get(dvar):
+                out += ["+set", dvar, self.values[dvar]]
+        return out
+
+
+def modinfo_request(password=""):
+    return OOB + b'getmodinfo "' + password.encode("latin-1") + b'"'
+
+
+def parse_modinfo(data):
+    head = OOB + b"modinfoResponse\n"
+    if not data.startswith(head):
+        raise ProtocolError(f"réponse inattendue : {data[:32]!r}")
+    body = data[len(head):].decode("latin-1").rstrip("\x00\n")
+    if body == "refused":
+        return ModInfo(refused=True)
+    fields = body.split("\\")[1:]
+    return ModInfo({k: v for k, v in zip(fields[0::2], fields[1::2]) if k in ModInfo.DVARS})
+
+
+def query_modinfo(addr, password="", timeout=1.0):
+    """The server's mods, or RconTimeout when it does not answer (an older server ignores getmodinfo). It answers one
+    such request every 50 ms: the request goes twice, half the wait apart."""
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        end = time.monotonic() + timeout
+        for attempt in range(2):
+            _drain(sock)
+            sock.sendto(modinfo_request(password), addr)
+            until = end - timeout / 2 if attempt == 0 else end
+            while True:
+                left = until - time.monotonic()
+                if left <= 0 or not select.select([sock], [], [], left)[0]:
+                    break
+                packet = _recv(sock)
+                if packet is None:
+                    continue
+                data, src = packet
+                if src[1] == addr[1] and data.startswith(OOB + b"modinfoResponse"):
+                    return parse_modinfo(data)
+        raise RconTimeout(f"pas de réponse de {addr[0]}:{addr[1]}")
+    finally:
+        sock.close()
+
+
 def _print_text(data):
     text = data[len(OOB):].decode("latin-1")
     # BO1 puts a 0x01 byte between the out-of-band header and "print"

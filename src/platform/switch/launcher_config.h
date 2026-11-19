@@ -7,6 +7,7 @@
 #include "../gamepad_remap.h"
 
 #include <string>
+#include <vector>
 
 struct LauncherMap
 {
@@ -86,6 +87,13 @@ struct LauncherSettings
     std::string serverHost; // valid per Launcher_ValidServerHost, or empty
     int serverPort = 3074;  // the dedicated server's default net_port
     std::string playerName; // the name on the server, valid per Launcher_ValidPlayerName or empty (the game's own)
+    std::string serverPassword; // the server's player password (g_password), valid per Launcher_ValidPassword or empty
+    // Start asks the server what its clients load (getmodinfo, lan_browser.h) and the line loads the same; without an
+    // answer, joinBo2Weapons and joinDualWield. serverModArgs: the answer as "+set" commands (LanBrowser_ModInfoArgs),
+    // valid when serverModsKnown; neither is kept in menu.cfg.
+    bool joinDetectMods = true;
+    bool serverModsKnown = false;
+    std::string serverModArgs;
     bool lanAuto = true;    // the server view searches the local network for servers as it opens
     // A join loads mods/bo2weapons (the player's own Black Ops II weapons, docs/BO2_WEAPONS.md): a client without them
     // cannot play on a server that has them. Only when bo2WeaponsInstalled, which the menu sets from the SD card (not
@@ -148,6 +156,14 @@ std::string Launcher_BuildLaunchLine(const LauncherSettings &s, const std::strin
 bool Launcher_ValidServerHost(const std::string &host);
 bool Launcher_ParsePort(const std::string &text, int *port);
 bool Launcher_ValidPlayerName(const std::string &name);
+// A password: 1-31 characters, none of space, '"', ';' or '+' (ZmClient's rule).
+bool Launcher_ValidPassword(const std::string &password);
+
+// The files a server's settings need beside the game's own (relative to the game folder): the mod.ff of
+// mods/bo2weapons or mods/dualwield when fs_mods names them, the zone of each bo1_mod_zones entry that is no retail
+// map (usermaps/<zone>/<zone>.ff), the BSP world (main/<bo1_bspworld>). Arguments: those dvars' values.
+std::vector<std::string> Launcher_ServerModFiles(const std::string &fsMods, const std::string &zones,
+                                                 const std::string &bspWorld);
 
 // The start perks as mods/admin's zm_startperks takes them: "jugg,revive" ("" for none).
 std::string Launcher_StartPerkList(const LauncherSettings &s);

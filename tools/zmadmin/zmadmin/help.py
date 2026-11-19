@@ -2,6 +2,7 @@
 
 Sources: docs/SERVER.md ("Admin commands", "Settings and their order", "More than 4 players") and mods/admin/README.md.
 """
+from .gamemods import MAPKIT_LABELS
 
 MAPS = [
     ("zombie_theater", "Kino der Toten"),
@@ -45,6 +46,9 @@ def paragraphs(fragments):
 
 
 def map_label(code):
+    if code.startswith("mapkit:"):
+        layout = code[len("mapkit:"):]
+        return f"{MAPKIT_LABELS.get(layout, layout)} ({layout})"
     name = MAP_NAMES.get(code)
     return f"{name} ({code})" if name else code
 
@@ -156,13 +160,30 @@ SETTINGS_HELP = {
     ),
 }
 
-# The local server's launch choice when the folder has mods/bo2weapons/mod.ff: -1 none, else bo2weapons_box
+# The local server's launch choices (gamemods.MOD_DEFAULTS' keys). Black Ops II's weapons: 0 none, 1 to 3
+# bo2weapons_box 0 to 2
 BO2_BOX_CHOICES = [
-    (-1, "Sans armes de Black Ops II", "le serveur garde les armes de la map"),
-    (0, "Armes BO2 dans la boîte, avec celles de la map", "bo2weapons_box 0"),
-    (1, "Seulement les armes BO2 + les armes spéciales de la map", "bo2weapons_box 1 : Ray Gun, Thundergun, singe..."),
-    (2, "Seulement les armes BO2", "bo2weapons_box 2"),
+    (0, "Sans armes de Black Ops II", "le serveur garde les armes de la map"),
+    (1, "Armes BO2 dans la boîte, avec celles de la map", "bo2weapons_box 0"),
+    (2, "Seulement les armes BO2 + les armes spéciales de la map", "bo2weapons_box 1 : Ray Gun, Thundergun, singe..."),
+    (3, "Seulement les armes BO2", "bo2weapons_box 2"),
 ]
+# the mods ticked in one list: (key, label)
+MOD_CHOICES = [
+    ("zinfo", "zinfo : zombies en vie et restants"),
+    ("noperks", "noperks : pas d'atouts"),
+    ("hitmarker", "hit marker : une croix à chaque touche"),
+    ("unlimited_pap", "Pack-a-Punch illimité (prix et dégâts doublés à chaque fois)"),
+    ("horde", "horde : des centaines de zombies à la fois"),
+]
+DIFFICULTY_CHOICES = [
+    (0, "Normal", "le jeu d'origine"),
+    (1, "Nightmare", "mods/nightmare : des zombies plus forts et plus nombreux"),
+    (2, "Hell", "mods/nightmare : le niveau au-dessus"),
+]
+HORDE_SIZES = [(n, f"{n} zombies à la fois", "horde_max_zombies") for n in (64, 128, 256, 512, 1024)]
+SPAWN_RATE_LABELS = {0: "vitesse d'origine", 2: "2 fois plus vite", 3: "3 fois plus vite", 5: "5 fois plus vite",
+                     10: "10 fois plus vite"}
 
 # The local server's launch choice when the folder has mods/dualwield/mod.ff
 DUAL_CHOICES = [

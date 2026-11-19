@@ -8,9 +8,10 @@ MODE_LABELS = {
 MODE_HELP = {
     "solo": "Une partie seul sur ce PC, réglée dans la vue Solo (F3) : map, mods, horde, difficulté.",
     "join": "Rejoindre un serveur dédié (LAN ou internet), choisi dans la vue Serveurs (F2). Le serveur décide de "
-            "la map, des mods et du god mode.",
-    "host": "Démarre le serveur dédié de ce dossier (comme ZmAdmin, qui peut ensuite l'administrer), puis le jeu, "
-            "qui le rejoint dès qu'il a chargé sa map. D'autres joueurs du réseau peuvent venir.",
+            "la map, des mods et du god mode ; ZmClient lui demande ce qu'il faut charger.",
+    "host": "Démarre le serveur dédié de ce dossier (comme ZmAdmin, qui peut ensuite l'administrer) avec la partie "
+            "de la vue Solo (F3), puis le jeu, qui le rejoint dès qu'il a chargé sa map. D'autres joueurs du réseau "
+            "peuvent venir.",
 }
 WINDOW_LABELS = {"borderless": "Sans bordure (plein écran fenêtré)", "window": "Fenêtre", "fullscreen": "Plein écran"}
 TRISTATE_LABELS = {"": "réglage du jeu", "1": "oui", "0": "non"}
@@ -98,6 +99,10 @@ ROW_HELP = {
     "join_dual_wield": "À cocher pour rejoindre un serveur qui a les armes doublées (mod dualwield) : le jeu charge "
                        "alors le même mods/dualwield/mod.ff. Sans lui, l'entrée sur ce serveur échoue en nommant "
                        "l'arme qui manque.",
+    "join_detect_mods": "Au lancement, ZmClient demande au serveur ce qu'il charge (ses mods, ses zones, la carte "
+                        "importée et son monde BSP), avec le mot de passe joueur s'il en a un, et le jeu charge la "
+                        "même chose. Un serveur plus ancien ne répond pas, et un serveur protégé ne répond qu'au bon "
+                        "mot de passe : les deux cases ci-dessous servent alors.",
     "join_bo2_weapons": "À cocher pour rejoindre un serveur qui a les armes de Black Ops II (mod bo2weapons) : le jeu "
                         "charge alors le même mods/bo2weapons/mod.ff. Sans lui, l'entrée sur ce serveur échoue "
                         "et le jeu revient au menu avec un message (arme manquante).",
@@ -117,7 +122,10 @@ ROW_HELP = {
     "aim_slowdown": "La visée ralentit sur un zombie.",
     "aim_lockon": "La visée suit un zombie qui bouge.",
     "aim_autoaim": "La visée saute vers un zombie en visant (ADS).",
-    "host_map": "La map que le serveur local charge.",
+    "host_game": "Le serveur local joue la partie réglée dans la vue Solo (F3) : sa map (les maps de Black Ops II "
+                 "importées comprises), la horde, la difficulté, zinfo, noperks, le hit marker, le Pack-a-Punch "
+                 "illimité, la vitesse d'apparition, le kit de départ, les armes de Black Ops II et les armes "
+                 "doublées. Le jeu charge ensuite ce qu'il faut pour le rejoindre. Entrée : vue Solo.",
     "host_port": "Le port UDP du serveur local (3074 par défaut ; le port + 1 reçoit les logs des clients). Ouvrez-"
                  "les dans le pare-feu pour des joueurs d'autres machines.",
     "host_password": "Le mot de passe rcon du serveur local, partagé avec ZmAdmin (son fichier servers.json) : "
