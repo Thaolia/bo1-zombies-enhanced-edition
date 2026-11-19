@@ -57,9 +57,13 @@ its own folder or the current one. It starts the server as that folder's script 
 `server/`, `bo1_server 1`, `net_ip 0.0.0.0`, `+devmap <map>`), with `bo1_tui 0` (no window; output in
 `server/main/zmadmin_server_output.log`) and the rcon password twice: `+set rcon_password` is applied before
 `server.cfg` runs, and the `+rcon_password <pw>` command after it, so a `server.cfg` password never locks ZmAdmin out.
-When the folder has `mods/bo2weapons/mod.ff` (Black Ops II's weapons, `docs/BO2_WEAPONS.md`), the launch asks
-whether to load them and what the box gives: `+set fs_mods bo2weapons +set bo2weapons_box <0-2>`. The mod.ff loads
-at start-up only, so `zm_mods` cannot add them later; players load the same mod.ff to join.
+The launch asks the game as ZmClient's Solo view sets it (`zmadmin/gamemods.py`, which ZmClient uses too): the map,
+the package's MapKit maps included (Black Ops II's native Nuketown, TranZit, Mob of the Dead, Buried), then the mods
+(zinfo, noperks, hit marker, unlimited Pack-a-Punch, horde), then each choice that applies: Normal / Nightmare / Hell
+on Kino and Five, the horde's size, the spawn speed, Black Ops II's weapons and what the box gives (with
+`mods/bo2weapons/mod.ff`, `docs/BO2_WEAPONS.md`), dual wield (with `mods/dualwield/mod.ff`). The answers are kept in
+`servers.json`. The mods' `mod.ff` load at start-up only, so `zm_mods` cannot add them later. Players joining with
+ZmClient or the Switch menu load the same mods and map by themselves (`getmodinfo`, `docs/SERVER.md`).
 The password is generated once per folder and kept in `servers.json`; the PID, port and map in
 `server/main/zmadmin_server.json`, so a later ZmAdmin finds a server that kept running (it checks the PID's program
 is that folder's). Quitting asks whether to stop it; a stop sends `quit` and kills the process after 15 s.

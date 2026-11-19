@@ -306,10 +306,10 @@ class CommandLine(unittest.TestCase):
             p["bo2_weapons"] = 0
             p["map"] = "zombie_pentagon"
             self.assertNotIn("bo2weapons", " ".join(P.solo_mod_flags(p, tmp)))
-            # a client of a server with the weapons loads the same mod.ff; the server sets the box
-            p["mode"], p["host_bo2_weapons"] = "host", 1
+            # the local server runs the Solo view's game; its client loads the same mod.ff, the server sets the box
+            p["mode"], p["bo2_weapons"] = "host", 1
             line = " ".join(P.build_command(p, "x", tmp))
-            self.assertIn("+set fs_mods bo2weapons ", line)
+            self.assertIn("+set fs_mods zinfo bo2weapons ", line)
             self.assertNotIn("bo2weapons_box", line)
             p["mode"], p["join_host"] = "join", "192.168.1.20"
             self.assertNotIn("bo2weapons", " ".join(P.build_command(p, "x", tmp)))
@@ -322,7 +322,8 @@ class CommandLine(unittest.TestCase):
             with open(path, "w") as f:
                 json.dump({"bo2_weapons": 7, "host_bo2_weapons": 2}, f)
             q = P.Profile(path)
-            self.assertEqual((q["bo2_weapons"], q["host_bo2_weapons"]), (0, 2))
+            self.assertEqual(q["bo2_weapons"], 0)
+            self.assertNotIn("host_bo2_weapons", q.data)    # a key of an older version is dropped
 
     def test_new_mods(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -363,8 +364,8 @@ class CommandLine(unittest.TestCase):
             # no box on Dead Ops Arcade
             p["map"] = "zombietron"
             self.assertNotIn("dualwield", " ".join(P.solo_mod_flags(p, tmp)))
-            # local server and join
-            p["mode"], p["host_dual_wield"] = "host", True
+            # local server (the Solo view's game) and join
+            p["mode"], p["map"], p["dual_wield"] = "host", "zombie_theater", True
             self.assertIn("+set fs_mods dualwield ", " ".join(P.build_command(p, "x", tmp)))
             p["mode"], p["join_host"] = "join", "192.168.1.20"
             self.assertNotIn("dualwield", " ".join(P.build_command(p, "x", tmp)))
@@ -372,6 +373,49 @@ class CommandLine(unittest.TestCase):
             self.assertIn("+set fs_mods bo2weapons dualwield ", " ".join(P.build_command(p, "x", tmp)))
             shutil.rmtree(os.path.join(tmp, "mods", "dualwield"))
             self.assertTrue(any("dualwield/mod.ff" in w for w in P.problems(p, tmp)))
+
+    def test_server_mods(self):
+        """The local server runs the Solo view's game and its client loads what that game needs; a joined server's
+        getmodinfo answer replaces the manual choices; a refusal keeps them."""
+        from zmadmin.protocol import ModInfo
+        with tempfile.TemporaryDirectory() as tmp:
+            for folder in ("mods/mapkit/layouts", "usermaps/zombie_bo2transit", "usermaps/zombie_bo2fx", "main/maps",
+                           "mods/bo2weapons"):
+                os.makedirs(os.path.join(tmp, folder))
+            for f in ("usermaps/zombie_bo2transit/zombie_bo2transit.ff", "usermaps/zombie_bo2fx/zombie_bo2fx.ff",
+                      "main/maps/zombie_bo2transit.d3dbsp", "mods/bo2weapons/mod.ff"):
+                open(os.path.join(tmp, f), "w").close()
+            with open(os.path.join(tmp, "mods", "mapkit", "layouts", "bo2_zm_transit_bsp.json"), "w") as f:
+                f.write('{"base": "zombie_pentagon"}')
+            P.mapkit_layouts.cache_clear()
+            p = P.Profile()
+            p["mode"], p["map"], p["bo2_weapons"], p["hitmarker"] = "host", "mapkit:bo2_zm_transit_bsp", 1, True
+            line = " ".join(P.build_command(p, "x", tmp))
+            self.assertIn("+set fs_game mods/mapkit +set fs_mods mapkit zinfo hitmarker bo2weapons +set bo1_mod_zones "
+                          "zombie_bo2transit zombie_cosmodrome zombie_bo2fx +set bo1_bspworld "
+                          "maps/zombie_bo2transit.d3dbsp +set bo1_mod_mapkit bo2_zm_transit_bsp ", line)
+            self.assertNotIn("bo2weapons_box", line)      # the server's own setting
+            self.assertNotIn("+devmap", line)
+            self.assertEqual(P.fs_game(p, tmp), "mods/mapkit")
+            # join: the answer wins over the manual choices
+            p["mode"], p["join_host"], p["join_bo2_weapons"] = "join", "192.168.1.20", True
+            answer = ModInfo({"fs_game": "mods/mapkit", "fs_mods": "mapkit dualwield",
+                              "bo1_mod_mapkit": "bo2_zm_transit_bsp"})
+            with self.assertRaisesRegex(ValueError, "dualwield"):
+                P.build_command(p, "x", tmp, server_mods=answer)      # its mod.ff is not in this folder
+            answer.values["fs_mods"] = "mapkit"
+            line = " ".join(P.build_command(p, "x", tmp, server_mods=answer))
+            self.assertIn("+set fs_game mods/mapkit +set fs_mods mapkit +set bo1_mod_mapkit bo2_zm_transit_bsp ", line)
+            self.assertNotIn("bo2weapons", line)
+            self.assertEqual(P.fs_game(p, tmp, answer), "mods/mapkit")
+            # refused, or not asked: the manual choices
+            for mods in (ModInfo(refused=True), None):
+                line = " ".join(P.build_command(p, "x", tmp, server_mods=mods))
+                self.assertIn("+set fs_mods bo2weapons ", line)
+                self.assertNotIn("fs_game", line)
+            # a server with nothing to load: no mod at all
+            self.assertNotIn("fs_mods", " ".join(P.build_command(p, "x", tmp, server_mods=ModInfo({}))))
+        P.mapkit_layouts.cache_clear()
 
     def test_missing_dlc_map(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -384,7 +428,7 @@ class CommandLine(unittest.TestCase):
             p["map"] = "zombie_coast"
             with self.assertRaisesRegex(ValueError, "pas installée"):
                 P.build_command(p, "x", tmp)
-            p["mode"], p["host_map"] = "host", "zombie_moon"
+            p["mode"] = "host"      # its map is the Solo view's
             with self.assertRaisesRegex(ValueError, "pas installée"):
                 P.build_command(p, "x", tmp)
             p["mode"] = "join"

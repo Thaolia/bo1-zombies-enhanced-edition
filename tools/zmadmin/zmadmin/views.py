@@ -3,6 +3,7 @@ import collections
 import curses
 import re
 
+from . import gamemods, launcher
 from . import help as H
 from .model import parse_dvars
 from .settings import APPLIED, BY_NAME, REFUSED, SETTINGS, validate
@@ -186,14 +187,19 @@ class ServersView(View):
         ], ok, intro=["Enregistré dans servers.json (dossier de configuration de ZmAdmin, lisible par vous seul)."]))
 
     def launch_dialog(self):
+        """The local server's game, one dialog per choice that applies (map, mods, then difficulty, horde size, spawn
+        speed, Black Ops II's weapons, dual wield), then the port and rcon password. Kept in servers.json."""
         app = self.app
         if app.local.running():
             app.msg(f"Le serveur local tourne déjà (PID {app.local.pid}).", C_WARN)
             return
         local = app.config.local_settings(app.dist.root)
-        maps = [(code, f"{name:<20} {code}", "") for code, name in H.MAPS]
+        game = launcher.server_game(local_game(local))
+        root = app.dist.root
+        maps = [(value, label + ("" if gamemods.map_installed(bsp, root) else "  (non installée)"), value)
+                for value, label, bsp, _ in gamemods.solo_maps(root)]
 
-        def form(map_name, bo2_box, dual_wield):
+        def finish():
             def ok(v):
                 try:
                     port = _int_field(v["port"], 1)
@@ -201,33 +207,69 @@ class ServersView(View):
                     return f"port : {err}"
                 if not re.fullmatch(r"[A-Za-z0-9_.-]+", v["password"]):
                     return "mot de passe : lettres, chiffres, - _ . seulement, et pas vide"
-                local.update(map=map_name, port=port, password=v["password"], bo2_box=bo2_box, dual_wield=dual_wield)
+                local.update(port=port, password=v["password"], map=game["map"], game=dict(game))
                 app.config.save()
-                return app.launch_local(map_name, port, v["password"], bo2_box, dual_wield)
-            app.open(FormDialog(f"Lancer {H.map_label(map_name)}", [
+                return app.launch_local(game, port, v["password"])
+            app.open(FormDialog(f"Lancer {H.map_label(game['map'])}", [
                 ("port", "Port UDP", local["port"], "3074 par défaut ; à ouvrir dans le pare-feu", False),
                 ("password", "Mot de passe rcon", local["password"],
                  "choisi par ZmAdmin, gardé pour ce dossier", False),
             ], ok, intro=["Le serveur démarre sans fenêtre et charge la map (une minute environ).",
+                          "Les joueurs qui le rejoignent avec ZmClient chargent les mêmes mods tout seuls.",
                           "Son log : server/main/console_mp.log, visible dans la vue Log."]))
 
-        def dual(map_name, bo2_box):
-            if not app.dist.dual_wield():
-                form(map_name, bo2_box, False)
-                return
-            app.open(ChoiceDialog("Armes doublées (Pack-a-Punch)", [(k, label, text) for k, label, text in H.DUAL_CHOICES],
-                                  lambda k: form(map_name, bo2_box, bool(k)),
-                                  current=1 if local.get("dual_wield") else 0))
+        def steps():
+            """The choices left for this map and these mods, as (title, items, key)."""
+            bsp, layout = gamemods.resolve_map(game["map"], root)
+            out = []
+            if gamemods.nightmare_available(bsp, layout):
+                out.append(("Difficulté", H.DIFFICULTY_CHOICES, "difficulty"))
+            if game["horde"]:
+                out.append(("Horde : zombies à la fois", H.HORDE_SIZES, "horde_max"))
+            rates = [(n, H.SPAWN_RATE_LABELS[n], "mods/spawnrate (spawnrate_mult)") for n in gamemods.SPAWN_RATE_CHOICES]
+            out.append(("Vitesse d'apparition des zombies", rates, "spawn_rate"))
+            if gamemods.bo2_weapons_available(bsp):
+                if app.dist.bo2_weapons():
+                    out.append(("Armes de Black Ops II", H.BO2_BOX_CHOICES, "bo2_weapons"))
+                if app.dist.dual_wield():
+                    out.append(("Armes doublées (Pack-a-Punch)", H.DUAL_CHOICES, "dual_wield"))
+            return out
 
-        def picked(map_name):
-            if not app.dist.bo2_weapons():
-                dual(map_name, None)
+        def ask(queue):
+            if not queue:
+                finish()
                 return
-            # the key is the choice's value; None (no BO2 weapons) cannot be one, -1 stands for it
-            app.open(ChoiceDialog("Armes de Black Ops II", [(k, label, text) for k, label, text in H.BO2_BOX_CHOICES],
-                                  lambda k: dual(map_name, None if k < 0 else k),
-                                  current=-1 if local.get("bo2_box") is None else local["bo2_box"]))
-        app.open(ChoiceDialog("Map du serveur local", maps, picked, current=local["map"]))
+            title, items, key = queue[0]
+
+            def picked(value):
+                game[key] = bool(value) if key == "dual_wield" else value
+                ask(queue[1:])
+            current = int(game[key]) if key == "dual_wield" else game[key]
+            app.open(ChoiceDialog(title, list(items), picked, current=current))
+
+        def mods_picked(ticked):
+            for key, _ in H.MOD_CHOICES:
+                game[key] = key in ticked
+            if game["unlimited_pap"] and not gamemods.unlimited_pap_installed(root):
+                game["unlimited_pap"] = False
+                app.msg("Pack-a-Punch illimité : pas de mods/unlimitedpap/maps/_zombiemode_perks.gsc, laissé de côté.",
+                        C_WARN)
+            ask(steps())
+
+        def map_picked(value):
+            game["map"] = value
+            app.open(ChecklistDialog("Mods du serveur", H.MOD_CHOICES, [k for k, _ in H.MOD_CHOICES if game[k]],
+                                     mods_picked, intro=["Espace pour cocher, Entrée pour continuer."]))
+        app.open(ChoiceDialog("Map du serveur local", maps, map_picked, current=game["map"]))
+
+
+def local_game(local):
+    """The local server's saved game; a servers.json of an older ZmAdmin kept only the map and two mods."""
+    if isinstance(local.get("game"), dict):
+        return local["game"]
+    box = local.get("bo2_box")
+    return {"map": local.get("map", "zombie_theater"), "bo2_weapons": 0 if box is None else box + 1,
+            "dual_wield": bool(local.get("dual_wield"))}
 
 
 # ---------------------------------------------------------------------------------------------------------- Players

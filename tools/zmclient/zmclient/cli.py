@@ -7,6 +7,7 @@ import sys
 import time
 
 from zmadmin.launcher import EXE_NAME, IS_WINDOWS, Dist, program_dir
+from zmadmin.protocol import ProtocolError, query_modinfo
 
 from . import __version__, gamesetup
 from .client import Client
@@ -106,8 +107,21 @@ def main(argv=None):
         except OSError:
             launch_cfg = ""
         players = (1, 2) if split_on(profile) else (1,)
+        server_mods = None
+        if profile["mode"] == "join" and profile["join_detect_mods"]:
+            try:
+                server_mods = query_modinfo((profile["join_host"], int(profile["join_port"])),
+                                            profile["join_password"], timeout=1.5)
+            except (ProtocolError, OSError) as e:
+                print(f"zmclient: server mods not detected ({e}): the join_* choices", file=sys.stderr)
+            else:
+                if server_mods.refused:
+                    print("zmclient: server mods: password refused, the join_* choices", file=sys.stderr)
+                else:
+                    print(f"zmclient: server mods: {' '.join(server_mods.args()) or 'none'}", file=sys.stderr)
         try:
-            commands = [build_command(profile, dist.exe, dist.root, launch_cfg, player) for player in players]
+            commands = [build_command(profile, dist.exe, dist.root, launch_cfg, player, server_mods)
+                        for player in players]
         except ValueError as e:
             print(f"zmclient: {e}", file=sys.stderr)
             return 1
@@ -123,7 +137,7 @@ def main(argv=None):
         for player in reversed(players):
             client = Client(dist, player)
             try:
-                client.start(commands[player - 1], fs_game(profile, dist.root))
+                client.start(commands[player - 1], fs_game(profile, dist.root, server_mods))
             except (OSError, RuntimeError) as e:
                 print(f"zmclient: {e}", file=sys.stderr)
                 return 1

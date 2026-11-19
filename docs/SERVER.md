@@ -147,6 +147,42 @@ undone by the menu's own load), and again whenever the client is back at the men
 timeout (`cl_timeout`, 40 s by default), kick. It waits 2 s the first time, then 5 s, doubled after each attempt that
 did not reach the game, up to 60 s. `set cl_autoConnect ""` in the console stops it.
 
+### What a client must load: `getmodinfo`
+
+A client plays on a server only with the same mod zones (`fs_mods`: `bo2weapons` and `dualwield` load a `mod.ff`
+built from the player's own files), the same extra zones (`bo1_mod_zones`) and, for a map MapKit imported, the same
+layout and BSP world (`bo1_mod_mapkit`, `bo1_bspworld`). A server sends its `fs_game` to its clients, not those. The
+out-of-band query `getmodinfo "<password>"` (`SV_ModInfoRequest`, `sv_main_mp.cpp`, beside `getstatus`) asks for them:
+
+    \xff\xff\xff\xffgetmodinfo "secret"
+    \xff\xff\xff\xffmodinfoResponse
+    \fs_game\mods/mapkit\fs_mods\mapkit bo2weapons\bo1_mod_zones\zombie_bo2transit zombie_cosmodrome zombie_bo2fx\...
+
+- The server answers only to its player password (`g_password`), or to anyone when it has none: its mods stay as
+  private as joining it. A wrong password gets `modinfoResponse` and `refused`. A dvar left empty is left out.
+- One answer every 50 ms, as `getstatus`; the clients send the request twice, half their wait apart.
+- A server older than the query ignores it: the clients then use their manual choices.
+
+ZmClient asks it when it joins (Jouer view, "Détecter les mods du serveur", on by default, `zmclient --play` too) and
+adds the answer to the client's line as `+set` commands; without an answer, or on a refusal, it falls back on "Armes
+de Black Ops II" and "Armes doublées". It refuses to start when the package lacks a file the answer names (a `mod.ff`,
+a zone, the world), naming it. The Switch menu does the same at Start (server screen: "Mot de passe", which also lets
+it join a server with a password, and "Mods auto"), through `lan_browser.cpp`'s `LanBrowser_QueryModInfo`: a connected
+UDP socket and `recv`, never `recvfrom` with an address (Ryujinx stops on it). It asks a dotted IPv4 address only.
+
+### The local server's game
+
+ZmAdmin's "Lancer le serveur local" (F1) and ZmClient's "Serveur local + le rejoindre" start a server with any game
+the Solo view can start: a base map or a MapKit map (the native Black Ops II Nuketown, TranZit, Mob of the Dead and
+Buried among them, when their files are in the package), horde, Nightmare/Hell, zinfo, noperks, the hit marker,
+unlimited Pack-a-Punch, the spawn speed, Black Ops II's weapons and dual wield. Both build the line with
+`tools/zmadmin/zmadmin/gamemods.py` (ZmClient's solo rules, moved there), so a server runs a game exactly as solo
+does. ZmAdmin asks the map, then the mods (a checklist), then each choice that applies (difficulty on Kino and Five,
+the horde's size, the spawn speed, the BO2 weapons and dual wield when the package has them) and keeps them in
+`servers.json`, the start kit (`zm_startpoints`...) staying in its Settings view as before. ZmClient's server takes
+the Solo view's game, start kit included (its own `host_*` map and weapon choices are gone), and ZmClient's own client
+of that server loads what the game needs without asking.
+
 ## Split screen: two players on one PC
 
 ZmClient's split screen (`tools/zmclient/README.md`) starts **two game windows** on the primary monitor, each a client
@@ -185,7 +221,12 @@ heard twice.
 In the start menu, **Serveur** (A) opens the server screen:
 - **Connexion**: on to join a server, off for a solo game;
 - **Adresse IP** and **Port** (3074 by default): typed with the console's keyboard;
+- **Mot de passe**: the server's player password (`g_password`, `+set password`), empty for none;
 - **Nom du joueur**: the name on the server; empty keeps the game's own;
+- **Mods auto** (on by default): Start asks the server what its clients load (`getmodinfo`, above) and the game loads
+  the same; a refused password keeps the menu open with a message, as does a file of the answer missing from the SD
+  card (a `mod.ff`, an imported map's zone or world). A server that does not answer (older, or a host name instead of
+  an IPv4 address) leaves "Armes BO2" and "Armes doublees" (`mods/dualwield`) to decide;
 - **Armes BO2** (on by default, greyed out without them): the join loads `mods/bo2weapons` (`+set fs_mods bo2weapons`,
   as ZmClient's join option), which a client needs on a server that has the BO2 weapons. The Switch package carries
   them when `make_dist.sh --bo2` has them (`mod.ff` and its images, about 125 MB);

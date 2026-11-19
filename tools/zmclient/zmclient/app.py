@@ -7,7 +7,7 @@ import time
 from zmadmin.config import Config as AdminConfig
 from zmadmin.launcher import LocalServer
 from zmadmin.logtail import LogTail
-from zmadmin.protocol import ProtocolError, RconClient
+from zmadmin.protocol import ProtocolError, RconClient, RconTimeout, query_modinfo
 from zmadmin.widgets import (BTAB, CTRL_C, C_ERR, C_INFO, C_OK, C_TITLE, C_WARN, MOUSE_MASK, TAB, ConfirmDialog,
                              FormDialog, HitMap, MessageDialog, color, cursor, fill, init_colors, normalize_key, put,
                              read_mouse)
@@ -17,8 +17,8 @@ from . import help as H
 from .browser import Browser
 from .client import Client
 from .gamecfg import GameConfig
-from .profile import (BASE_MAPS, DEFAULT_PORT, MAP_LABELS, build_command, fs_game, map_installed, map_label,
-                      solo_mod_flags, split_on, valid_host, valid_password)
+from .profile import (DEFAULT_PORT, build_command, fs_game, map_label, solo_mod_flags, split_on, valid_host,
+                      valid_password)
 from .views import ConfigView, ExtraView, LaunchView, LogView, PlayView, ServersView, SetupView, SoloView
 
 STOP_TIMEOUT = 15.0
@@ -37,6 +37,10 @@ class App:
         self.client = Client(dist) if dist else None
         self.client2 = Client(dist, 2) if dist else None     # a split screen's second window
         self.local = LocalServer(dist) if dist else None
+        # the last getmodinfo answer and the (host, port, password) it is for: a line for another server ignores it
+        self._server_mods = None
+        self._server_mods_for = None
+        self.detect_note = ""
         # the local server's rcon password lives in ZmAdmin's servers.json, so ZmAdmin administers what ZmClient starts
         self.admin_config = AdminConfig(admin_config_dir)
         self.gamecfg = GameConfig(self.root) if dist else None
@@ -114,9 +118,39 @@ class App:
         except OSError as e:
             self.msg(f"servers.json de ZmAdmin non écrit : {e}", C_ERR)
 
-    def host_maps(self):
-        """(bsp, label, description) of the local server's map choice, the maps missing from zone/ marked."""
-        return [(b, l + ("" if map_installed(b, self.root) else "  (non installée)"), b) for b, l, _ in BASE_MAPS]
+    def detect_server_mods(self):
+        """Asks the server to join what its clients load (getmodinfo, with the player password): the answer, kept for
+        that server, or None (detection off, no answer: an older server, or none there). self.detect_note says what
+        it found, for the launch message."""
+        p = self.profile
+        self._server_mods, self._server_mods_for, self.detect_note = None, None, ""
+        if p["mode"] != "join" or not p["join_detect_mods"]:
+            return None
+        target = (p["join_host"], int(p["join_port"]))
+        try:
+            mods = query_modinfo(target, p["join_password"], timeout=1.5)
+        except RconTimeout:
+            self.detect_note = "mods du serveur : pas de réponse (version plus ancienne ?), choix manuels"
+            return None
+        except OSError as e:
+            self.detect_note = f"mods du serveur : {e}, choix manuels"
+            return None
+        if mods.refused:
+            self.detect_note = "mods du serveur : mot de passe refusé, choix manuels"
+            return None
+        self._server_mods, self._server_mods_for = mods, self._join_key()
+        world = mods.get("bo1_mod_mapkit")
+        self.detect_note = f"mods du serveur : {mods.get('fs_mods') or 'aucun'}" + (f", carte {world}" if world else "")
+        return mods
+
+    def _join_key(self):
+        p = self.profile
+        return p["join_host"], int(p["join_port"]), p["join_password"]
+
+    @property
+    def server_mods(self):
+        """The detected settings of the server the profile joins, or None."""
+        return self._server_mods if self._server_mods_for == self._join_key() else None
 
     def solo_flags(self):
         return solo_mod_flags(self.profile, self.root)
@@ -148,7 +182,8 @@ class App:
         return ", ".join(parts) or "aucun"
 
     def command(self, player=1):
-        """(argv, None) or (None, why the line cannot be built). player 2: a split screen's second window."""
+        """(argv, None) or (None, why the line cannot be built). player 2: a split screen's second window. A join
+        uses the server's mods from the last detection (detect_server_mods)."""
         if not self.dist:
             return None, "pas de dossier du jeu"
         p = self.profile
@@ -163,7 +198,7 @@ class App:
             finally:
                 p["host_port"] = saved
         try:
-            return build_command(p, self.dist.exe, self.root, self.launch_cfg_text(), player), None
+            return build_command(p, self.dist.exe, self.root, self.launch_cfg_text(), player, self.server_mods), None
         except ValueError as e:
             return None, str(e)
 
@@ -186,26 +221,26 @@ class App:
                 return
         p = self.profile
         split = split_on(p)
+        self.detect_server_mods()
         # checked before a local server starts: a line that cannot run must not leave a server behind
         argv, err = self.command()
         argv2, err2 = self.command(2) if split else (None, None)
         if err or err2:
-            self.msg(f"Impossible de lancer : {err or err2}", C_ERR)
+            self.msg(f"Impossible de lancer : {err or err2}" + (f" ({self.detect_note})" if self.detect_note else ""),
+                     C_ERR)
             return
         if p["mode"] == "host" and not self.local.running():
             try:
                 password = self.local_password()
                 # a password local_settings just generated must reach servers.json, or ZmAdmin cannot use rcon
                 self.admin_config.save()
-                self.local.start(p["host_map"], int(p["host_port"]), password,
-                                 bo2_box=p["host_bo2_weapons"] - 1 if p["host_bo2_weapons"] else None,
-                                 dual_wield=p["host_dual_wield"])
+                self.local.start(p.data, int(p["host_port"]), password)
             except (OSError, RuntimeError) as e:
                 self.msg(f"Serveur local non lancé : {e}", C_ERR)
                 return
             self.server_was_running = True
             self.msg(f"Serveur local lancé (PID {self.local.pid}) sur le port {p['host_port']}.", C_OK)
-        game = fs_game(p, self.root)
+        game = fs_game(p, self.root, self.server_mods)
         if split:
             # player 2 first: the window started last takes the focus, which the keyboard and mouse player needs
             try:
@@ -224,8 +259,9 @@ class App:
         self.client_was_running = True
         self.follow_log(self.client.log_path(game))
         what = {"solo": map_label(p["map"], self.root),
-                "join": f"rejoint {p['join_host']}:{p['join_port']}",
-                "host": f"rejoint le serveur local ({MAP_LABELS.get(p['host_map'], p['host_map'])})"}[p["mode"]]
+                "join": f"rejoint {p['join_host']}:{p['join_port']}"
+                        + (f" ; {self.detect_note}" if self.detect_note else ""),
+                "host": f"rejoint le serveur local ({map_label(p['map'], self.root)})"}[p["mode"]]
         if split:
             self.msg(f"Écran partagé lancé (PID {self.client.pid} et {self.client2.pid}) : {what}.", C_OK)
         else:
@@ -432,7 +468,7 @@ class App:
         elif p["mode"] == "join":
             parts.append((f"{p['join_host']}:{p['join_port']}" if p["join_host"] else "aucun serveur choisi", 0))
         else:
-            parts.append((f"127.0.0.1:{p['host_port']}, {MAP_LABELS.get(p['host_map'], p['host_map'])}", 0))
+            parts.append((f"127.0.0.1:{p['host_port']}, {map_label(p['map'], self.root)}", 0))
         if self.dist:
             if self.client.running():
                 parts.append((f"● jeu en cours (PID {self.client.pid})", color(C_OK)))

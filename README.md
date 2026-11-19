@@ -58,8 +58,9 @@ French version: `README.fr.md`. The full, detailed reference is [below](#detaile
    - **Switch**: launch the `.nro` in application mode (hold R while starting a game). The start menu picks the
      map, the server to join, aim assist, god mode, the start kit (points, power, Pack-a-Punch, perks), graphics,
      controls and controllers. **+** starts the game.
-   - **Server**: `Server.bat [map] [port]` or `./server.sh [map] [port]`. Players join with
-     `Play.bat net <address>:<port>`, from ZmClient, or from the Switch's **Serveur** screen.
+   - **Server**: `Server.bat [map] [port]` or `./server.sh [map] [port]`, or from ZmAdmin or ZmClient with any map
+     and mods (the BO2 maps too). Players join with `Play.bat net <address>:<port>`, from ZmClient, or from the
+     Switch's **Serveur** screen; ZmClient and the Switch ask the server which mods and map to load.
 
 ## Black Ops II content
 

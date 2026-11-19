@@ -16,7 +16,7 @@ import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "tools", "zmadmin"))
 
-from zmadmin import launcher, protocol  # noqa: E402
+from zmadmin import gamemods, launcher, protocol  # noqa: E402
 from zmadmin.link import ServerLink  # noqa: E402
 from zmadmin.logtail import LogTail  # noqa: E402
 from zmadmin.model import merge_players, parse_dvars, parse_zm_admin  # noqa: E402
@@ -40,6 +40,9 @@ class FakeServer(threading.Thread):
         self.password = password
         self.split = split
         self.dvars = {"sv_hostname": "Fake^1Server", "g_password": "", "sv_maxclients": "4", "zm_jip_mode": "immediate"}
+        self.mods = {"fs_game": "mods/mapkit", "fs_mods": "mapkit bo2weapons", "bo1_mod_mapkit": "bo2_zm_transit_bsp",
+                     "bo1_mod_zones": "zombie_bo2transit zombie_cosmodrome zombie_bo2fx",
+                     "bo1_bspworld": "maps/zombie_bo2transit.d3dbsp"}
         self.commands = []
         self.last_rcon = 0.0
         self.dropped = 0
@@ -84,6 +87,14 @@ class FakeServer(threading.Thread):
                 info = "\\sv_hostname\\Fake^1Server\\mapname\\zombie_theater\\sv_maxclients\\4"
                 body = f"statusResponse\n{info}\n0 500 31 5 \"Alpha\"\n1 1200 40 5 \"Bravo the second\"\n"
                 self.sock.sendto(OOB + body.encode(), src)
+            elif data.startswith(OOB + b"getmodinfo"):
+                # SV_ModInfoRequest: the settings to the player password (or to anyone without one), else "refused"
+                sent = data[len(OOB) + len(b"getmodinfo"):].decode("latin-1").strip().strip('"')
+                if self.dvars["g_password"] and sent != self.dvars["g_password"]:
+                    self.sock.sendto(OOB + b"modinfoResponse\nrefused\n", src)
+                    continue
+                info = "".join(f"\\{k}\\{self.mods[k]}" for k in self.mods)
+                self.sock.sendto(OOB + f"modinfoResponse\n{info}\n".encode("latin-1"), src)
             elif data.startswith(OOB + b"rcon "):
                 now = time.monotonic()
                 if now - self.last_rcon < 0.5:
@@ -139,6 +150,32 @@ class ProtocolTest(unittest.TestCase):
         with self.assertRaises(protocol.RconTimeout):
             client.command("status")
         client.close()
+
+    def test_modinfo(self):
+        mods = protocol.query_modinfo(self.server.addr)
+        self.assertFalse(mods.refused)
+        self.assertEqual(mods.args(), ["+set", "fs_game", "mods/mapkit", "+set", "fs_mods", "mapkit bo2weapons",
+                                       "+set", "bo1_mod_zones", "zombie_bo2transit zombie_cosmodrome zombie_bo2fx",
+                                       "+set", "bo1_bspworld", "maps/zombie_bo2transit.d3dbsp",
+                                       "+set", "bo1_mod_mapkit", "bo2_zm_transit_bsp"])
+        # a server with a player password answers only to it
+        self.server.dvars["g_password"] = "secret"
+        self.assertTrue(protocol.query_modinfo(self.server.addr, "wrong").refused)
+        self.assertEqual(protocol.query_modinfo(self.server.addr, "secret").get("fs_mods"), "mapkit bo2weapons")
+        self.assertEqual(protocol.modinfo_request("secret"), OOB + b'getmodinfo "secret"')
+        # a server with nothing to load: an empty list, and other dvars of an answer are ignored
+        none = protocol.parse_modinfo(OOB + b"modinfoResponse\n\\sv_hostname\\x\n")
+        self.assertEqual((none.refused, none.args()), (False, []))
+        with self.assertRaises(protocol.ProtocolError):
+            protocol.parse_modinfo(OOB + b"statusResponse\n")
+
+    def test_modinfo_no_answer(self):
+        # an older server ignores getmodinfo
+        free = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        free.bind(("127.0.0.1", 0))
+        self.addCleanup(free.close)
+        with self.assertRaises(protocol.RconTimeout):
+            protocol.query_modinfo(free.getsockname(), timeout=0.3)
 
     def test_parse_target(self):
         self.assertEqual(protocol.parse_target("10.0.0.5"), ("10.0.0.5", 3074))
@@ -270,7 +307,7 @@ class LauncherTest(unittest.TestCase):
             os.mkdir(os.path.join(d, "zone"))
             dist = launcher.find_dist(d)
             self.assertIsNotNone(dist)
-            cmd = launcher.server_command(dist, "zombie_moon", 3080, "pw")
+            cmd = launcher.server_command(dist, {"map": "zombie_moon", "zinfo": False}, 3080, "pw")
         root = os.path.abspath(d)
         # as server.sh / Server.bat (tools/make_dist.sh), plus the rcon password and no curses console
         self.assertEqual(cmd, [os.path.join(root, launcher.EXE_NAME), "+set", "fs_b", root,
@@ -292,8 +329,8 @@ class LauncherTest(unittest.TestCase):
             self.assertFalse(dist.bo2_weapons())
             open(os.path.join(d, "mods", "bo2weapons", "mod.ff"), "w").close()
             self.assertTrue(dist.bo2_weapons())
-            cmd = launcher.server_command(dist, "zombie_moon", 3080, "pw", bo2_box=2)
-            plain = launcher.server_command(dist, "zombie_moon", 3080, "pw")
+            cmd = launcher.server_command(dist, {"map": "zombie_moon", "zinfo": False, "bo2_weapons": 3}, 3080, "pw")
+            plain = launcher.server_command(dist, {"map": "zombie_moon"}, 3080, "pw")
         line = " ".join(cmd)
         self.assertIn("+set rcon_password pw +set fs_mods bo2weapons +set bo2weapons_box 2 +rcon_password pw", line)
         self.assertTrue(line.endswith("+devmap zombie_moon"))
@@ -310,10 +347,121 @@ class LauncherTest(unittest.TestCase):
             self.assertFalse(dist.dual_wield())
             open(os.path.join(d, "mods", "dualwield", "mod.ff"), "w").close()
             self.assertTrue(dist.dual_wield())
-            both = " ".join(launcher.server_command(dist, "zombie_theater", 3080, "pw", bo2_box=0, dual_wield=True))
-            alone = " ".join(launcher.server_command(dist, "zombie_theater", 3080, "pw", dual_wield=True))
+            game = {"map": "zombie_theater", "zinfo": False, "dual_wield": True}
+            both = " ".join(launcher.server_command(dist, dict(game, bo2_weapons=1), 3080, "pw"))
+            alone = " ".join(launcher.server_command(dist, game, 3080, "pw"))
         self.assertIn("+set fs_mods bo2weapons dualwield +set bo2weapons_box 0 +rcon_password pw", both)
         self.assertIn("+set rcon_password pw +set fs_mods dualwield +rcon_password pw", alone)
+
+    def test_mapkit_and_mods(self):
+        """A native Black Ops II map with mods: the solo line's mod part, then the map's base bsp; its clients load
+        what the server's getmodinfo would say (gamemods.client_values)."""
+        with tempfile.TemporaryDirectory() as d:
+            for name in (launcher.EXE_NAME, launcher.SCRIPT_NAME):
+                open(os.path.join(d, name), "w").close()
+            for folder in ("zone", "mods/mapkit/layouts", "usermaps/zombie_bo2transit", "usermaps/zombie_bo2fx",
+                           "main/maps", "mods/bo2weapons"):
+                os.makedirs(os.path.join(d, folder))
+            with open(os.path.join(d, "mods", "mapkit", "layouts", "bo2_zm_transit_bsp.json"), "w") as f:
+                f.write('{"base": "zombie_pentagon"}')
+            dist = launcher.find_dist(d)
+            game = {"map": "mapkit:bo2_zm_transit_bsp", "hitmarker": True, "spawn_rate": 2, "bo2_weapons": 1}
+            line = " ".join(launcher.server_command(dist, game, 3080, "pw"))
+            values = gamemods.client_values(launcher.server_game(game), dist.root)
+            missing = gamemods.missing_files(values, dist.root)
+        self.assertIn("+set fs_game mods/mapkit +set bo1_mod_mapkit bo2_zm_transit_bsp +set fs_mods mapkit zinfo "
+                      "hitmarker spawnrate bo2weapons +set bo1_mod_zones zombie_bo2transit zombie_cosmodrome "
+                      "zombie_bo2fx +set bo1_bspworld maps/zombie_bo2transit.d3dbsp", line)
+        self.assertIn("+set spawnrate_mult 2", line)
+        self.assertNotIn("bo1_mod_quickrestart", line)
+        self.assertTrue(line.endswith("+rcon_password pw +devmap zombie_pentagon"))
+        self.assertEqual(values, {"fs_game": "mods/mapkit", "bo1_mod_mapkit": "bo2_zm_transit_bsp",
+                                  "fs_mods": "mapkit zinfo hitmarker spawnrate bo2weapons",
+                                  "bo1_mod_zones": "zombie_bo2transit zombie_cosmodrome zombie_bo2fx",
+                                  "bo1_bspworld": "maps/zombie_bo2transit.d3dbsp"})
+        # the files a client of that server must have: the two zones, the world, the BO2 weapons' mod.ff
+        self.assertEqual(sorted(missing), sorted([os.path.join("mods", "bo2weapons", "mod.ff"),
+                                                  os.path.join("usermaps", "zombie_bo2transit", "zombie_bo2transit.ff"),
+                                                  os.path.join("usermaps", "zombie_bo2fx", "zombie_bo2fx.ff"),
+                                                  os.path.join("main", "maps", "zombie_bo2transit.d3dbsp")]))
+
+
+class LaunchDialogTest(unittest.TestCase):
+    """ZmAdmin's local server launch, dialog by dialog, on a fake app: map, mods, then the choices that apply."""
+
+    class FakeApp:
+        def __init__(self, dist):
+            from zmadmin.config import Config
+            self.dist = dist
+            self.config = Config(os.path.join(dist.root, "cfg"))
+            self.local = launcher.LocalServer(dist)
+            self.modals, self.launched, self.messages = [], [], []
+
+        def open(self, dialog):
+            self.modals.append(dialog)
+
+        def msg(self, text, *_):
+            self.messages.append(text)
+
+        def launch_local(self, game, port, password):
+            self.launched.append((dict(game), port, password))
+
+    def test_flow(self):
+        from zmadmin.views import ServersView
+        from zmadmin.widgets import ChoiceDialog, FormDialog
+        with tempfile.TemporaryDirectory() as d:
+            for name in (launcher.EXE_NAME, launcher.SCRIPT_NAME):
+                open(os.path.join(d, name), "w").close()
+            for folder in ("zone", "mods/mapkit/layouts", "mods/bo2weapons", "usermaps/zombie_bo2transit",
+                           "usermaps/zombie_bo2fx", "main/maps"):
+                os.makedirs(os.path.join(d, folder))
+            for f in ("mods/bo2weapons/mod.ff", "usermaps/zombie_bo2transit/zombie_bo2transit.ff",
+                      "usermaps/zombie_bo2fx/zombie_bo2fx.ff", "main/maps/zombie_bo2transit.d3dbsp"):
+                open(os.path.join(d, f), "w").close()
+            with open(os.path.join(d, "mods", "mapkit", "layouts", "bo2_zm_transit_bsp.json"), "w") as f:
+                f.write('{"base": "zombie_pentagon"}')
+            gamemods.mapkit_layouts.cache_clear()
+            app = self.FakeApp(launcher.find_dist(d))
+            ServersView(app).launch_dialog()
+            maps = app.modals.pop()
+            self.assertIsInstance(maps, ChoiceDialog)
+            self.assertIn("mapkit:bo2_zm_transit_bsp", [v for v, _, _ in maps.items])
+            maps.on_pick("mapkit:bo2_zm_transit_bsp")
+            mods = app.modals.pop()
+            self.assertIsInstance(mods, ChecklistDialog)
+            mods.on_ok(["zinfo", "hitmarker", "horde"])
+            titles = []
+            while True:
+                dialog = app.modals.pop()
+                if isinstance(dialog, FormDialog):
+                    break
+                titles.append(dialog.title)
+                values = [v for v, _, _ in dialog.items]
+                # the horde's size 256, the spawn speed 3, BO2's weapons alone in the box
+                dialog.on_pick({"Horde : zombies à la fois": 256, "Vitesse d'apparition des zombies": 3,
+                                "Armes de Black Ops II": 3}.get(dialog.title, values[0]))
+            # no difficulty on a MapKit map, no dual wield without its mod.ff
+            self.assertEqual(titles, ["Horde : zombies à la fois", "Vitesse d'apparition des zombies",
+                                      "Armes de Black Ops II"])
+            self.assertTrue(dialog.submit())
+            game, port, password = app.launched[0]
+            self.assertEqual(port, 3074)
+            self.assertEqual((game["map"], game["horde"], game["horde_max"], game["spawn_rate"], game["bo2_weapons"],
+                              game["hitmarker"], game["noperks"]),
+                             ("mapkit:bo2_zm_transit_bsp", True, 256, 3, 3, True, False))
+            # kept for the next launch
+            self.assertEqual(app.config.local_settings(d)["game"]["horde_max"], 256)
+            line = " ".join(launcher.server_command(app.dist, game, port, password))
+        gamemods.mapkit_layouts.cache_clear()
+        self.assertIn("+set fs_mods mapkit horde zinfo hitmarker spawnrate bo2weapons", line)
+        self.assertIn("+set bo1_mod_mapkit bo2_zm_transit_bsp", line)
+        self.assertIn("+set horde_max_zombies 256", line)
+
+    def test_older_settings(self):
+        from zmadmin.views import local_game
+        self.assertEqual(local_game({"map": "zombie_moon", "bo2_box": 1, "dual_wield": True}),
+                         {"map": "zombie_moon", "bo2_weapons": 2, "dual_wield": True})
+        self.assertEqual(local_game({"map": "zombie_moon"})["bo2_weapons"], 0)
 
 
 class MouseTest(unittest.TestCase):

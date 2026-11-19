@@ -227,20 +227,24 @@ class PlayView(RowsView):
         elif mode == "join":
             target = f"{p['join_host']}:{p['join_port']}" if p["join_host"] else "(aucun : vue Serveurs, F2)"
             rows.append(Row("server", "Serveur", target, self.app.edit_join_target))
+            rows.append(Row("join_detect_mods", "Détecter les mods du serveur", _yes(p["join_detect_mods"]),
+                            self.toggle("join_detect_mods"), help_text=H.ROW_HELP["join_detect_mods"]))
+            manual = "le serveur dit lui-même ce qu'il charge (Détecter les mods)" if p["join_detect_mods"] else None
             rows.append(Row("join_bo2_weapons", "Armes de Black Ops II", _yes(p["join_bo2_weapons"]),
                             self.toggle("join_bo2_weapons"),
                             disabled=None if bo2_weapons_installed(app.root) else
-                            "pas de mods/bo2weapons/mod.ff : à construire depuis votre Black Ops II"))
+                            "pas de mods/bo2weapons/mod.ff : à construire depuis votre Black Ops II",
+                            help_text=H.ROW_HELP["join_bo2_weapons"] + (f" Sans réponse du serveur seulement : {manual}."
+                                                                         if manual else "")))
             rows.append(dual_row(self, "join_dual_wield", app.root))
         else:
-            rows.append(Row("host_map", "Map du serveur local", MAP_LABELS.get(p["host_map"], p["host_map"]),
-                            self.choose("host_map", "Map du serveur local",
-                                        self.app.host_maps())))
+            rows.append(Row("map", "Map du serveur local", map_label(p["map"], app.root), lambda: self.app.show(2),
+                            help_text=H.ROW_HELP["host_game"]))
+            rows.append(Row("mods", "Mods du serveur local", app.solo_summary(), lambda: self.app.show(2),
+                            help_text=H.ROW_HELP["host_game"]))
             rows.append(Row("host_port", "Port du serveur local", str(p["host_port"]),
                             self.ask("host_port", "Port du serveur local", "Port", "3074 par défaut",
                                      lambda t: _int(t, 1, 65535))))
-            rows.append(bo2_row(self, "host_bo2_weapons", app.root, local_running=app.local.running()))
-            rows.append(dual_row(self, "host_dual_wield", app.root, local_running=app.local.running()))
         rows.append(Row("name", "Nom du joueur", p["name"] or "(celui de config.cfg)",
                         self.ask("name", "Nom du joueur", "Nom", "vide : celui de config.cfg", _name)))
         rows.append(split_row(self))
@@ -273,7 +277,7 @@ class PlayView(RowsView):
                 lines.append((f"● Fenêtre du joueur 2 en cours (PID {app.client2.pid})", C_OK))
             if app.local.running():
                 lines.append((f"● Serveur local en marche : PID {app.local.pid}, port {app.local.port}, "
-                              f"{MAP_LABELS.get(app.local.map, app.local.map)}", C_OK))
+                              f"{map_label(app.local.map or '', app.root)}", C_OK))
             if app.launch_cfg_text():
                 lines.append((f"! {os.path.join(app.root, 'launch.cfg')} existe : le jeu ajoute son contenu avant "
                               "cette ligne de commande.", C_WARN))
@@ -565,8 +569,8 @@ class SoloView(RowsView):
 
 
 def bo2_row(view, key, root, bsp=None, local_running=False):
-    """The BO2 weapons row (solo: bo2_weapons, local server: host_bo2_weapons), greyed without mods/bo2weapons/mod.ff,
-    on Dead Ops Arcade, or while the local server runs (it took its mods when it started)."""
+    """The BO2 weapons row (the Solo view's, which the local server takes too), greyed without
+    mods/bo2weapons/mod.ff, on Dead Ops Arcade, or while the local server runs (it took its mods when it started)."""
     labels = dict(BO2_WEAPON_CHOICES)
     if not bo2_weapons_installed(root):
         why = "pas de mods/bo2weapons/mod.ff : à construire depuis votre Black Ops II (docs/BO2_WEAPONS.md)"
@@ -583,8 +587,8 @@ def bo2_row(view, key, root, bsp=None, local_running=False):
 
 
 def dual_row(view, key, root, bsp=None, local_running=False):
-    """The dual-wield weapons row (solo: dual_wield, local server: host_dual_wield, join: join_dual_wield), greyed
-    without mods/dualwield/mod.ff, on Dead Ops Arcade, or while the local server runs."""
+    """The dual-wield weapons row (solo and the local server: dual_wield, join: join_dual_wield), greyed without
+    mods/dualwield/mod.ff, on Dead Ops Arcade, or while the local server runs."""
     if not dual_wield_installed(root):
         why = "pas de mods/dualwield/mod.ff : à construire depuis le mod « Relaxing Dual Wield » (mods/dualwield)"
     elif bsp is not None and not bo2_weapons_available(bsp):
@@ -659,12 +663,10 @@ class LaunchView(RowsView):
             Row("aim_autoaim", "Visée automatique (ADS)", H.TRISTATE_LABELS[p["aim_autoaim"]],
                 self.tristate("aim_autoaim", "Visée automatique"), disabled=aim_off),
             section("Serveur local (mode Serveur local)"),
-            Row("host_map", "Map", MAP_LABELS.get(p["host_map"], p["host_map"]),
-                self.choose("host_map", "Map du serveur local", self.app.host_maps())),
+            Row("map", "Partie", f"{map_label(p['map'], app.root)} ; {app.solo_summary()}", lambda: self.app.show(2),
+                help_text=H.ROW_HELP["host_game"]),
             Row("host_port", "Port", str(p["host_port"]),
                 self.ask("host_port", "Port du serveur local", "Port", "3074 par défaut", lambda t: _int(t, 1, 65535))),
-            bo2_row(self, "host_bo2_weapons", app.root, local_running=app.local.running()),
-            dual_row(self, "host_dual_wield", app.root, local_running=app.local.running()),
             Row("host_password", "Mot de passe rcon", "•" * len(password) if password else "(aucun dossier)",
                 self.edit_password, disabled=None if app.dist else "pas de dossier du jeu"),
         ]
