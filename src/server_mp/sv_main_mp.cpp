@@ -786,6 +786,35 @@ static void SV_StatusRequest(netadr_t from)
     NET_OutOfBandPrint(NS_SERVER, from, status);
 }
 
+// What a client must load to play on this server (ZmClient's and the Switch menu's "detect the server's mods"): the
+// mods' zones and mod.ff (fs_mods), the extra zones, a MapKit layout and its BSP world. A server with a player
+// password answers only to that password, so a server's mods stay as private as joining it.
+static void SV_ModInfoRequest(netadr_t from)
+{
+    static int lastTime;
+    const int time = Sys_Milliseconds();
+    if ( lastTime && time - lastTime < 50 )
+        return;
+    lastTime = time;
+    const char *password = Dvar_GetString("g_password");
+    if ( password && *password && strcmp(SV_Cmd_Argv(1), password) )
+    {
+        NET_OutOfBandPrint(NS_SERVER, from, "modinfoResponse\nrefused\n");
+        return;
+    }
+    static const char *const kDvars[] = {"fs_game", "fs_mods", "bo1_mod_zones", "bo1_bspworld", "bo1_mod_mapkit"};
+    char info[1024] = "";
+    for ( const char *name : kDvars )
+    {
+        const char *value = Dvar_GetString(name);
+        if ( value && *value )
+            Info_SetValueForKey(info, (char *)name, value);
+    }
+    char reply[1100];
+    Com_sprintf(reply, sizeof(reply), "modinfoResponse\n%s\n", info);
+    NET_OutOfBandPrint(NS_SERVER, from, reply);
+}
+
 void __cdecl SV_ConnectionlessPacket(netadr_t from, msg_t *msg)
 {
     char *fromAddr; // [esp+0h] [ebp-41Ch]
@@ -849,6 +878,10 @@ void __cdecl SV_ConnectionlessPacket(netadr_t from, msg_t *msg)
     else if (!I_stricmp(c, "getstatus"))
     {
         SV_StatusRequest(from);
+    }
+    else if (!I_stricmp(c, "getmodinfo"))
+    {
+        SV_ModInfoRequest(from);
     }
     else if ( !I_stricmp(c, "connect") )
     {

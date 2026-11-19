@@ -140,7 +140,9 @@ enum Item
     ITEM_NET_ENABLE,
     ITEM_NET_HOST,
     ITEM_NET_PORT,
+    ITEM_NET_PASS,
     ITEM_NET_NAME,
+    ITEM_NET_DETECT,
     ITEM_NET_BO2W,
     ITEM_NET_DUAL,
     ITEM_NET_LANAUTO,
@@ -210,17 +212,19 @@ const ItemInfo kItems[ITEM_COUNT] = {
     {VIEW_MAIN, 27, "Manettes", "A: ecran de la Switch pour connecter ou changer de manette."},
     {VIEW_MAIN, 36, "DEMARRER", "Lance la partie avec ces reglages (aussi: bouton +)."},
     {VIEW_SERVER, 7, "Connexion", "Activee: la partie rejoint ce serveur au lieu d'une partie solo."},
-    {VIEW_SERVER, 9, "Adresse IP", "A: l'adresse IP du PC qui fait tourner le serveur (Server.bat, Server.sh)."},
-    {VIEW_SERVER, 10, "Port", "A: le port UDP du serveur, 3074 par defaut."},
+    {VIEW_SERVER, 8, "Adresse IP", "A: l'adresse IP du PC qui fait tourner le serveur (Server.bat, Server.sh)."},
+    {VIEW_SERVER, 9, "Port", "A: le port UDP du serveur, 3074 par defaut."},
+    {VIEW_SERVER, 10, "Mot de passe", "A: le mot de passe joueur du serveur (g_password), vide s'il n'en a pas."},
     {VIEW_SERVER, 11, "Nom du joueur", "A: votre nom sur le serveur (lettres, chiffres, _ - .), vide: celui du jeu."},
-    {VIEW_SERVER, 14, "Armes BO2", "Oui: charge vos armes Black Ops II (mods/bo2weapons), pour un serveur qui les a."},
-    {VIEW_SERVER, 21, "Armes doublees", "Oui: charge les armes doublees (mods/dualwield), pour un serveur qui les a."},
-    {VIEW_SERVER, 12, "Recherche auto", "Oui: cherche les serveurs du reseau local a l'ouverture de cet ecran."},
-    {VIEW_SERVER, 13, "Chercher maintenant", "A: cherche les serveurs du reseau local (une seconde)."},
+    {VIEW_SERVER, 12, "Mods auto", "Oui: au demarrage, demande au serveur ses mods et sa carte, et les charge."},
+    {VIEW_SERVER, 13, "Armes BO2", "Oui: charge vos armes Black Ops II (mods/bo2weapons), si le serveur ne dit rien."},
+    {VIEW_SERVER, 14, "Armes doublees", "Oui: charge les armes doublees (mods/dualwield), si le serveur ne dit rien."},
+    {VIEW_SERVER, 16, "Recherche auto", "Oui: cherche les serveurs du reseau local a l'ouverture de cet ecran."},
+    {VIEW_SERVER, 17, "Chercher maintenant", "A: cherche les serveurs du reseau local (une seconde)."},
 #define NET_FOUND(row) {VIEW_SERVER, row, nullptr, "A: rejoindre ce serveur (adresse et port remplis, connexion activee)."}
-    NET_FOUND(15), NET_FOUND(16), NET_FOUND(17), NET_FOUND(18), NET_FOUND(19), NET_FOUND(20),
+    NET_FOUND(18), NET_FOUND(19), NET_FOUND(20), NET_FOUND(21), NET_FOUND(22), NET_FOUND(23),
 #undef NET_FOUND
-    {VIEW_SERVER, 22, "RETOUR", "Revient au menu (aussi: bouton B)."},
+    {VIEW_SERVER, 24, "RETOUR", "Revient au menu (aussi: bouton B)."},
 #define PAD_LINE(row) {VIEW_PAD, row, nullptr, "Gauche/Droite: choisir le bouton. L'action qui l'avait prend l'ancien."}
     PAD_LINE(6),  PAD_LINE(7),  PAD_LINE(8),  PAD_LINE(9),  PAD_LINE(10), PAD_LINE(11), PAD_LINE(12), PAD_LINE(13),
     PAD_LINE(14), PAD_LINE(15), PAD_LINE(16), PAD_LINE(17), PAD_LINE(18), PAD_LINE(19), PAD_LINE(20), PAD_LINE(21),
@@ -247,7 +251,7 @@ const int kGraphicsHeaderRow = 18;
 const int kControllerFirstRow = 28;
 const int kControllerMaxRows = 8; // handheld + players 1-7: the rows up to DEMARRER
 const int kPadInfoRow = 28;
-const int kNetInfoRow = 24;
+const int kNetInfoRow = 26;
 const int kKitInfoRow = 25;
 const int kHelpRow = 37;
 const int kStatusRow = 38;
@@ -287,7 +291,7 @@ bool Selectable(const LauncherSettings &s, View view, int item)
 // Lines whose value comes from the console's keyboard (A), not from left/right.
 bool TypedItem(int item)
 {
-    return item == ITEM_NET_HOST || item == ITEM_NET_PORT || item == ITEM_NET_NAME;
+    return item == ITEM_NET_HOST || item == ITEM_NET_PORT || item == ITEM_NET_PASS || item == ITEM_NET_NAME;
 }
 
 // Lines A acts on without a value to change.
@@ -387,6 +391,8 @@ std::string ValueText(const LauncherSettings &s, int item)
         return s.join ? "Activee" : "Desactivee";
     case ITEM_NET_LANAUTO:
         return YesNo(s.lanAuto);
+    case ITEM_NET_DETECT:
+        return YesNo(s.joinDetectMods);
     case ITEM_NET_BO2W:
         return s.bo2WeaponsInstalled ? YesNo(s.joinBo2Weapons) : "absentes de la carte SD";
     case ITEM_NET_DUAL:
@@ -410,6 +416,8 @@ std::string ValueText(const LauncherSettings &s, int item)
         return s.serverHost.empty() ? "(a saisir)" : s.serverHost;
     case ITEM_NET_PORT:
         return std::to_string(s.serverPort);
+    case ITEM_NET_PASS:
+        return s.serverPassword.empty() ? "(aucun)" : std::string(s.serverPassword.size(), '*');
     case ITEM_NET_NAME:
         return s.playerName.empty() ? "(celui du jeu)" : s.playerName;
     case ITEM_PAD:
@@ -436,6 +444,9 @@ void Change(LauncherSettings *s, int item, int dir)
         break;
     case ITEM_NET_LANAUTO:
         s->lanAuto = !s->lanAuto;
+        break;
+    case ITEM_NET_DETECT:
+        s->joinDetectMods = !s->joinDetectMods;
         break;
     case ITEM_NET_BO2W:
         s->joinBo2Weapons = !s->joinBo2Weapons;
@@ -652,6 +663,13 @@ bool AskText(int item, std::string *text)
         swkbdConfigSetGuideText(&kbd, "3074");
         swkbdConfigSetStringLenMax(&kbd, 5);
     }
+    else if (item == ITEM_NET_PASS)
+    {
+        swkbdConfigSetKeySetDisableBitmask(&kbd, SwkbdKeyDisableBitmask_Space);
+        swkbdConfigSetHeaderText(&kbd, "Mot de passe du serveur");
+        swkbdConfigSetGuideText(&kbd, "vide: aucun");
+        swkbdConfigSetStringLenMax(&kbd, 31);
+    }
     else
     {
         swkbdConfigSetKeySetDisableBitmask(&kbd, SwkbdKeyDisableBitmask_Space);
@@ -662,7 +680,8 @@ bool AskText(int item, std::string *text)
     char out[64] = "";
     rc = swkbdShow(&kbd, out, sizeof(out));
     swkbdClose(&kbd);
-    Log("keyboard (%s) -> 0x%x \"%s\"", kItems[item].label, rc, R_SUCCEEDED(rc) ? out : "");
+    Log("keyboard (%s) -> 0x%x \"%s\"", kItems[item].label, rc,
+        item == ITEM_NET_PASS ? "(password)" : R_SUCCEEDED(rc) ? out : "");
     if (R_FAILED(rc))
         return false;
     *text = out;
@@ -674,6 +693,7 @@ std::string EditTyped(LauncherSettings *s, int item)
 {
     std::string typed = item == ITEM_NET_HOST   ? s->serverHost
                         : item == ITEM_NET_PORT ? std::to_string(s->serverPort)
+                        : item == ITEM_NET_PASS ? s->serverPassword
                                                 : s->playerName;
     if (!AskText(item, &typed))
         return "";
@@ -687,6 +707,12 @@ std::string EditTyped(LauncherSettings *s, int item)
     {
         if (!Launcher_ParsePort(typed, &s->serverPort))
             return "Port refuse: un nombre de 1 a 65535.";
+    }
+    else if (item == ITEM_NET_PASS)
+    {
+        if (!typed.empty() && !Launcher_ValidPassword(typed))
+            return "Mot de passe refuse: 31 caracteres au plus, sans espace, guillemet, ; ni +.";
+        s->serverPassword = typed;
     }
     else
     {
@@ -854,7 +880,10 @@ void Draw(const LauncherSettings &s, View view, int selected, const Screen &scre
             std::printf("Il reessaie tout seul si le serveur n'est pas encore lance ou redemarre.");
         }
         At(kNetInfoRow + 7, 3);
-        std::printf("%sLe serveur choisit la map, le god mode et le compteur de zombies.%s", kColorDisabled, kColorNormal);
+        std::printf("%sLe serveur choisit la map, ses mods et le god mode.%s", kColorDisabled, kColorNormal);
+        At(kNetInfoRow + 8, 3);
+        std::printf("%sMods auto: le jeu charge les memes mods et la meme carte importee que lui.%s", kColorDisabled,
+                    kColorNormal);
     }
 
     At(kHelpRow, 3);
@@ -912,6 +941,40 @@ std::string StartRefusal(const LauncherSettings &s, bool networkUp)
         return "Entrez l'adresse du serveur (Serveur, A) ou desactivez la connexion.";
     if (s.join && !networkUp)
         return "Pas de reseau: activez le Wi-Fi (mode avion coupe) ou jouez en solo.";
+    return "";
+}
+// Start's question to the server (getmodinfo, lan_browser.h): what its clients load. Fills serverModsKnown and
+// serverModArgs; returns why Start cannot go ("" when it can). No answer (an older server, or a host name, which the
+// query does not resolve): the manual choices, as ZmClient does.
+std::string DetectServerMods(LauncherSettings *s)
+{
+    s->serverModsKnown = false;
+    s->serverModArgs.clear();
+    if (!s->join || !s->joinDetectMods)
+        return "";
+    ServerModInfo info;
+    if (!LanBrowser_QueryModInfo(s->serverHost, s->serverPort, s->serverPassword, 1500, &info))
+    {
+        Log("server mods: no answer from %s, the manual choices", Launcher_ServerAddress(*s).c_str());
+        return "";
+    }
+    if (info.refused)
+    {
+        Log("server mods: %s refused the password", Launcher_ServerAddress(*s).c_str());
+        return "Mot de passe refuse par le serveur (Mot de passe, A).";
+    }
+    s->serverModsKnown = true;
+    s->serverModArgs = LanBrowser_ModInfoArgs(info);
+    Log("server mods: %s", s->serverModArgs.empty() ? "none" : s->serverModArgs.c_str());
+    for (const std::string &file : Launcher_ServerModFiles(info.fsMods, info.zones, info.bspWorld))
+    {
+        struct stat st;
+        if (stat(("sdmc:/switch/bo1zm/" + file).c_str(), &st) != 0)
+        {
+            Log("server mods: %s is not on the SD card", file.c_str());
+            return "Le serveur charge " + file + ", absent de la carte SD.";
+        }
+    }
     return "";
 }
 } // namespace
@@ -1086,6 +1149,12 @@ LauncherResult Launcher_Run(const char *buildStamp, char *line, size_t lineSize,
         if (start)
         {
             screen.status = StartRefusal(s, screen.networkUp);
+            if (screen.status.empty() && s.join && s.joinDetectMods)
+            {
+                screen.status = "Demande des mods du serveur...";
+                Draw(s, view, selected, screen);
+                screen.status = DetectServerMods(&s);
+            }
             if (screen.status.empty())
             {
                 result = LAUNCHER_START;

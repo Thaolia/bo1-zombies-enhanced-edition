@@ -178,6 +178,13 @@ void Apply(LauncherSettings *s, const std::string &key, const std::string &value
         if (Launcher_ValidPlayerName(value))
             s->playerName = value;
     }
+    else if (key == "server_password")
+    {
+        if (Launcher_ValidPassword(value))
+            s->serverPassword = value;
+    }
+    else if (key == "join_detect")
+        ParseBool(value, &s->joinDetectMods);
     else if (key == "map")
     {
         for (int i = 0; i < kLauncherMapCount; ++i)
@@ -325,6 +332,8 @@ std::string Launcher_FormatSettings(const LauncherSettings &s)
     out += "server=" + s.serverHost + "\n";
     out += "port=" + std::to_string(s.serverPort) + "\n";
     out += "name=" + s.playerName + "\n";
+    out += "server_password=" + s.serverPassword + "\n";
+    out += std::string("join_detect=") + (s.joinDetectMods ? "1" : "0") + "\n";
     out += "map=" + Launcher_MapKey(s.map) + "\n";
     out += std::string("aimassist=") + (s.aimAssist ? "1" : "0") + "\n";
     out += std::string("aim_slowdown=") + (s.aimSlowdown ? "1" : "0") + "\n";
@@ -422,12 +431,23 @@ std::string Launcher_BuildLaunchLine(const LauncherSettings &s, const std::strin
     line += " +set r_texFilterMipMode " + std::to_string(filter.mipMode);
     if (join && Launcher_ValidPlayerName(s.playerName))
         line += " +set name " + s.playerName;
-    // as ZmClient's join_bo2_weapons and join_dual_wield: fs_mods names the mods, so the engine loads their mod.ff
-    // (DB_ListModZones)
-    const bool joinBo2 = join && s.joinBo2Weapons && s.bo2WeaponsInstalled;
-    const bool joinDual = join && s.joinDualWield && s.dualWieldInstalled;
-    if (joinBo2 || joinDual)
-        line += std::string(" +set fs_mods") + (joinBo2 ? " bo2weapons" : "") + (joinDual ? " dualwield" : "");
+    if (join && Launcher_ValidPassword(s.serverPassword))
+        line += " +set password " + s.serverPassword;
+    if (join && s.serverModsKnown)
+    {
+        // what the server said its clients load (its fs_game, mods, zones, MapKit layout and world)
+        if (!s.serverModArgs.empty())
+            line += " " + s.serverModArgs;
+    }
+    else
+    {
+        // as ZmClient's join_bo2_weapons and join_dual_wield: fs_mods names the mods, so the engine loads their mod.ff
+        // (DB_ListModZones)
+        const bool joinBo2 = join && s.joinBo2Weapons && s.bo2WeaponsInstalled;
+        const bool joinDual = join && s.joinDualWield && s.dualWieldInstalled;
+        if (joinBo2 || joinDual)
+            line += std::string(" +set fs_mods") + (joinBo2 ? " bo2weapons" : "") + (joinDual ? " dualwield" : "");
+    }
     if (!extra.empty())
         line += " " + extra;
     if (join)
@@ -507,4 +527,49 @@ const char *Launcher_PadButtonLabel(int control)
 const char *Launcher_PadActionLabel(int control)
 {
     return control >= 0 && control < BO1_PAD_COUNT ? kPads[control].action : "?";
+}
+
+bool Launcher_ValidPassword(const std::string &password)
+{
+    if (password.empty() || password.size() > 31)
+        return false;
+    for (char c : password)
+        if (c <= ' ' || c == '"' || c == ';' || c == '+' || c == 127)
+            return false;
+    return true;
+}
+
+std::vector<std::string> Launcher_ServerModFiles(const std::string &fsMods, const std::string &zones,
+                                                 const std::string &bspWorld)
+{
+    std::vector<std::string> out;
+    const auto words = [](const std::string &text) {
+        std::vector<std::string> list;
+        size_t at = 0;
+        while (at < text.size())
+        {
+            const size_t end = text.find(' ', at);
+            const std::string word = text.substr(at, (end == std::string::npos ? text.size() : end) - at);
+            if (!word.empty())
+                list.push_back(word);
+            if (end == std::string::npos)
+                break;
+            at = end + 1;
+        }
+        return list;
+    };
+    for (const std::string &mod : words(fsMods))
+        if (mod == "bo2weapons" || mod == "dualwield")
+            out.push_back("mods/" + mod + "/mod.ff");
+    for (const std::string &zone : words(zones))
+    {
+        bool retail = false;
+        for (int i = 0; i < kLauncherMapCount && !retail; ++i)
+            retail = !kLauncherMaps[i].mapkit && zone == kLauncherMaps[i].bsp;
+        if (!retail)
+            out.push_back("usermaps/" + zone + "/" + zone + ".ff");
+    }
+    if (!bspWorld.empty())
+        out.push_back("main/" + bspWorld);
+    return out;
 }
