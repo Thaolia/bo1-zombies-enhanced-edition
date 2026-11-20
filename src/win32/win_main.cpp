@@ -627,6 +627,52 @@ static DWORD __stdcall Sys_HitchWatchThread(void *)
     return 0;
 }
 
+// dedicated server hitch evidence: '+set bo1_server_hitchwatch <ms>' (command line; 2000 by default on a bo1_server,
+// 0 = off). When no server frame has started for that long (Sys_ServerFrameMark, Com_ModifyMsec), a watchdog thread
+// writes every thread's stack (Sys_HeadlessDumpThreads) to main\bo1_threads.log, then again each second of the same
+// stall: at most 5 dumps per stall, 60 per run. A user's server froze up to 45 s while a client loaded and in its first
+// rounds, which no run without that client reproduced (2026-11-19): the dumps name the code it was stuck in.
+static volatile LONG s_serverFrames;
+static volatile DWORD s_serverFrameTick;
+static volatile DWORD s_serverFrameThread;
+
+void __cdecl Sys_ServerFrameMark()
+{
+    s_serverFrameTick = GetTickCount();
+    s_serverFrameThread = GetCurrentThreadId();
+    InterlockedIncrement(&s_serverFrames);
+}
+
+#if defined(_WIN32)
+static unsigned int s_serverHitchMs;
+
+static DWORD __stdcall Sys_ServerHitchWatchThread(void *)
+{
+    LONG dumpedFrame = -1;
+    int dumps = 0;
+    int total = 0;
+    while (total < 60)
+    {
+        Sleep(50);
+        const LONG frame = s_serverFrames;
+        if (!frame)
+            continue;
+        if (frame != dumpedFrame)
+            dumps = 0;
+        const DWORD age = GetTickCount() - s_serverFrameTick;
+        if (dumps >= 5 || age < s_serverHitchMs + 1000u * dumps || frame != s_serverFrames)
+            continue;
+        dumpedFrame = frame;
+        ++dumps;
+        ++total;
+        Sys_HeadlessThreadLog("BO1_SERVERHITCH frame %ld: no new frame for %u ms, dump %d, frame thread %u\n", (long)frame,
+            (unsigned int)age, dumps, (unsigned int)s_serverFrameThread);
+        Sys_HeadlessDumpThreads(total);
+    }
+    return 0;
+}
+#endif
+
 // bo1_autoquit <ms>: quit once this long has passed since Com_Init returned (the + commands, a map load included,
 // run inside Com_Init). 0 = off.
 // zombies: headless client evidence - '+set bo1_shots "20000 40000"' takes 'screenshotJpeg bo1_<ms>' (the back
@@ -2507,6 +2553,16 @@ int __stdcall WinMain(HINSTANCE__ *hInstance, HINSTANCE__ *hPrevInstance, char *
         DeleteFileA("main\\bo1_threads.log");
         CloseHandle(CreateThread(NULL, 0, Sys_HitchWatchThread, NULL, 0, NULL));
     }
+#if defined(_WIN32)
+    // both watchers share Sys_HeadlessDumpThreads' buffers: never two at once
+    s_serverHitchMs = s_server && !s_threadDumpMs && !s_hitchWatchMs
+        ? (unsigned int)Sys_CmdlineIntValue(lpCmdLine, "bo1_server_hitchwatch", 2000) : 0;
+    if ( s_serverHitchMs )
+    {
+        DeleteFileA("main\\bo1_threads.log");
+        CloseHandle(CreateThread(NULL, 0, Sys_ServerHitchWatchThread, NULL, 0, NULL));
+    }
+#endif
     Sys_InitializeCriticalSections();
     Sys_InitMainThread();
     PMem_Init();

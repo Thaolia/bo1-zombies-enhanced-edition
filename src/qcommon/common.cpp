@@ -3603,6 +3603,7 @@ int __cdecl Com_ModifyMsec(int msec)
         msec = 1;
     if (IsDedicatedServer())
     {
+        Sys_ServerFrameMark(); // mod: bo1_server_hitchwatch
         if (msec > 500 && msec < 500000)
             Com_PrintWarning(16, "Hitch warning: %i msec frame time\n", msec);
         clampTime = 5000;

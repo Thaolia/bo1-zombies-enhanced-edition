@@ -374,6 +374,22 @@ without anyone copying files:
 - On the client: `bo1_netlog 0` stops it; `bo1_logserver <host[:port]>` sends to another server than the
   `cl_autoConnect` one (the game port: the log goes to port + 1).
 
+## Server freezes (Windows)
+
+A Windows dedicated server watches its own frames. When no frame has started for 2 s (the `Hitch warning` lines of
+its console log are the same freezes, counted afterwards), it writes every thread's stack to `main\bo1_threads.log`
+under its **working directory** (the package's folder with ZmAdmin or `Server.bat`), then again each second of the
+same freeze: at most 5 dumps per freeze and 60 per run. Lines `BO1_SERVERHITCH frame <n>: no new frame for <ms>`
+start each dump; `frame thread <id>` names the thread that runs the frames, whose `THREADWALK <id>` line is the
+stack to read. The offsets (`+0x...`) are resolved with the `BO1Zombies.pdb` of the same build:
+
+    llvm-symbolizer.exe --obj=BO1Zombies.exe --relative-address 0x6B47FC
+
+(MSVC's `VC\Tools\MSVC\<version>\bin\Hostx64\x64`; copy the PDB next to the exe under the name the exe records,
+`%%%BO1Zombies.pdb%%%`). `+set bo1_server_hitchwatch <ms>` changes the threshold, `0` turns it off. Only the
+dedicated server (`bo1_server 1`) does this; a map load started from the command line comes before the first frame
+and is not dumped, a `map` / `devmap` / `map_restart` during the game is.
+
 ## More than 4 players
 
 The server takes 4 players by default. For more, set `sv_maxclients` in `server.cfg` or on the command line, before

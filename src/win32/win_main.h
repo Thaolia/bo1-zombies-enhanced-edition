@@ -52,6 +52,7 @@ void __cdecl Sys_HeadlessLevelNotify(const char *name); // L20: bo1_quitnotify -
 void __cdecl Sys_HeadlessLogAssert(const char *filename, int line, const char *message); // zombies: headless assert report
 unsigned int __cdecl Sys_HitchWatchBegin(); // k1: '+set bo1_hitchwatch <ms>' - thread dumps while one client frame runs long
 void __cdecl Sys_HitchWatchEnd();
+void __cdecl Sys_ServerFrameMark(); // a dedicated server frame starts: bo1_server_hitchwatch's clock (win_main.cpp)
 void __cdecl Sys_SetQuitRequested(); // L5: a quit / window close was asked for (Com_Quit_f, WM_CLOSE)
 bool __cdecl Sys_IsQuitRequested();
 void __cdecl Sys_QuitWithLostDevice(int lostMs); // L5: render thread, device lost and a quit pending - ends the process
