@@ -3,20 +3,22 @@
 Fork of `MisaDev4/bo1-zombies-decompiled` (remote `upstream`, branch `main`). All port work lives on branch
 `switch`. The goal is a playable `.nro` (Atmosphère, AArch64, libnx) of solo offline zombies on the base maps.
 
-## Where things are
+## File References
 | Question | Read |
 |---|---|
 | Phase plan, status, decisions log | `docs/PORTING.md` |
 | Port layers (platform, ffconv, renderer split) | `docs/ARCHITECTURE.md` |
 | Renderer backend contract and its review checklist | `docs/RENDERER.md` |
 | Upstream mod system | `mods/*/README.md`, `mods/mapkit/MAPKIT.md` |
+| libnx, devkitPro, Ryujinx and deko3d pitfalls | `.claude/rules/switch-homebrew.md` (always loaded) |
+| Dedicated server and headless client tests | `.claude/rules/server-test-processes.md` (always loaded) |
 
-## Golden rules
+## Core Principles
 - **Never debug two unknowns at once.** Fix 64-bit problems on Windows x64 with the original D3D9 renderer. Validate
   the GL renderer on Linux desktop. Only then move to the Switch. deko3d comes last and is optional.
 - **The `win32-msvc` build is the reference.** Every change must keep it building and behaving identically. Guard
   port code with `#if` on platform/arch macros. Never delete the Win32/D3D9 paths.
-- **Never touch retail game files.** `ffconv` reads the user's Steam install and writes new `IWffs` zones elsewhere.
+- **Never touch retail game files.** `ffconv` reads the user's game install and writes new `IWffs` zones elsewhere.
   Never commit, upload or embed game data (zones, iwd, sounds, shaders extracted from fastfiles).
 - **Upstream layout stays as is** (`src/`, `tl/`, `DemonWare/`, `mods/`, `data/`, `tools/` at the root). New code goes in:
   - `src/platform/` for compat and the OS layer;
@@ -26,14 +28,25 @@ Fork of `MisaDev4/bo1-zombies-decompiled` (remote `upstream`, branch `main`). Al
   - `third_party/` for vendored libraries.
 - Code comments are in English and only explain a non-obvious *why*.
 
-## 64-bit rules
+## Routing & Delegation
+- Run long builds (MSVC, devkitA64, ffconv on the install) and replays as background commands; wait for their
+  notification instead of polling or sleeping.
+- Inventorying a bug family across the tree (see Coding Standards) is a broad sweep: hand it to an Explore agent and
+  tell it to search with `grep -a`.
+- Changes touching 5+ files: work in a sibling `git worktree` (`../BO-Zombies_switch_new`) and let the user compare
+  before merging into `switch`.
+- Before any test with a headless server or clients, follow `.claude/rules/server-test-processes.md`.
+- Report console results only from the user's own runs and logs; Ryujinx proves boot, rendering and logs, not
+  timing, input or memory.
+
+## Coding Standards
+
+### 64-bit
 - A pointer stored in an integer is `uintptr_t`, never `unsigned int`, `int`, `DWORD` or `LODWORD(ptr)`.
 - Do not "fix" a `static_assert(sizeof(X) == N)` by deleting it. Make it arch-conditional with the real 64-bit size
   (`BO1_ARCH_SIZE(n32, n64)`, `src/platform/arch_size.h`), and know why the size changed. A class with a base class
   takes `BO1_ABI_SIZE` (MSVC and Itanium differ); measure the MSVC sizes with `clang --target=x86_64-pc-windows-msvc`
   (command in `docs/PORTING.md`, phase 3), not by guessing from the MinGW numbers.
-- After any 64-bit fix in a `.cpp`, run `tools/codediff.py build/mingw32-gcc <files>`. "identical" is the goal; read
-  and explain every remaining difference before keeping the edit.
 - A literal byte count (`Hunk_UserAlloc(hunk, 73728, ...)`, `memset(p, 0, 0x8D388)`) is a 32-bit `sizeof` in disguise.
   Write `sizeof`/`offsetof` instead; `tools/litsizes.py` lists the ones it can see. It cannot see a pointer difference
   scaled by a literal (`((char *)b - (char *)base) >> 4`, `/ 96`, `p + 16 * n`): measure the element on both targets
@@ -61,10 +74,14 @@ Fork of `MisaDev4/bo1-zombies-decompiled` (remote `upstream`, branch `main`). Al
   traversal. Stream rules shared by both sides (alignment, pointer encoding) live in `src/database/db_ff64.h` only.
 - `ffconv` never edits `db_load.cpp` to make the conversion work: it transforms a copy at build time. A traversal
   bug is fixed in the transform or in `db_load.cpp` itself, and the 32-bit build must keep behaving the same.
-- `qcommon/msg.cpp` float rounding must stay bit-exact with the x87 version. Run its test after any change there.
+- `qcommon/msg.cpp` float rounding must stay bit-exact with the x87 version.
 - Script VM code positions (`EmitCodepos`, `Scr_ReadCodePos`, `Scr_ReadUnsigned`) must all use the same width.
+- Never make a GNU build pass by changing what MSVC compiles to. Prefer the spelling both accept with the same
+  meaning (explicit cast, named constant, explicit include); otherwise guard with `#if defined(_MSC_VER)`.
+- A new `BO1_OFFLINE` stub must reproduce a state the engine already handles (service absent, device missing,
+  open failed). Never fake success. Find the symbols with the `win32-msvc-offline` link, not by hand.
 
-## Renderer rules
+### Renderer
 - `src/gfx_d3d9emu/` must contain **no GL or deko3d calls**. It only talks to `src/gfx_backend/gfx_backend.h`.
 - Any change to `gfx_backend.h` must pass the checklist in `docs/RENDERER.md`: no implicit global state, no
   `glGet`-style queries, no implicit sync, explicit memory/usage and pipeline-state objects.
@@ -73,35 +90,45 @@ Fork of `MisaDev4/bo1-zombies-decompiled` (remote `upstream`, branch `main`). Al
 - D3D9's half-pixel offset lives in the shaders (`bo1_pos_fixup`, filled by the frontend); a backend applies the
   viewport as given. Never move a viewport by a fraction of a pixel: clipping then eats the edge pixels' samples
   (`docs/RENDERER.md`, contract).
-- After a change to `gfx_backend.h`, `src/gfx_backend/` or the shader interface, run `d3d9emu_test` and
-  `SDL_VIDEODRIVER=offscreen gb_gl_test` from the Linux build folder; both must pass.
 - deko3d binds every DKSH only after `UseMesaSchedule` (`gb_deko3d.cpp`) rewrote uam's control words: uam's dual issue
   makes whole warps compute a wrong colour on the console once many warps share an SM (Ryujinx never shows it). Never
   bind uam's control words as they are, and judge any shader-code change on the console, not on the emulator.
 
-## Workflow
-- Changes touching 5+ files: work in a sibling `git worktree` (`../BO-Zombies_switch_new`) and let the user compare
-  before merging into `switch`.
-- After each implementation step, update `docs/PORTING.md` (status + decisions) and any affected doc in the same
-  session.
-- Commits: English messages, no Claude co-author line.
-- Before claiming a phase step done, run its verification listed in `docs/PORTING.md` and report the actual
-  output. "It compiles" is not "it works".
+## Operational Protocols
 - Tooling runs from WSL2. MSVC builds run on the Windows side. devkitPro lives in `/opt/devkitpro`.
 - Build the posix target from an ext4 copy of the worktree (rsync it, then CMake/Ninja there): from `/mnt/c` every
-  header read waits on 9p. Check a posix change with a headless run compared against a win64 run of the same tree and
-  zones, paths and numbers masked (`docs/PORTING.md`, phase 4a step 2); every remaining difference must be explained.
+  header read waits on 9p.
 - Search sources with `grep -a`: some files hold Latin-1 bytes, and plain `grep` treats them as binary and prints
   none of their lines.
-- After touching a shared header or `src/platform/compat.h`, rerun `tools/syntax_check.py` on both `mingw32-gcc` and
-  `mingw32-clang` (command in `docs/PORTING.md`, phase 1).
 - Between merges, build only `win64-msvc`. Build `win32-msvc` once before each merge into `switch` (it catches
   MSVC-x86-only errors the GNU checks cannot see, e.g. an intrinsic declared only by `<intrin.h>`).
-- A new `BO1_OFFLINE` stub must reproduce a state the engine already handles (service absent, device missing,
-  open failed). Never fake success. Find the symbols with the `win32-msvc-offline` link, not by hand, and compare
-  headless runs against the reference on the main menu and on a map (`docs/PORTING.md`, phase 1c).
-- After a change to `db_load.cpp`, a struct a fastfile streams, `db_ff64.h` or `tools/ffconv`, rebuild `ffconv` and run
-  it with `--verify --game` on the install, then `tools/ffconv/gen/check_shader_pack.py` on the pack: every zombies
-  zone must round-trip and every shader must validate (`docs/PORTING.md`, phase 2).
-- Never make a GNU build pass by changing what MSVC compiles to. Prefer the spelling both accept with the same
-  meaning (explicit cast, named constant, explicit include); otherwise guard with `#if defined(_MSC_VER)`.
+- After each implementation step, update `docs/PORTING.md` (status + decisions) and any affected doc in the same
+  session.
+
+## Quality Gates
+Run the gate that matches the change and report its actual output. "It compiles" is not "it works".
+- Phase step: run its verification listed in `docs/PORTING.md` before claiming it done.
+- 64-bit fix in a `.cpp`: `tools/codediff.py build/mingw32-gcc <files>`. "identical" is the goal; read and explain
+  every remaining difference before keeping the edit.
+- Shared header or `src/platform/compat.h`: rerun `tools/syntax_check.py` on both `mingw32-gcc` and `mingw32-clang`
+  (command in `docs/PORTING.md`, phase 1).
+- `qcommon/msg.cpp`: run its test.
+- `gfx_backend.h`, `src/gfx_backend/` or the shader interface: run `d3d9emu_test` and
+  `SDL_VIDEODRIVER=offscreen gb_gl_test` from the Linux build folder; both must pass.
+- `db_load.cpp`, a struct a fastfile streams, `db_ff64.h` or `tools/ffconv`: rebuild `ffconv`, run it with
+  `--verify --game` on the install, then `tools/ffconv/gen/check_shader_pack.py` on the pack: every zombies zone
+  must round-trip and every shader must validate (`docs/PORTING.md`, phase 2).
+- Posix change: compare a headless run against a win64 run of the same tree and zones, paths and numbers masked
+  (`docs/PORTING.md`, phase 4a step 2); explain every remaining difference.
+- `BO1_OFFLINE` stub: compare headless runs against the reference on the main menu and on a map
+  (`docs/PORTING.md`, phase 1c).
+- Before a merge into `switch`: the `win32-msvc` build.
+
+## Self-Improvement
+- A console, libnx, Ryujinx or deko3d lesson that cost a round trip goes into `.claude/rules/switch-homebrew.md`,
+  dated, with the symptom that revealed it.
+- A 64-bit or renderer pitfall that can recur elsewhere in the tree goes into Coding Standards here; a one-off fix
+  goes into `docs/PORTING.md` only.
+- Keep this file under 400 lines of instructions; move facts and inventories to `docs/` and link them in File
+  References without `@` (an `@import` is loaded at every start).
+- Personal, uncommitted preferences go in `CLAUDE.local.md`, never here.

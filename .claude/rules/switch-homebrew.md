@@ -1,8 +1,7 @@
 # Nintendo Switch homebrew (libnx / devkitPro) — rules learned on Wormhole NX
 
 Rules for any Switch 1 homebrew project built with devkitPro + libnx, verified on this port
-(2026-10-20 to 2026-10-22). The last section is specific to Clearwing VM (JVM bytecode → C++); skip
-it for plain C/C++ projects. Each rule cost at least one build/test round trip to learn.
+(2026-10-20 to 2026-10-22). Each rule cost at least one build/test round trip to learn.
 
 ## Toolchain and environment
 
@@ -181,48 +180,6 @@ it for plain C/C++ projects. Each rule cost at least one build/test round trip t
   / swap split, GC, heap, objects, draws, GL time, I/O, memory), a line per frame above ~80 ms
   saying what it loaded, controller connect/disconnect lines with timestamps. Every console
   question then costs one user run instead of several.
-
-## Shell and tooling (Claude Code sessions)
-
-- `pkill -f pattern` kills the calling shell when the pattern appears in its own command line;
-  write `pkill -f "[r]un.sh"`.
-- Never run two Gradle builds of the same project at once: the second wipes the first's class
-  output mid-compile.
-- Long builds and replays go to background commands; wait for their notification instead of
-  polling or sleeping.
-
-## Clearwing VM (JVM bytecode → C++) specifics
-
-- Pin the transpiler version (`com.thelogicmaster.clearwing-vm:transpiler:v3.1.3`); master is a
-  mid-refactor WIP. A missing JDK method is a hard "Method not resolved" at transpile time.
-- Run ProGuard (shrink only, no `-dontwarn` on `java.*`) before transpiling: its warnings are the
-  exact list of runtime gaps. Provide missing classes in a `jdk-extras` module compiled against
-  the Clearwing runtime as bootclasspath (exclude the redefined classes from that jar, or javac
-  keeps resolving the originals); inspect runtime classes with
-  `javap -bootclasspath <fatjar> -cp <fatjar>`, never against the host JDK.
-- Kotlin must target JVM 11 (the ASM 7 visitor rejects `PermittedSubclasses` from JVM 17
-  `sealed`); compile lambdas/SAM/string concat as classes / inline (`-Xlambdas=class
-  -Xsam-conversions=class -Xstring-concat=inline`); no records, no pattern `switch`.
-- Runtime stubs and gaps met on v3.1.3: `RandomAccessFile` throws, `File.renameTo` always
-  returns false, `Enum.getDeclaringClass()` returns null, annotation instances miss their own
-  methods, `java.nio.file` / `java.util.stream` absent, `String.isBlank/strip` absent,
-  `Formatter` without `%n`, `System.getProperty("user.home")` null, `getenv` empty, RegExodus
-  rejects `\p{Digit}` (so Kotlin's `toFloatOrNull()` fails: parse in a try instead). Add a source
-  lint test for the ones the JVM tests cannot catch.
-- A `try` with both `catch` and `finally` over the same range unwinds to the `finally` first:
-  avoid that shape. The generated code can also leave a stale exception frame after a `return`
-  inside `try`; reset the exception frame depth in push/pop stack frame (runtime patch).
-- `useValueChecks` / `useLineNumbers` are tested with `#ifdef` and therefore always on; patch to
-  `#if` if you want them off (no measurable gain here).
-- GC: thresholds are compile definitions with desktop-sized defaults (collect every allocation
-  past `GC_HEAP_THRESHOLD`): set them for the console; its own statistics are all under
-  `#if false`, so patch counters in; direct ByteBuffers are not counted in its heap; the stock
-  collector thread frees objects one lock at a time (see the malloc rule above): free them on the
-  game thread in slices. Patch the generated runtime idempotently from the build script
-  (`patchFile` with exact anchors that fail loudly when the runtime changes).
-- Every string literal use goes through a mutex + setjmp pool lookup: put a thread-local cache in
-  front of it. Bulk-copy floats into direct buffers with one native `memcpy` rather than
-  per-element `ByteBuffer.putFloat` calls.
 
 ## deko3d bring-up (BO-Zombies_switch, 2026-10-26)
 
