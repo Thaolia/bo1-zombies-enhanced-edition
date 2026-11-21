@@ -6,6 +6,7 @@ The fake server answers as the real one does (formats checked on a win64 server,
 '"name" is: "value^7" default: ...' lines, several dvars in one rcon ("a;b"), "Invalid password.", one command per
 500 ms (a sooner one gets no reply), and replies split over several print packets.
 """
+import errno
 import os
 import socket
 import sys
@@ -296,6 +297,34 @@ class LogTailTest(unittest.TestCase):
             with open(path, "w") as f:
                 f.write("restart\n")
             self.assertEqual(tail.poll(), ["restart"])
+            tail.close()
+
+    def test_read_error_retried(self):
+        # WSL's /mnt/c gives ENODATA now and then on a read of a file another process is appending to
+        class FailOnce:
+            def __init__(self, f):
+                self.f, self.failed = f, False
+
+            def read(self, *args):
+                if not self.failed:
+                    self.failed = True
+                    raise OSError(errno.ENODATA, "No data available")
+                return self.f.read(*args)
+
+            def __getattr__(self, name):
+                return getattr(self.f, name)
+
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "console_mp.log")
+            with open(path, "w") as f:
+                f.write("one\n")
+            tail = LogTail(path)
+            self.assertEqual(tail.poll(), ["one"])
+            with open(path, "a") as f:
+                f.write("two\n")
+            tail._file = FailOnce(tail._file)
+            self.assertEqual(tail.poll(), [])
+            self.assertEqual(tail.poll(), ["two"])
             tail.close()
 
 

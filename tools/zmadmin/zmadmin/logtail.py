@@ -45,8 +45,12 @@ class LogTail:
             self.close()
             if not self._open():
                 return []
-        self._file.seek(self._pos)
-        data = self._file.read()
+        try:
+            self._file.seek(self._pos)
+            data = self._file.read()
+        except OSError:
+            # WSL's /mnt/c: ENODATA now and then while the server appends; the next poll reads the same bytes again
+            return []
         self._pos += len(data)
         if not data:
             return []
