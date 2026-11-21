@@ -23,6 +23,10 @@ The script side of the `zm_*` console commands of the dedicated zombies server (
   - power: Kino's `use_elec_switch` trigger notified as a player's use (`electric_switch`), else the `power_on` flag.
 - Each reply is a `LogPrint` line starting with `admin: `; the server also prints those to its console (and so to its
   curses console).
+- A solo player who leaves gets `"death"` (`admin_disconnect_solo_life`): retail
+  `maps\_zombiemode_perks::solo_revive_buy_trigger_move` waits for their `.lives` with only `endon( "death" )`, and on a
+  server that stays up with no player it otherwise logged two script errors every 0.1 s for ever. The retail
+  `perk_think` threads wake on it too, after the entity is freed, and log six errors once per departure.
 
 ## Players who join later (join in progress)
 

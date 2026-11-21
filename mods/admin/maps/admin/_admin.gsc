@@ -44,6 +44,7 @@ main_end()
 	level thread admin_late_join_vars();
 	level thread admin_start_pap();
 	level thread admin_far_respawn();
+	OnPlayerDisconnect_Callback( ::admin_disconnect_solo_life );
 	admin_log( "loaded on " + GetDvar( #"mapname" ) );
 }
 
@@ -496,6 +497,21 @@ admin_player()
 		self waittill( "zm_admin", cmd, arg );
 		// a thread per command, so this loop is back in its waittill before the engine's next notify
 		self thread admin_run( cmd, arg );
+	}
+}
+
+
+// retail maps\_zombiemode_perks::solo_revive_buy_trigger_move, threaded on a solo player given Quick Revive, waits for
+// self.lives to drop with only an endon "death": once that player has left, it reads the freed entity every 0.1 s and
+// logs two script errors each time. A listen server ends with its host; a dedicated server stays up with no player and
+// writes them for ever (~8 KB/s, 2026-11-21). The other "death" waiters on a player wake too, and only after the entity
+// is freed (also when sent from this callback): perk_think logs six errors once per departure, against 910 in 40 s and
+// counting without this. Players get "death" from nothing else in zombies (downs are last stand).
+admin_disconnect_solo_life()
+{
+	if ( IsDefined( self.lives ) )
+	{
+		self notify( "death" );
 	}
 }
 
