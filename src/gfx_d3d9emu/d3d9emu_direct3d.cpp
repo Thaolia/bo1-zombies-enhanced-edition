@@ -357,6 +357,13 @@ void FillCaps(D3DCAPS9 *c)
 
 using d3d9emu::Direct3D9;
 
+#if defined(_WIN32)
+// On win64 the emulator shares the exe with d3d9.lib, whose Direct3D 9 stays the default (r_mod_gfxApi): its entry
+// points take other names there (src/platform/windows/win_d3d9host.cpp).
+#define Direct3DCreate9 Bo1Emu_Direct3DCreate9
+#define Direct3DCreate9Ex Bo1Emu_Direct3DCreate9Ex
+#endif
+
 extern "C" {
 
 IDirect3D9 *WINAPI Direct3DCreate9(UINT sdkVersion)

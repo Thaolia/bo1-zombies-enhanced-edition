@@ -243,6 +243,15 @@ run has no surface; it renders into its textures and `Present` only submits.
 `gb_vk_test` is `gb_backend_test.cpp` built for this backend (`GB_TEST_VULKAN`): the same 46 checks with no window,
 on any Vulkan 1.3 device (lavapipe included).
 
+### On win64 (`r_mod_gfxApi vulkan`, docs/VULKAN.md step 5)
+`win64-msvc` also builds the frontend (without `d3dx9emu.cpp`) and the null and Vulkan backends (`BO1_WIN_VULKAN`).
+The system's Direct3D 9 stays the default; with `r_mod_gfxApi vulkan`, `R_PreCreateWindow` takes the emulated
+`IDirect3D9` from `Bo1_EmulatedDirect3D` (`src/platform/windows/win_d3d9host.cpp`), and falls back to the system's
+when `shaders.spv` is missing beside the exe or Vulkan does not start. On Windows the emulator's entry points are
+`Bo1Emu_Direct3DCreate9`/`Bo1Emu_Direct3DCreate9Ex`, so `d3d9.lib`'s keep their names; D3DX remains `d3dx9.lib`'s and
+works on the emulated surfaces (screenshots). The surface is `VK_KHR_win32_surface` on the game's `HWND`
+(`win_vkhost.cpp`).
+
 ## Shaders
 `ffconv` translates D3D9 SM3 bytecode with MojoShader (`third_party/mojoshader`, GLSL profile) and normalises the
 result to GLSL 4.60 core without extensions (`tools/ffconv/src/ff_glsl.cpp`). Every shader of the zombies zones is

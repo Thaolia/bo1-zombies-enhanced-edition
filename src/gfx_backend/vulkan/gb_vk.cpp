@@ -22,6 +22,7 @@
 #include <vk_mem_alloc.h>
 
 #include <algorithm>
+#include <bit>
 #include <chrono>
 #include <cstdarg>
 #include <cstdio>
@@ -47,7 +48,7 @@ constexpr uint32_t kStagingChunkBytes = 16u << 20;
 constexpr uint32_t kQueriesPerFrame = 4096;
 constexpr int kMaxDebugMessages = 64;
 
-void Log(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
+void Log(const char *fmt, ...) BO1_PRINTF_FORMAT(1, 2);
 void Log(const char *fmt, ...)
 {
     char line[1024];
@@ -2273,7 +2274,7 @@ void DoDraw(const DrawState &state, Primitive primitive, uint32_t count, uint32_
 
     VkBuffer buffers[MAX_STREAMS + 1];
     VkDeviceSize offsets[MAX_STREAMS + 1], strides[MAX_STREAMS + 1];
-    const uint32_t bindings = p->dummyStream ? kDummyStream + 1 : 32 - uint32_t(__builtin_clz(p->streams | 1));
+    const uint32_t bindings = p->dummyStream ? kDummyStream + 1 : 32 - uint32_t(std::countl_zero(uint32_t(p->streams | 1)));
     for (uint32_t b = 0; b < bindings; ++b)
     {
         const Buffer *vb = b < MAX_STREAMS ? static_cast<const Buffer *>(state.vertices[b].buffer) : nullptr;

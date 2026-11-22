@@ -446,6 +446,20 @@ class CommandLine(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "63"):
             P.build_command(p, "x", "/g", launch_cfg="+set a 1 " * 40)
 
+    def test_gfx_api(self):
+        p = P.Profile()
+        line = " ".join(P.build_command(p, "x", "/g"))
+        # r_mod_gfxApi is archived in config.cfg: the default is set too, so that an old "vulkan" does not stay
+        self.assertIn("+set r_mod_gfxApi d3d9", line)
+        self.assertIsNone(P.launch_env(p))
+        p["gfx_api"] = "vulkan"
+        self.assertIn("+set r_mod_gfxApi vulkan", " ".join(P.build_command(p, "x", "/g")))
+        env = P.launch_env(p)
+        self.assertEqual(env["BO1_GFX_BACKEND"], "vulkan")
+        self.assertEqual(env.get("PATH"), os.environ.get("PATH"))
+        p["mode"], p["join_host"] = "join", "10.0.0.1"
+        self.assertIn("+set r_mod_gfxApi vulkan", " ".join(P.build_command(p, "x", "/g")))
+
     def test_scene_models(self):
         def dvar(argv, name):
             values = [argv[i + 2] for i in range(len(argv) - 2) if argv[i] == "+set" and argv[i + 1] == name]

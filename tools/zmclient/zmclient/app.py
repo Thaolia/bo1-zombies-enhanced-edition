@@ -17,7 +17,7 @@ from . import help as H
 from .browser import Browser
 from .client import Client
 from .gamecfg import GameConfig
-from .profile import (DEFAULT_PORT, build_command, fs_game, map_label, solo_mod_flags, split_on, valid_host,
+from .profile import (DEFAULT_PORT, build_command, fs_game, launch_env, map_label, solo_mod_flags, split_on, valid_host,
                       valid_password)
 from .views import ConfigView, ExtraView, LaunchView, LogView, PlayView, ServersView, SetupView, SoloView
 
@@ -244,13 +244,13 @@ class App:
         if split:
             # player 2 first: the window started last takes the focus, which the keyboard and mouse player needs
             try:
-                self.client2.start(argv2, game)
+                self.client2.start(argv2, game, launch_env(p))
             except (OSError, RuntimeError) as e:
                 self.msg(f"La fenêtre du joueur 2 ne démarre pas : {e}", C_ERR)
                 return
             self.client2_was_running = True
         try:
-            self.client.start(argv, game)
+            self.client.start(argv, game, launch_env(p))
         except (OSError, RuntimeError) as e:
             if split:
                 self.client2.kill()     # half a split screen is no use

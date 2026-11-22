@@ -293,6 +293,9 @@ const dvar_s *r_mod_scsShare; // mod (L43): r_mod_scsShare
 const dvar_s *r_modelLimit;
 const dvar_s *r_mod_sceneModels; // mod
 const dvar_s *r_mod_drawStats; // mod
+#if defined(BO1_WIN_VULKAN)
+const dvar_s *r_mod_gfxApi; // mod
+#endif
 const dvar_s *r_brushLimit;
 const dvar_s *r_spotLightFovInnerFraction;
 const dvar_s *r_spotLightStartRadius;
@@ -1067,6 +1070,12 @@ void __cdecl R_RegisterDvars()
     r_mod_fxElems = _Dvar_RegisterInt("r_mod_fxElems", 2048, 2048, 4096, 0, "mod: effect elements alive at once (retail 2048; FX_ELEM_POOL_MAX 4096), read at each effects-system reset (map load)");
     r_mod_sceneModels = _Dvar_RegisterInt("r_mod_sceneModels", 1024, 1024, R_MOD_SCENE_MODEL_MAX, 0, "mod: models drawn per frame (retail 1024, r_modelLimit); maps imported by MapKit have thousands of props");
     r_mod_drawStats = _Dvar_RegisterInt("r_mod_drawStats", 0, 0, 100000, 0, "mod: every N frames, log the draw calls per frame by technique and surface type (drawstats:, 0 = off)");
+#if defined(BO1_WIN_VULKAN)
+    // mod: read once, before Direct3D is created (R_PreCreateWindow), so set it in the config or on the command line.
+    static const char *gfxApiNames[] = {"d3d9", "vulkan", NULL};
+    r_mod_gfxApi = _Dvar_RegisterEnum("r_mod_gfxApi", gfxApiNames, 0, 0x21u,
+                                      "mod: graphics API, d3d9 (the system's Direct3D 9) or vulkan (Direct3D 9 emulated on Vulkan)");
+#endif
     r_mod_scsShare = _Dvar_RegisterBool("r_mod_scsShare", 0, 0, "mod: models with byte-identical shader constant sets share one of the frame's 128 slots (retail 0)");
     r_modelLimit = _Dvar_RegisterInt(
                                      "r_modelLimit",

@@ -4,6 +4,9 @@
 // into the backend contract (src/gfx_backend/gfx_backend.h). No GL or deko3d here.
 
 #include <d3d9.h>
+#if defined(_WIN32)
+#undef DrawState // winuser.h's DrawStateA/W would rename gb::DrawState
+#endif
 
 #include <gfx_backend/gfx_backend.h>
 
@@ -12,6 +15,15 @@
 #include <mutex>
 #include <vector>
 
+// printf-style checking of a logger's arguments where the compiler offers it (GCC and clang; MSVC has no attribute).
+#if !defined(BO1_PRINTF_FORMAT)
+#if defined(__GNUC__)
+#define BO1_PRINTF_FORMAT(fmt, args) __attribute__((format(printf, fmt, args)))
+#else
+#define BO1_PRINTF_FORMAT(fmt, args)
+#endif
+#endif
+
 namespace d3d9emu
 {
 // Every call into the frontend takes this lock, as the runtime does for a D3DCREATE_MULTITHREADED device; the
@@ -19,9 +31,9 @@ namespace d3d9emu
 std::recursive_mutex &DeviceLock();
 using Guard = std::lock_guard<std::recursive_mutex>;
 
-void Logf(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
+void Logf(const char *fmt, ...) BO1_PRINTF_FORMAT(1, 2);
 // Logs a line the first time `key` is seen.
-void WarnOnce(const char *key, const char *fmt, ...) __attribute__((format(printf, 2, 3)));
+void WarnOnce(const char *key, const char *fmt, ...) BO1_PRINTF_FORMAT(2, 3);
 // A method the engine never calls: ends the process naming it, so that a new caller is noticed at once.
 [[noreturn]] void Unemulated(const char *method);
 
@@ -120,10 +132,17 @@ void Rebind(T *&slot, T *next)
         return ReleaseCount();                                                                                         \
     }
 
+// The method's full name, for Unemulated's message.
+#if defined(_MSC_VER)
+#define D3D9EMU_FUNCTION __FUNCSIG__
+#else
+#define D3D9EMU_FUNCTION __PRETTY_FUNCTION__
+#endif
+
 #define D3D9EMU_UNEMULATED(type, name, params)                                                                        \
     type STDMETHODCALLTYPE name params override                                                                        \
     {                                                                                                                  \
-        Unemulated(__PRETTY_FUNCTION__);                                                                              \
+        Unemulated(D3D9EMU_FUNCTION);                                                                                 \
     }
 
 #define D3D9EMU_PRIVATE_DATA                                                                                          \

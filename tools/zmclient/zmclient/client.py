@@ -50,7 +50,7 @@ class Client:
         exe = _pid_exe(self.pid)
         return exe is not None and _same_file(exe.removesuffix(" (deleted)"), self.dist.exe)
 
-    def start(self, argv, fs_game=""):
+    def start(self, argv, fs_game="", env=None):
         if self.running():
             raise RuntimeError(f"le jeu tourne déjà (PID {self.pid})")
         os.makedirs(self.main, exist_ok=True)
@@ -63,7 +63,7 @@ class Client:
         out = open(self.output, "wb")
         try:
             self._proc = subprocess.Popen(argv, cwd=self.dist.root, stdin=subprocess.DEVNULL, stdout=out,
-                                          stderr=subprocess.STDOUT, **kwargs)
+                                          stderr=subprocess.STDOUT, env=env, **kwargs)
         finally:
             out.close()
         self.pid, self.started, self.fs_game = self._proc.pid, time.time(), fs_game

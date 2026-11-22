@@ -1,7 +1,8 @@
 # Vulkan backend and upscalers — plan
 
 Status (2026-11-22): step 1 (FSR1) done, checked on the host, on Ryujinx and on the user's console; steps 2 (SPIR-V
-pack) and 3 (Vulkan backend on Linux) done on branch `vulkan`; step 4 in progress; steps 5-7 planned. Each step updates this file, `docs/RENDERER.md` and `docs/PORTING.md` (phase 9) in the session that does it.
+pack) and 3 (Vulkan backend on Linux) done on branch `vulkan`; steps 4 (parity on Linux) and 5 (win64) in
+progress; steps 6-7 planned. Each step updates this file, `docs/RENDERER.md` and `docs/PORTING.md` (phase 9) in the session that does it.
 
 ## Goals and constraints
 - A Vulkan backend behind `src/gfx_backend/gfx_backend.h`, opt-in on **Linux**, **win64** and, last of all (after ASR), **OpenBSD**.
@@ -101,28 +102,43 @@ Described in `docs/RENDERER.md`, "The Vulkan backend". In short:
 - The usual posix gate: a headless run against win64, paths and numbers masked.
 - Estimate: 1-2 sessions.
 
-## Step 5 — win64: the emulated frontend and Vulkan, native D3D9 by default
-- CMake: only under `if(BO1_ARCH_64)` on win32 platforms, build `GFX_D3D9EMU_FILES`, the null and the Vulkan backends
-  into `win64-msvc`. `win32-msvc` builds none of them.
-- A Win32 host for the frontend (`d3d9emu_host.h`, 10 functions) and a Vulkan host (`VK_KHR_win32_surface` on the
-  game's `HWND`) in `src/platform/win32/`.
-- Selection in `r_init.cpp`: a dvar `r_mod_gfxApi` (`d3d9` by default, `vulkan`) read before the device is created.
-  The call into the emulator sits under `#if BO1_ARCH_64`, so the 32-bit code is unchanged. Check it with
-  `tools/codediff.py build/mingw32-gcc src/gfx_d3d/r_init.cpp`, which must say "identical".
-- To settle before writing code:
-  - the emulator's `Direct3DCreate9` / `Direct3DCreate9Ex` against `d3d9.lib`'s: rename the emulator's entry points on
-    Windows (macro) so both link into one exe;
-  - Bink: `dx9rad3d.cpp` creates its own D3D9 and uses the fixed-function pipeline, which the frontend does not
-    emulate. On the Vulkan path, Bink gets the treatment posix gives it;
-  - `win_configure.cpp` (its own `Direct3DCreate9`);
-  - the headless client on its private desktop.
-- ZmClient: a "Graphics API: Direct3D 9 / Vulkan" setting, with FSR1 under Vulkan.
-- Checks:
-  - `win64-msvc` builds;
-  - native D3D9 against Vulkan screenshots, same zones;
-  - **NVIDIA, AMD and Intel on the user's machines**;
-  - `win32-msvc` builds once before the merge.
-- Estimate: 3-4 sessions.
+## Step 5 — win64: the emulated frontend and Vulkan, native D3D9 by default — in progress
+Done on branch `vulkan` (2026-11-22):
+- CMake: the shader headers (`upscale_shaders.h`, `vk_shaders.h`) are generated in one block shared by posix, the
+  Switch and win64; 32-bit Windows needs neither Python nor glslang. Under `if(BO1_ARCH_64 AND BO1_VULKAN)` on win32
+  platforms, `win64-msvc` builds `GFX_D3D9EMU_FILES` (without `d3dx9emu.cpp`: D3DX stays `d3dx9.lib`'s, and its
+  screenshots work on the emulated surfaces), the null and Vulkan backends, and defines `BO1_WIN_VULKAN`.
+  `win32-msvc` builds none of it. Windows has no glslang: the Khronos release 16.6.0 (`glslang.exe`, the same version
+  as WSL's, so the same SPIR-V) unpacked in `C:\SDKs\glslang-16.6.0`, which `find_program` looks in.
+- MSVC portability of the frontend and the backends: `BO1_PRINTF_FORMAT` instead of `__attribute__((format))`,
+  `std::countr_zero`/`std::countl_zero` instead of `__builtin_ctz`/`__builtin_clz`, `__FUNCSIG__` for `Unemulated`'s
+  name, `NOMINMAX` on these files, `#undef DrawState` (winuser.h's macro renamed `gb::DrawState`), a no-op
+  `Bo1LoadScope` (`platform/load_profile.h`, `#elif defined(BO1_WIN_VULKAN)`).
+- The emulator's `Direct3DCreate9`/`Direct3DCreate9Ex` are `Bo1Emu_*` on `_WIN32` (a macro in
+  `d3d9emu_direct3d.cpp`): `d3d9.lib`'s keep their names, the engine keeps calling them by default.
+- Hosts in `src/platform/windows/`: `win_d3d9host.cpp` (primary monitor's modes, the game's `HWND`, `shaders.spv`
+  beside the exe, `BO1_UPSCALE*` as on posix) and `win_vkhost.cpp` (`VK_KHR_win32_surface`, looked up with
+  `vkGetInstanceProcAddr` since volk is built without platform defines).
+- `r_mod_gfxApi` (`d3d9` default, `vulkan`; archived and latched, registered only with `BO1_WIN_VULKAN`), read in
+  `R_PreCreateWindow`: `Bo1_EmulatedDirect3D` (9Ex for the headless client). Without `shaders.spv` or without a
+  Vulkan driver it logs why and the system's Direct3D 9 takes over. `tools/codediff.py` on mingw32-gcc: `r_init.cpp`,
+  `r_dvars.cpp` and `db_file_load.cpp` identical.
+- Bink is a stub on win64 (`BO1_OFFLINE`), so `dx9rad3d.cpp` never runs; `win_configure.cpp` keeps the system's D3D9.
+- ZmClient: Launch view (F4), "API graphique": `+set r_mod_gfxApi d3d9|vulkan` (always, the dvar is archived), and
+  `BO1_GFX_BACKEND=vulkan` in the environment for Linux.
+- Checked on the user's Intel Iris Xe: Kino on the headless client's private desktop renders on Vulkan at the 30 fps
+  cap, quits cleanly; native D3D9 with the same exe unchanged; the fallback without `shaders.spv` renders on D3D9.
+
+Still to do in this step:
+- FSR1 on win64. The Win32 surface takes the window's size and the engine sizes its back buffer to the window (the
+  borderless one to the monitor): it needs a render scale in the engine (`BO1_WIN_VULKAN` only), a back buffer smaller
+  than the borderless window, and the mouse mapped from the window to the back buffer.
+- `shaders.spv` for players: the install's conversion (ZmClient's Installation view, `ffconv`) must also make the
+  SPIR-V pack, with a redistributable glslang/spirv-val in the Windows package, and the pack compressed (477.6 MB).
+- The cyan glow of Kino's ticket counter (lobby, left arch) is missing on Vulkan and GL alike, present with native D3D9
+  (and with D3D9 run on the same exe): a frontend difference older than Vulkan, to explain.
+- **NVIDIA and AMD on the user's machines.**
+- `win32-msvc` builds once before the merge.
 
 ## Step 6 — Arm ASR (after the Windows port)
 Arm Accuracy Super Resolution (`github.com/arm/accuracy-super-resolution`, generic library, MIT) is FSR 2.2.2

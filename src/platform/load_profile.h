@@ -57,4 +57,20 @@ inline double Bo1_LoadTake(Bo1LoadKind kind, uint32_t *count)
     *count = g_bo1LoadCount[kind].exchange(0);
     return double(g_bo1LoadNs[kind].exchange(0)) / 1e6;
 }
+#elif defined(BO1_WIN_VULKAN)
+// win64 with the D3D9 frontend (r_mod_gfxApi): the frontend's scopes compile to nothing, since the Windows build never
+// prints the profile.
+enum Bo1LoadKind
+{
+    BO1_LOAD_SHADER_READ,
+    BO1_LOAD_SHADER_CREATE,
+    BO1_LOAD_TEXTURE_UPLOAD,
+};
+
+struct Bo1LoadScope
+{
+    explicit Bo1LoadScope(Bo1LoadKind) {}
+    Bo1LoadScope(const Bo1LoadScope &) = delete;
+    Bo1LoadScope &operator=(const Bo1LoadScope &) = delete;
+};
 #endif

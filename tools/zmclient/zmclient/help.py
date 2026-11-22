@@ -112,6 +112,8 @@ ROW_HELP = {
     "run_info": "Les réglages qui changent une partie et un hash SHA-512 du programme et des zones chargées "
                 "(bo1_runinfo), en bas de l'écran de chargement, ou aussi dans un coin pendant la partie, pour un "
                 "stream ou un speedrun. Le hash complet est aussi écrit dans console_mp.log (ligne runinfo:).",
+    "gfx_api": "Le moteur de rendu : Direct3D 9 (Windows) ou OpenGL (Linux) par défaut, ou Vulkan "
+               "(r_mod_gfxApi sous Windows, BO1_GFX_BACKEND sous Linux). Au prochain lancement.",
     "fps_counter": "Le petit compteur d'images par seconde du portage, en haut à gauche.",
     "scene_models": "Les modèles que le jeu dessine par image (r_mod_sceneModels ; 1024 dans le jeu d'origine). Une map "
                     "importée par Mapkit en a bien plus (Nuketown : 2 096 props) : à 1024 les plus lointains manquent "
@@ -225,3 +227,9 @@ GLOBAL_HELP = [
 ]
 
 RUN_INFO_LABELS = {0: "non", 1: "au chargement", 2: "chargement + en jeu"}
+GFX_API_LABELS = {"default": "Direct3D 9 (Windows) / OpenGL (Linux)", "vulkan": "Vulkan"}
+GFX_API_HELP = {
+    "default": "Le rendu habituel : le Direct3D 9 de Windows, OpenGL sous Linux.",
+    "vulkan": "Le rendu par Vulkan (Windows 64 bits, Linux). Il lui faut shaders.spv à côté du programme ; sans lui, "
+              "ou sans pilote Vulkan, le jeu revient au rendu habituel (Windows) et le dit dans console_mp.log.",
+}

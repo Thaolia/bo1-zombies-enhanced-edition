@@ -41,6 +41,9 @@ MAX_COMMAND_LINES = 63      # Com_ParseCommandLine keeps 64 lines, the first bei
 # MapKit (Nuketown: 2 096 props) needs more; each model past retail's also takes a model lighting entry
 SCENE_MODEL_CHOICES = (1024, 2048, 4096)
 MODEL_LIGHTING_ENTRIES_MAX = 5120   # r_mod_modelLightingEntries' cap (r_model_lighting.cpp)
+# The renderer (docs/VULKAN.md): "default" is the system's Direct3D 9 on Windows and OpenGL on Linux; "vulkan" is
+# r_mod_gfxApi vulkan on win64 (an archived dvar, so ZmClient always sets it) and BO1_GFX_BACKEND=vulkan on Linux.
+GFX_APIS = ("default", "vulkan")
 
 DEFAULTS = {
     "mode": "solo",
@@ -56,6 +59,7 @@ DEFAULTS = {
     "fps_counter": False,
     "run_info": 1,                      # bo1_runinfo: 0 off, 1 on the loading screen, 2 also in a corner in game
     "scene_models": 1024,              # one of SCENE_MODEL_CHOICES
+    "gfx_api": "default",              # one of GFX_APIS
     # aim assist (gamepad): "" leaves the game's value, "1" / "0" sets it
     "aim_assist": "",
     "aim_slowdown": "",
@@ -152,6 +156,8 @@ class Profile:
             self.data["split"] = DEFAULTS["split"]
         if self.data["split_layout"] not in SPLIT_LAYOUTS:
             self.data["split_layout"] = DEFAULTS["split_layout"]
+        if self.data["gfx_api"] not in GFX_APIS:
+            self.data["gfx_api"] = DEFAULTS["gfx_api"]
         if self.data["scene_models"] not in SCENE_MODEL_CHOICES:
             self.data["scene_models"] = DEFAULTS["scene_models"]
         if self.data["bo2_weapons"] not in dict(BO2_WEAPON_CHOICES):
@@ -229,6 +235,15 @@ def add_scene_models(argv, count):
     else:
         argv += ["+set", "r_mod_modelLightingEntries", str(entries)]
     argv += ["+set", "r_mod_sceneModels", str(count)]
+
+
+def launch_env(p):
+    """The environment the client starts with: None keeps ZmClient's own; Vulkan on Linux is BO1_GFX_BACKEND."""
+    if p["gfx_api"] != "vulkan":
+        return None
+    env = dict(os.environ)
+    env["BO1_GFX_BACKEND"] = "vulkan"
+    return env
 
 
 def server_address(p):
@@ -369,6 +384,7 @@ def build_command(p, exe, dist_root, launch_cfg="", player=1, server_mods=None):
     else:
         argv += window_flags(p)
     add_scene_models(argv, p["scene_models"])
+    argv += ["+set", "r_mod_gfxApi", "vulkan" if p["gfx_api"] == "vulkan" else "d3d9"]
     if p["fps_counter"]:
         argv += ["+set", "bo1_fpscounter", "1"]
     argv += ["+set", "bo1_runinfo", str(p["run_info"])]

@@ -638,6 +638,9 @@ class LaunchView(RowsView):
             Row("run_info", "Infos speedrun", H.RUN_INFO_LABELS[p["run_info"]],
                 self.choose("run_info", "Infos speedrun",
                             [(k, v, H.ROW_HELP["run_info"]) for k, v in H.RUN_INFO_LABELS.items()])),
+            Row("gfx_api", "API graphique", H.GFX_API_LABELS[p["gfx_api"]],
+                self.choose("gfx_api", "API graphique",
+                            [(k, v, H.GFX_API_HELP[k]) for k, v in H.GFX_API_LABELS.items()])),
             Row("scene_models", "Modèles affichés par image", str(p["scene_models"]),
                 self.choose("scene_models", "Modèles affichés par image", [
                     (1024, "1024", "le jeu d'origine"),

@@ -7,6 +7,15 @@
 
 #include <string>
 
+// printf-style checking of a logger's arguments where the compiler offers it (GCC and clang; MSVC has no attribute).
+#if !defined(BO1_PRINTF_FORMAT)
+#if defined(__GNUC__)
+#define BO1_PRINTF_FORMAT(fmt, args) __attribute__((format(printf, fmt, args)))
+#else
+#define BO1_PRINTF_FORMAT(fmt, args)
+#endif
+#endif
+
 namespace gb
 {
 inline bool IsDepthFormat(Format format)

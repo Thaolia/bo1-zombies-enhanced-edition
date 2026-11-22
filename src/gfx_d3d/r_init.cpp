@@ -12,6 +12,9 @@
 #include <d3d9.h>
 #include "rb_backend.h"
 #include "r_dvars.h"
+#if defined(BO1_WIN_VULKAN)
+#include <platform/windows/win_gfxapi.h> // mod: r_mod_gfxApi
+#endif
 #include <database/db_registry.h>
 #include "rb_logfile.h"
 #include "r_buffers.h"
@@ -1223,6 +1226,16 @@ char __cdecl R_PreCreateWindow()
     else
     {
         Com_Printf(8, "Getting Direct3D 9 interface...\n");
+#if defined(BO1_WIN_VULKAN)
+        // mod: r_mod_gfxApi vulkan, the D3D9 frontend on the Vulkan backend; the system's Direct3D 9 when it fails.
+        if ( r_mod_gfxApi->current.integer == 1 )
+        {
+            dx.d3d9 = Bo1_EmulatedDirect3D(Sys_IsHeadlessClient());
+            Com_Printf(8, dx.d3d9 ? "r_mod_gfxApi: Direct3D 9 emulated on Vulkan\n"
+                                  : "r_mod_gfxApi: Vulkan unavailable, using the system's Direct3D 9\n");
+        }
+        if ( !dx.d3d9 )
+#endif
         if ( Sys_IsHeadlessClient() )
         {
             // zombies: a headless client's window is on a desktop that is never the input desktop. Plain Direct3D 9

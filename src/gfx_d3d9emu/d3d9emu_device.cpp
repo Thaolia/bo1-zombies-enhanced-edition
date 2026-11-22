@@ -9,6 +9,7 @@
 #include "shader_pack.h"
 
 #include <algorithm>
+#include <bit>
 #include <cstring>
 
 namespace d3d9emu
@@ -1219,7 +1220,7 @@ bool Device::PrepareDraw(gb::DrawState &state, D3DPRIMITIVETYPE type, const gb::
 
     for (uint32_t mask = m_pixelShader->samplerMask; mask; mask &= mask - 1)
     {
-        const uint32_t i = uint32_t(__builtin_ctz(mask));
+        const uint32_t i = uint32_t(std::countr_zero(uint32_t(mask)));
         TextureImpl *texture = m_textures[i];
         if (!texture || !texture->storage->gpu)
             continue;
