@@ -4218,11 +4218,13 @@ static double G_ModThreadCpuMs()
     const unsigned long long k = ((unsigned long long)kernel.dwHighDateTime << 32) | kernel.dwLowDateTime;
     const unsigned long long u = ((unsigned long long)user.dwHighDateTime << 32) | user.dwLowDateTime;
     return (double)(k + u) / 10000.0;
-#else
+#elif defined(CLOCK_THREAD_CPUTIME_ID)
     timespec ts;
     if (clock_gettime(CLOCK_THREAD_CPUTIME_ID, &ts))
         return 0.0;
     return (double)ts.tv_sec * 1000.0 + (double)ts.tv_nsec / 1e6;
+#else
+    return 0.0; // newlib (Switch): no per-thread CPU clock, cpu_ms_mean and slowest_cpu_ms read 0
 #endif
 }
 static double g_svFrameCpuStart;
