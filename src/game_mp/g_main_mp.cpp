@@ -3,6 +3,9 @@
 #include <algorithm>
 #include <windows.h>
 #include <dbghelp.h>
+#if !defined(_WIN32) && !defined(__SWITCH__)
+#include <dlfcn.h>
+#endif
 #include <clientscript/cscr_compiler.h>
 #include <clientscript/cscr_parser.h>
 #include <clientscript/cscr_vm.h>
@@ -4467,8 +4470,20 @@ void G_ModSvProfEnd(long long frameQpcTicks)
                 DWORD64 disp = 0;
                 if (symFromAddr && symFromAddr(GetCurrentProcess(), (DWORD64)pc, &disp, &sym.info))
                     _snprintf(name, sizeof(name), "%s:%s%s", catName, sym.info.Name, sym.info.Size && disp >= sym.info.Size ? "+past" : "");
+#if !defined(_WIN32) && !defined(__SWITCH__)
+                // phase 8: no dbghelp on posix: the module's file name and the offset in it (addr2line -e <module>), and
+                // the dynamic symbol when there is one (a libc call the server thread waits in)
+                else if (Dl_info dl; dladdr((void *)pc, &dl) && dl.dli_fbase)
+                {
+                    const char *module = dl.dli_fname && strrchr(dl.dli_fname, '/') ? strrchr(dl.dli_fname, '/') + 1
+                                                                                    : (dl.dli_fname ? dl.dli_fname : "?");
+                    _snprintf(name, sizeof(name), "%s:%s+0x%llx%s%s", catName, module,
+                              (unsigned long long)(pc - (uintptr_t)dl.dli_fbase), dl.dli_sname ? " " : "",
+                              dl.dli_sname ? dl.dli_sname : "");
+                }
+#endif
                 else
-                    _snprintf(name, sizeof(name), "%s:0x%x", catName, (unsigned int)pc);
+                    _snprintf(name, sizeof(name), "%s:0x%llx", catName, (unsigned long long)pc);
                 name[sizeof(name) - 1] = 0;
                 for (char *c = name; *c; ++c)
                     if (*c == '"' || *c == '\\' || *c < ' ')
