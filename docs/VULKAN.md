@@ -1,6 +1,6 @@
 # Vulkan backend and upscalers — plan
 
-Status (2026-11-22): step 1 (FSR1) built and tested on the host (branch `fsr1`), console untested; steps 2-7
+Status (2026-11-22): step 1 (FSR1) done, checked on the host, on Ryujinx and on the user's console; steps 2-7
 planned. Each step updates this file, `docs/RENDERER.md` and `docs/PORTING.md` (phase 9) in the session that does it.
 
 ## Goals and constraints
@@ -31,7 +31,7 @@ planned. Each step updates this file, `docs/RENDERER.md` and `docs/PORTING.md` (
 - The engine has no sub-pixel jitter and no per-pixel motion vectors. Its motion blur (`r_motionblur_*`) is
   camera-based.
 
-## Step 1 — FSR1 in the frontend (every emulated backend at once) — built, console untested
+## Step 1 — FSR1 in the frontend (every emulated backend at once) — done
 What was built is described in `docs/RENDERER.md`, "Upscaling". In short, and where it departs from the first plan:
 - EASU and RCAS are GLSL **4.30** ports (`src/gfx_d3d9emu/shaders/`) of `ffx_fsr1.h` (MIT,
   `third_party/fidelityfx_fsr1`). They are **embedded in the program**, not added to `shaders.pack`: the packs come from the player's own zones, and a
@@ -50,11 +50,14 @@ What was built is described in `docs/RENDERER.md`, "Upscaling". In short, and wh
   - a 960x540 game capture → 1280x720: PSNR against native 720p 37.6 dB with FSR 1.0 against 36.1 with the stretch;
   - `launcher_config_test`;
   - Linux and Switch builds.
-- Still to do on the console:
-  - Ryujinx: deko3d boots and shows the frame, and `d3d9emu: upscale: FSR 1.0 from 960x540 to 1280x720` is in
-    `boot.log`;
-  - **the user's run**: GPU time per frame at 720p, at 540p and at 540p + FSR 1.0 (the `Present #` lines' `gpu ...
-    ms avg`), and how it looks.
+- Ryujinx (deko3d): Kino at 960x540, a 1280x720 swapchain, clean in-game frames through FSR over 225 s.
+- The user's console (2026-11-22): Kino at 480p + FSR 1.0 (854x480 to 1280x720, sharpness 0.2), shadows off, 30 fps
+  cap.
+  - Steady 30.3 fps over ~2 min 45 s; GPU 13.9 ms a frame median (p90 16.4, max 19.1), FSR included.
+  - No renderer warning; a clean exit.
+  - The user finds the image sharper than before.
+  - Not measured: FSR's own cost. That needs a run with the same settings and FSR off; the old 480p multiplayer
+    logs, 15.7 ms, were not the same scene.
 
 ## Step 2 — SPIR-V pack, offline
 - `tools/ffconv/gen/make_spirv_pack.py`, modelled on `make_dksh_pack.py`: glslang `-V --target-env vulkan1.1`.
