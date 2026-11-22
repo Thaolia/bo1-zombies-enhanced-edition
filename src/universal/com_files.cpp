@@ -2393,8 +2393,10 @@ bool FS_ModsActive()
 
 bool FS_ModStackActive()
 {
-    // phase 8: the dedicated zombies server always stacks mods/admin (its admin commands' script side) and mods/zinfo
-    return (fs_modsVar && *fs_modsVar->current.string) || Sys_IsDedicatedZombiesServer();
+    // phase 8: the dedicated zombies server always stacks mods/admin (its admin commands' script side) and mods/zinfo.
+    // No stack before FS_RegisterDvars: the database thread opens the code zones queued ahead of FS_InitFilesystem
+    // (DB_ModXFileHandle -> DB_ModFileExists), and a server copied onto ext4 got there first and read a null fs_modsVar.
+    return fs_modsVar && (*fs_modsVar->current.string || Sys_IsDedicatedZombiesServer());
 }
 
 // mod: the stacked mods in load order: each fs_mods name once, and fs_game's mod first when it is a mods/<name> folder not
