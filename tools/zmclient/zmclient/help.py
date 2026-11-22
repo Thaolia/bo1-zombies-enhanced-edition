@@ -114,6 +114,10 @@ ROW_HELP = {
                 "stream ou un speedrun. Le hash complet est aussi écrit dans console_mp.log (ligne runinfo:).",
     "gfx_api": "Le moteur de rendu : Direct3D 9 (Windows) ou OpenGL (Linux) par défaut, ou Vulkan "
                "(r_mod_gfxApi sous Windows, BO1_GFX_BACKEND sous Linux). Au prochain lancement.",
+    "fsr": "FSR 1.0 d'AMD, avec Vulkan seulement (r_mod_upscale) : le jeu rend plus petit que la fenêtre puis "
+           "l'agrandit en gardant les contours nets. Plus de FPS sur un GPU limité (Intel). Au prochain lancement.",
+    "fsr_sharpness": "Le renforcement des contours après l'agrandissement (r_mod_upscaleSharpness) : « forte » est le "
+                     "réglage d'AMD ; « douce » ou « faible » si l'image paraît granuleuse.",
     "fps_counter": "Le petit compteur d'images par seconde du portage, en haut à gauche.",
     "scene_models": "Les modèles que le jeu dessine par image (r_mod_sceneModels ; 1024 dans le jeu d'origine). Une map "
                     "importée par Mapkit en a bien plus (Nuketown : 2 096 props) : à 1024 les plus lointains manquent "
@@ -228,6 +232,16 @@ GLOBAL_HELP = [
 
 RUN_INFO_LABELS = {0: "non", 1: "au chargement", 2: "chargement + en jeu"}
 GFX_API_LABELS = {"default": "Direct3D 9 (Windows) / OpenGL (Linux)", "vulkan": "Vulkan"}
+FSR_LABELS = {"off": "non", "ultra": "Ultra qualité (x1,3)", "quality": "Qualité (x1,5)",
+              "balanced": "Équilibré (x1,7)", "performance": "Performance (x2)"}
+FSR_HELP = {
+    "off": "Le jeu rend à la taille de la fenêtre.",
+    "ultra": "Rendu à 77 % de la fenêtre puis agrandi par FSR 1.0 : presque aucune perte.",
+    "quality": "Rendu aux deux tiers de la fenêtre (1280x720 pour 1920x1080).",
+    "balanced": "Rendu à 59 % de la fenêtre.",
+    "performance": "Rendu à la moitié de la fenêtre : le plus rapide, le plus flou.",
+}
+FSR_SHARPNESS_LABELS = {0.0: "maximum", 0.2: "forte (défaut AMD)", 0.5: "moyenne", 1.0: "douce", 2.0: "faible"}
 GFX_API_HELP = {
     "default": "Le rendu habituel : le Direct3D 9 de Windows, OpenGL sous Linux.",
     "vulkan": "Le rendu par Vulkan (Windows 64 bits, Linux). Il lui faut shaders.spv à côté du programme ; sans lui, "

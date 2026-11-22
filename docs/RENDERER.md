@@ -265,7 +265,9 @@ The system's Direct3D 9 stays the default; with `r_mod_gfxApi vulkan`, `R_PreCre
 when `shaders.spv` is missing beside the exe or Vulkan does not start. On Windows the emulator's entry points are
 `Bo1Emu_Direct3DCreate9`/`Bo1Emu_Direct3DCreate9Ex`, so `d3d9.lib`'s keep their names; D3DX remains `d3dx9.lib`'s and
 works on the emulated surfaces (screenshots). The surface is `VK_KHR_win32_surface` on the game's `HWND`
-(`win_vkhost.cpp`).
+(`win_vkhost.cpp`). FSR 1.0 there is `r_mod_upscale`: the engine makes its back buffer (and vidConfig) the window's
+size over the mode's factor, the window keeps its size, and the host hands the frontend the window as the upscaler's
+output (`Bo1_SetUpscale`); the mouse is moved into back buffer pixels (`Bo1_ClientToBackBuffer`).
 
 ## Shaders
 `ffconv` translates D3D9 SM3 bytecode with MojoShader (`third_party/mojoshader`, GLSL profile) and normalises the

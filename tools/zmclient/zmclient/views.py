@@ -641,6 +641,13 @@ class LaunchView(RowsView):
             Row("gfx_api", "API graphique", H.GFX_API_LABELS[p["gfx_api"]],
                 self.choose("gfx_api", "API graphique",
                             [(k, v, H.GFX_API_HELP[k]) for k, v in H.GFX_API_LABELS.items()])),
+            Row("fsr", "FSR 1.0", H.FSR_LABELS[p["fsr"]],
+                self.choose("fsr", "FSR 1.0", [(k, v, H.FSR_HELP[k]) for k, v in H.FSR_LABELS.items()]),
+                disabled=None if p["gfx_api"] == "vulkan" else "avec l'API graphique Vulkan seulement"),
+            Row("fsr_sharpness", "Netteté FSR", H.FSR_SHARPNESS_LABELS[p["fsr_sharpness"]],
+                self.choose("fsr_sharpness", "Netteté FSR",
+                            [(k, v, H.ROW_HELP["fsr_sharpness"]) for k, v in H.FSR_SHARPNESS_LABELS.items()]),
+                disabled=None if p["gfx_api"] == "vulkan" and p["fsr"] != "off" else "FSR 1.0 désactivé"),
             Row("scene_models", "Modèles affichés par image", str(p["scene_models"]),
                 self.choose("scene_models", "Modèles affichés par image", [
                     (1024, "1024", "le jeu d'origine"),

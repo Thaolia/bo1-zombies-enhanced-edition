@@ -142,10 +142,19 @@ Done on branch `vulkan` (2026-11-22):
   cap, quits cleanly; native D3D9 with the same exe unchanged; the fallback without `shaders.spv` renders on D3D9;
   with 4x MSAA, shadows and depth of field, 30 fps at ~3 400 draws a frame.
 
+- FSR1 on win64 (2026-11-23): `r_mod_upscale` (`off`, `ultra` x1.3, `quality` x1.5, `balanced` x1.7, `performance`
+  x2, AMD's factors) and `r_mod_upscaleSharpness` (0 to 2, default 0.2), latched and archived, registered with
+  `BO1_WIN_VULKAN` only and active only on the emulated Direct3D. The engine ties the back buffer to the window in two
+  places, `R_SetD3DPresentParameters` and `R_StoreWindowSettings` (vidConfig): both take the window's size over the
+  factor (`R_ModUpscaleSize`), the windows keep theirs, `Bo1_SetUpscale` hands the frontend the window as the output,
+  and `IN_MouseMove` moves the cursor from client to back buffer pixels (`Bo1_ClientToBackBuffer`). The `BO1_UPSCALE*`
+  variables stay posix's. ZmClient: "FSR 1.0" and "Netteté FSR" under the Vulkan API. `tools/codediff.py`:
+  `r_init.cpp`, `r_dvars.cpp`, `win_input.cpp` identical. Checked on the Iris Xe: a 1920x1080 borderless window renders
+  1280x720 (`quality`) and FSR 1.0 upscales it, steady at the test's 30 fps cap.
+
 Still to do in this step:
-- FSR1 on win64. The Win32 surface takes the window's size and the engine sizes its back buffer to the window (the
-  borderless one to the monitor): it needs a render scale in the engine (`BO1_WIN_VULKAN` only), a back buffer smaller
-  than the borderless window, and the mouse mapped from the window to the back buffer.
+- FSR1 on win64 on the player's screen: the mouse in the menus and the image itself (a headless run's screenshot reads
+  the back buffer, not the upscaled output).
 - `shaders.spv` for players: the install's conversion (ZmClient's Installation view, `ffconv`) must also make the
   SPIR-V pack, with a redistributable glslang/spirv-val in the Windows package, and the pack compressed (477.6 MB).
 - The cyan glow of Kino's ticket counter (lobby, left arch) is missing on Vulkan and GL alike, present with native D3D9

@@ -44,6 +44,11 @@ MODEL_LIGHTING_ENTRIES_MAX = 5120   # r_mod_modelLightingEntries' cap (r_model_l
 # The renderer (docs/VULKAN.md): "default" is the system's Direct3D 9 on Windows and OpenGL on Linux; "vulkan" is
 # r_mod_gfxApi vulkan on win64 (an archived dvar, so ZmClient always sets it) and BO1_GFX_BACKEND=vulkan on Linux.
 GFX_APIS = ("default", "vulkan")
+# FSR 1.0 under Vulkan on Windows (r_mod_upscale): the game renders at the window's size over the mode's factor and
+# upscales to the window; the sharpness is RCAS's, in stops below its sharpest (r_mod_upscaleSharpness). The choices are
+# the Switch start menu's (launcher_config.cpp).
+FSR_MODES = ("off", "ultra", "quality", "balanced", "performance")
+FSR_SHARPNESS = (0.0, 0.2, 0.5, 1.0, 2.0)
 
 DEFAULTS = {
     "mode": "solo",
@@ -60,6 +65,8 @@ DEFAULTS = {
     "run_info": 1,                      # bo1_runinfo: 0 off, 1 on the loading screen, 2 also in a corner in game
     "scene_models": 1024,              # one of SCENE_MODEL_CHOICES
     "gfx_api": "default",              # one of GFX_APIS
+    "fsr": "off",                      # one of FSR_MODES (Vulkan only)
+    "fsr_sharpness": 0.2,              # one of FSR_SHARPNESS
     # aim assist (gamepad): "" leaves the game's value, "1" / "0" sets it
     "aim_assist": "",
     "aim_slowdown": "",
@@ -158,6 +165,10 @@ class Profile:
             self.data["split_layout"] = DEFAULTS["split_layout"]
         if self.data["gfx_api"] not in GFX_APIS:
             self.data["gfx_api"] = DEFAULTS["gfx_api"]
+        if self.data["fsr"] not in FSR_MODES:
+            self.data["fsr"] = DEFAULTS["fsr"]
+        if self.data["fsr_sharpness"] not in FSR_SHARPNESS:
+            self.data["fsr_sharpness"] = DEFAULTS["fsr_sharpness"]
         if self.data["scene_models"] not in SCENE_MODEL_CHOICES:
             self.data["scene_models"] = DEFAULTS["scene_models"]
         if self.data["bo2_weapons"] not in dict(BO2_WEAPON_CHOICES):
@@ -385,6 +396,8 @@ def build_command(p, exe, dist_root, launch_cfg="", player=1, server_mods=None):
         argv += window_flags(p)
     add_scene_models(argv, p["scene_models"])
     argv += ["+set", "r_mod_gfxApi", "vulkan" if p["gfx_api"] == "vulkan" else "d3d9"]
+    if p["gfx_api"] == "vulkan":
+        argv += ["+set", "r_mod_upscale", p["fsr"], "+set", "r_mod_upscaleSharpness", f"{p['fsr_sharpness']:g}"]
     if p["fps_counter"]:
         argv += ["+set", "bo1_fpscounter", "1"]
     argv += ["+set", "bo1_runinfo", str(p["run_info"])]

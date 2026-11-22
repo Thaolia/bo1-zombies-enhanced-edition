@@ -460,6 +460,22 @@ class CommandLine(unittest.TestCase):
         p["mode"], p["join_host"] = "join", "10.0.0.1"
         self.assertIn("+set r_mod_gfxApi vulkan", " ".join(P.build_command(p, "x", "/g")))
 
+    def test_fsr(self):
+        p = P.Profile()
+        p["fsr"] = "quality"
+        self.assertNotIn("r_mod_upscale", " ".join(P.build_command(p, "x", "/g")))   # Vulkan only
+        p["gfx_api"] = "vulkan"
+        line = " ".join(P.build_command(p, "x", "/g"))
+        self.assertIn("+set r_mod_upscale quality +set r_mod_upscaleSharpness 0.2", line)
+        p["fsr"], p["fsr_sharpness"] = "off", 1.0
+        self.assertIn("+set r_mod_upscale off +set r_mod_upscaleSharpness 1", " ".join(P.build_command(p, "x", "/g")))
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "profile.json")
+            with open(path, "w") as f:
+                json.dump({"fsr": "huge", "fsr_sharpness": 3.0}, f)
+            q = P.Profile(path)
+            self.assertEqual((q["fsr"], q["fsr_sharpness"]), ("off", 0.2))
+
     def test_scene_models(self):
         def dvar(argv, name):
             values = [argv[i + 2] for i in range(len(argv) - 2) if argv[i] == "+set" and argv[i + 1] == name]

@@ -9,7 +9,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-#include <cstring>
 #include <string>
 
 char *__cdecl Sys_DefaultInstallPath();
@@ -22,6 +21,10 @@ extern "C" HRESULT WINAPI Bo1Emu_Direct3DCreate9Ex(UINT sdkVersion, IDirect3D9Ex
 namespace
 {
 constexpr int kConsoleChannelGfx = 8;
+
+bool s_emulated = false;
+d3d9emu::host::UpscaleSettings s_upscale = {};
+unsigned int s_backWidth = 0, s_backHeight = 0;
 
 HMONITOR PrimaryMonitor()
 {
@@ -46,13 +49,40 @@ IDirect3D9 *Bo1_EmulatedDirect3D(bool ex)
     }
     // gb::Init picks the backend from the environment, as on posix; r_mod_gfxApi only names Vulkan for now.
     _putenv_s("BO1_GFX_BACKEND", "vulkan");
+    IDirect3D9 *d3d = nullptr;
     if (!ex)
-        return Bo1Emu_Direct3DCreate9(D3D_SDK_VERSION);
-    IDirect3D9Ex *d3d = nullptr;
-    const HRESULT hr = Bo1Emu_Direct3DCreate9Ex(D3D_SDK_VERSION, &d3d);
-    if (FAILED(hr))
-        Com_Printf(kConsoleChannelGfx, "r_mod_gfxApi: the emulated Direct3D 9Ex failed (0x%08x)\n", unsigned(hr));
+        d3d = Bo1Emu_Direct3DCreate9(D3D_SDK_VERSION);
+    else
+    {
+        IDirect3D9Ex *d3dEx = nullptr;
+        const HRESULT hr = Bo1Emu_Direct3DCreate9Ex(D3D_SDK_VERSION, &d3dEx);
+        if (FAILED(hr))
+            Com_Printf(kConsoleChannelGfx, "r_mod_gfxApi: the emulated Direct3D 9Ex failed (0x%08x)\n", unsigned(hr));
+        d3d = d3dEx;
+    }
+    s_emulated = d3d != nullptr;
     return d3d;
+}
+
+bool Bo1_EmulatedDirect3DActive()
+{
+    return s_emulated;
+}
+
+void Bo1_SetUpscale(unsigned int backWidth, unsigned int backHeight, unsigned int outputWidth,
+                    unsigned int outputHeight, float sharpness)
+{
+    s_backWidth = backWidth;
+    s_backHeight = backHeight;
+    s_upscale = {outputWidth, outputHeight, sharpness};
+}
+
+void Bo1_ClientToBackBuffer(int *x, int *y)
+{
+    if (!s_upscale.outputWidth || !s_upscale.outputHeight)
+        return;
+    *x = int(int64_t(*x) * s_backWidth / s_upscale.outputWidth);
+    *y = int(int64_t(*y) * s_backHeight / s_upscale.outputHeight);
 }
 
 namespace d3d9emu::host
@@ -136,38 +166,12 @@ const char *ShaderPackPath()
     return path.c_str();
 }
 
-// As on posix (posix_d3d9host.cpp): BO1_UPSCALE=fsr1, BO1_UPSCALE_OUTPUT=<width>x<height>, BO1_UPSCALE_SHARPNESS.
+// What r_mod_upscale asked for (r_init.cpp, R_SetD3DPresentParameters, through Bo1_SetUpscale).
 bool Upscale(UpscaleSettings *settings)
 {
-    static const UpscaleSettings *chosen = []() -> const UpscaleSettings * {
-        const char *mode = getenv("BO1_UPSCALE");
-        if (!mode || !*mode || !std::strcmp(mode, "off"))
-            return nullptr;
-        static UpscaleSettings s = {0, 0, 0.2f};
-        const char *output = getenv("BO1_UPSCALE_OUTPUT");
-        unsigned width = 0, height = 0;
-        char end = 0;
-        if (std::strcmp(mode, "fsr1") || !output || sscanf(output, "%ux%u%c", &width, &height, &end) != 2 ||
-            width < 16 || height < 16 || width > 8192 || height > 8192)
-        {
-            Com_Printf(kConsoleChannelGfx, "d3d9emu: BO1_UPSCALE=%s BO1_UPSCALE_OUTPUT=%s not understood: no upscale\n",
-                       mode, output ? output : "(unset)");
-            return nullptr;
-        }
-        s.outputWidth = width;
-        s.outputHeight = height;
-        if (const char *sharpness = getenv("BO1_UPSCALE_SHARPNESS"))
-        {
-            char *after = nullptr;
-            const float value = strtof(sharpness, &after);
-            if (after != sharpness && !*after && value >= 0.0f && value <= 2.0f)
-                s.sharpness = value;
-        }
-        return &s;
-    }();
-    if (!chosen)
+    if (!s_upscale.outputWidth || !s_upscale.outputHeight)
         return false;
-    *settings = *chosen;
+    *settings = s_upscale;
     return true;
 }
 
