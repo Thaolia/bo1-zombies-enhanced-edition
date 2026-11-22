@@ -4,13 +4,13 @@ Status (2026-11-22): step 1 (FSR1) done, checked on the host, on Ryujinx and on 
 pack) and 3 (Vulkan backend on Linux) done on branch `vulkan`; step 4 in progress; steps 5-7 planned. Each step updates this file, `docs/RENDERER.md` and `docs/PORTING.md` (phase 9) in the session that does it.
 
 ## Goals and constraints
-- A Vulkan backend behind `src/gfx_backend/gfx_backend.h`, opt-in on **Linux**, **win64** and, after the Windows port, **OpenBSD**.
+- A Vulkan backend behind `src/gfx_backend/gfx_backend.h`, opt-in on **Linux**, **win64** and, last of all (after ASR), **OpenBSD**.
 - **OpenGL stays the default** backend on Linux and OpenBSD. On win64, native Direct3D 9 stays the default.
 - **`win32-msvc` changes as little as possible**: it compiles none of the new files, and every engine edit it does see
   is guarded so its code stays identical (`tools/codediff.py`).
 - Upscaling in this order:
   1. **FSR1** first (spatial, all emulated backends, the Switch included);
-  2. **Arm ASR** last, at the end of the Vulkan port (temporal).
+  2. **Arm ASR** last, after the win64 port (temporal); only Vulkan on OpenBSD comes after it.
 - The Switch keeps deko3d: Vulkan is not a Switch backend.
 
 ## Facts the plan rests on (checked 2026-11-22)
@@ -124,14 +124,7 @@ Described in `docs/RENDERER.md`, "The Vulkan backend". In short:
   - `win32-msvc` builds once before the merge.
 - Estimate: 3-4 sessions.
 
-## Step 6 — OpenBSD (after the Windows port)
-- Cross-build with `BO1_VULKAN` (`~/cross-pkg-openbsd`, mirror `/home/james/build/bo1-openbsd`). volk loads
-  `libvulkan.so` at run time and the headers are vendored: no new build dependency.
-- Packaging is unchanged apart from a README line.
-- Never run on real OpenBSD by us: Vulkan there is "for a player to try", and GL stays the default.
-- Estimate: 0.5-1 session.
-
-## Step 7 — Arm ASR (end of the Vulkan port)
+## Step 6 — Arm ASR (after the Windows port)
 Arm Accuracy Super Resolution (`github.com/arm/accuracy-super-resolution`, generic library, MIT) is FSR 2.2.2
 optimised for mobile GPUs:
 - it takes FSR2's inputs (colour, depth, motion vectors, jitter, optional reactive mask);
@@ -161,13 +154,21 @@ optimised for mobile GPUs:
 Known limit: with camera-only motion vectors, zombies and other animated models may ghost. Per-object motion vectors
 would mean changing every skinned material's generated shaders, which is out of scope.
 
+## Step 7 — OpenBSD (last, after ASR)
+- Cross-build with `BO1_VULKAN` (`~/cross-pkg-openbsd`, mirror `/home/james/build/bo1-openbsd`). volk loads
+  `libvulkan.so` at run time and the headers are vendored: no new build dependency.
+- Packaging is unchanged apart from a README line.
+- Never run on real OpenBSD by us: Vulkan there is "for a player to try", and GL stays the default.
+- Estimate: 0.5-1 session.
+
 ## Totals
 | Part | Sessions |
 |---|---|
 | FSR1 (step 1) | 1-2 |
-| Vulkan on Linux, win64, then OpenBSD (steps 2-6) | 10-14 |
-| ASR on PC (step 7, items 1-3) | 6-7 |
-| ASR on the Switch (step 7, item 4) | +3-5 |
+| Vulkan on Linux and win64 (steps 2-5) | 9-12 |
+| ASR on PC (step 6, items 1-3) | 6-7 |
+| ASR on the Switch (step 6, item 4) | +3-5 |
+| Vulkan on OpenBSD (step 7, last) | 0.5-1 |
 
 ## Working rules for this plan
 - Work in a sibling worktree `../BO-Zombies_switch_vulkan` (every step touches 5+ files); merge into `switch` step by
