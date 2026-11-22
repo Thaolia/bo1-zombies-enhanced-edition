@@ -68,7 +68,7 @@ void WarnOnce(const char *, const char *fmt, ...)
 }
 } // namespace d3d9emu
 
-// The test's host: SDL's context on a hidden window, as tests/gfx_backend/gb_gl_test.cpp makes it.
+// The test's host: SDL's context on a hidden window, as tests/gfx_backend/gb_backend_test.cpp makes it.
 namespace gb::gl::host
 {
 bool Open()

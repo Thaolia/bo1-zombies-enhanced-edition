@@ -114,10 +114,11 @@ bool WindowVisible(HWND hwnd)
 
 const char *ShaderPackPath()
 {
-    // deko3d loads DKSH that uam compiled offline (shaders.dksh); GL/null load the GLSL pack.
-    static const bool dksh = !std::strcmp(gb::Name(), "deko3d");
-    static const std::string path =
-        Bo1_PosixPath(Sys_DefaultInstallPath()) + (dksh ? "/shaders.dksh" : "/shaders.pack");
+    // deko3d loads DKSH that uam compiled offline (shaders.dksh), Vulkan SPIR-V (shaders.spv); GL/null the GLSL pack.
+    static const char *const name = !std::strcmp(gb::Name(), "deko3d")   ? "/shaders.dksh"
+                                    : !std::strcmp(gb::Name(), "vulkan") ? "/shaders.spv"
+                                                                         : "/shaders.pack";
+    static const std::string path = Bo1_PosixPath(Sys_DefaultInstallPath()) + name;
     return path.c_str();
 }
 

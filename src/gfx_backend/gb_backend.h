@@ -110,4 +110,8 @@ namespace deko3d
 {
 const Backend &Table();
 }
+namespace vulkan
+{
+const Backend &Table();
+}
 } // namespace gb

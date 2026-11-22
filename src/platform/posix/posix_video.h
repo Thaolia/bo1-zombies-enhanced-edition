@@ -16,6 +16,8 @@ bool Bo1_VideoReady();
 void Bo1_VideoRelease();
 // From now on the layer makes its SDL windows OpenGL ones, for the GL backend's context (posix_glhost.cpp).
 void Bo1_UseGlWindows();
+// From now on the layer makes its SDL windows Vulkan ones, for the Vulkan backend's surfaces (posix_vkhost.cpp).
+void Bo1_UseVulkanWindows();
 // The display an HMONITOR stands for (displays count from 0, HMONITORs from 1).
 HMONITOR Bo1_DisplayMonitor(int display);
 // The SDL window behind a game window, or null.

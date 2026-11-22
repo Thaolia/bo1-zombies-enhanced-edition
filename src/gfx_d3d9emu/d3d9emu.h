@@ -476,6 +476,7 @@ enum class ShaderForm
     None,
     Glsl,
     Dksh,
+    Spirv,
 };
 ShaderForm ShaderPackForm();
 

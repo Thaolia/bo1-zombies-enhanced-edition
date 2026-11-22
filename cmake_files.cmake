@@ -2466,6 +2466,24 @@ set(GFX_BACKEND_DEKO3D_FILES
 	${SRC_GFX_BACKEND_DEKO3D}
 )
 
+set(SRC_GFX_BACKEND_VULKAN
+	"${SRC_DIR}/gfx_backend/vulkan/gb_vk.cpp"
+	"${SRC_DIR}/gfx_backend/vulkan/gb_vk.h"
+	"${SRC_DIR}/gfx_backend/vulkan/gb_vk_host.h"
+	"${SRC_DIR}/gfx_backend/vulkan/gb_vk_vma.cpp"
+)
+source_group("gfx_backend/vulkan" FILES ${SRC_GFX_BACKEND_VULKAN})
+
+set(GFX_BACKEND_VULKAN_FILES
+	${SRC_GFX_BACKEND_VULKAN}
+	"${CMAKE_CURRENT_SOURCE_DIR}/third_party/volk/volk.c"
+)
+set(BO1_VULKAN_INCLUDE_DIRS
+	"${CMAKE_CURRENT_SOURCE_DIR}/third_party/vulkan-headers/include"
+	"${CMAKE_CURRENT_SOURCE_DIR}/third_party/volk"
+	"${CMAKE_CURRENT_SOURCE_DIR}/third_party/vma"
+)
+
 # ----- src/qcommon -----
 set(SRC_QCOMMON
 	"${SRC_DIR}/qcommon/bitarray.h"

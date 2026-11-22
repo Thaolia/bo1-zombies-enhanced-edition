@@ -35,8 +35,8 @@ planned. Each step updates this file, `docs/RENDERER.md` and `docs/PORTING.md` (
 What was built is described in `docs/RENDERER.md`, "Upscaling". In short, and where it departs from the first plan:
 - EASU and RCAS are GLSL **4.30** ports (`src/gfx_d3d9emu/shaders/`) of `ffx_fsr1.h` (MIT,
   `third_party/fidelityfx_fsr1`). They are **embedded in the program**, not added to `shaders.pack`: the packs come from the player's own zones, and a
-  program shader must not depend on regenerating them. `tools/upscale_shaders.py` writes them into a generated header,
-  as GLSL and, in the Switch build, as DKSH from uam. The frontend hands the backend the form of its pack.
+  program shader must not depend on regenerating them. `tools/embed_shaders.py` writes them into a generated header,
+  as GLSL and, in the Switch build, as DKSH from uam (SPIR-V too since step 3). The frontend hands the backend the form of its pack.
 - Variant A as planned: the swapchain takes the output size, `Present` copies the back buffer, then draws EASU, then
   RCAS. `gfx_backend.h` is unchanged; the HUD goes through the upscale.
 - The settings are **host settings, not dvars**: the frontend sits below the engine and reads none.

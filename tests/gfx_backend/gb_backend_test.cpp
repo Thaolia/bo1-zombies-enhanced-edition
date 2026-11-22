@@ -1,11 +1,21 @@
-// The GL backend against the contract (src/gfx_backend/gfx_backend.h): it draws with the backend alone and reads the
-// pixels back, so each check proves one of D3D9's conventions on GL (row 0 on top, depth from 0 to 1, clockwise front
-// faces, two-sided stencil, and pixel centres on integers through the shaders' bo1_pos_fixup, multisampled edges
-// included) or one format, copy, query or fence path. It needs a GL 4.3 core context: run it as
-// SDL_VIDEODRIVER=offscreen ./gb_gl_test, which shows nothing on the display.
+// A backend against the contract (src/gfx_backend/gfx_backend.h): it draws with the backend alone and reads the pixels
+// back, so each check proves one of D3D9's conventions on it (row 0 on top, depth from 0 to 1, clockwise front faces,
+// two-sided stencil, and pixel centres on integers through the shaders' bo1_pos_fixup, multisampled edges included) or
+// one format, copy, query or fence path. Built twice:
+// - gb_gl_test, on the GL backend: it needs a GL 4.3 core context, so run it as SDL_VIDEODRIVER=offscreen
+//   ./gb_gl_test, which shows nothing on the display;
+// - gb_vk_test (GB_TEST_VULKAN), on the Vulkan backend: it renders into textures only, with no window, and runs on
+//   any Vulkan 1.3 device (llvmpipe's lavapipe included); BO1_VK_DEBUG=1 adds the validation layer.
+// The shaders (tests/gfx_backend/shaders) are embedded by tools/embed_shaders.py, as GLSL or SPIR-V.
 
 #include <gfx_backend/gfx_backend.h>
+#if defined(GB_TEST_VULKAN)
+#include <gfx_backend/vulkan/gb_vk_host.h>
+#else
 #include <gfx_backend/gl/gb_gl_host.h>
+#endif
+
+#include "test_shaders.h"
 
 #include <SDL.h>
 
@@ -32,10 +42,42 @@ void Check(bool condition, const char *what)
     }
 }
 
+#if !defined(GB_TEST_VULKAN)
 SDL_Window *g_hidden = nullptr;
 SDL_GLContext g_context = nullptr;
+#endif
 } // namespace
 
+#if defined(GB_TEST_VULKAN)
+// The test's host: no window, so no instance extension and no surface; the backend renders into textures.
+namespace gb::vulkan::host
+{
+bool Open(std::vector<std::string> *instanceExtensions)
+{
+    instanceExtensions->clear();
+    return true;
+}
+
+bool CreateSurface(VkInstance, void *, VkSurfaceKHR *)
+{
+    return false;
+}
+
+void DrawableSize(void *, int *width, int *height)
+{
+    *width = *height = 0;
+}
+
+void Close()
+{
+}
+
+void Log(const char *line)
+{
+    std::printf("%s\n", line);
+}
+} // namespace gb::vulkan::host
+#else
 // The test's host: SDL's context on a hidden window, as posix_glhost.cpp makes it.
 namespace gb::gl::host
 {
@@ -105,49 +147,27 @@ void Log(const char *line)
     std::printf("%s\n", line);
 }
 } // namespace gb::gl::host
+#endif
 
 namespace
 {
 constexpr int kSize = 64;
 
 // The frontend's shader interface as ffconv writes it (docs/RENDERER.md), bo1_pos_fixup included, with c0.x choosing
-// what the pixel shader writes: the vertex colour (0), the texture at s0 (1), the fragment's integer coordinates
-// in red and green (2), or the shadow test of s1 with c0.y as the reference depth (3).
-const char kVertex[] = R"(#version 430 core
-layout(std140, binding = 0) uniform BO1VertexConstants { vec4 vs_c_reg[256]; vec4 bo1_pos_fixup; };
-layout(location = 0) in vec4 position;
-layout(location = 1) in vec4 colour;
-layout(location = 2) in vec2 uv;
-layout(location = 0) out vec4 io_colour;
-layout(location = 1) out vec2 io_uv;
-void main()
-{
-    gl_Position = position;
-    io_colour = colour;
-    io_uv = uv;
-    gl_Position.xy += bo1_pos_fixup.xy * gl_Position.w;
-}
-)";
+// what the pixel shader writes (shaders/test_ps.glsl): the vertex colour (0), the texture at s0 (1), the fragment's
+// integer coordinates in red and green (2), or the shadow test of s1 with c0.y as the reference depth (3).
+#if defined(GB_TEST_VULKAN)
+#define TEST_SHADER(name) test_shaders::kSpirv##name
+#else
+#define TEST_SHADER(name) test_shaders::kGlsl##name
+#endif
 
-const char kPixel[] = R"(#version 430 core
-layout(std140, binding = 1) uniform BO1PixelConstants { vec4 ps_c_reg[256]; vec4 bo1_alpha_test; };
-layout(binding = 0) uniform sampler2D s0;
-layout(binding = 1) uniform sampler2DShadow s1;
-layout(location = 0) in vec4 io_colour;
-layout(location = 1) in vec2 io_uv;
-layout(location = 0) out vec4 bo1_color0;
-void main()
+template <size_t N>
+gb::Shader *MakeShader(gb::Stage stage, uint64_t hash, const unsigned char (&code)[N])
 {
-    if (ps_c_reg[0].x > 2.5)
-        bo1_color0 = vec4(textureProj(s1, vec4(io_uv, ps_c_reg[0].y, 1.0)));
-    else if (ps_c_reg[0].x > 1.5)
-        bo1_color0 = vec4(floor(gl_FragCoord.xy) / 255.0, 0.0, 1.0);
-    else if (ps_c_reg[0].x > 0.5)
-        bo1_color0 = texture(s0, io_uv);
-    else
-        bo1_color0 = io_colour;
+    return gb::CreateShader(stage, hash, reinterpret_cast<const char *>(code), uint32_t(N));
 }
-)";
+
 
 struct Vertex
 {
@@ -658,27 +678,8 @@ void TestShadowCompare()
 // apart -- clamped gives 0.5 (the vertices become 1 and 0), unclamped gives 1.0 (interpolating 2 and 0).
 void TestColorClamp()
 {
-    // The normaliser's output for this case: a COLOR varying clamped at the end of main.
-    const char *vs = R"(#version 430 core
-layout(std140, binding = 0) uniform BO1VertexConstants { vec4 vs_c_reg[256]; vec4 bo1_pos_fixup; };
-layout(location = 0) in vec4 position;
-layout(location = 1) in vec4 colour;
-layout(location = 16) out vec4 io_10_0;
-void main()
-{
-    gl_Position = position;
-    io_10_0 = colour;
-    io_10_0 = clamp(io_10_0, 0.0, 1.0);
-    gl_Position.xy += bo1_pos_fixup.xy * gl_Position.w;
-}
-)";
-    const char *ps = R"(#version 430 core
-layout(location = 16) in vec4 io_10_0;
-layout(location = 0) out vec4 bo1_color0;
-void main() { bo1_color0 = io_10_0; }
-)";
-    gb::Shader *vshader = gb::CreateShader(gb::Stage::Vertex, 100, vs, uint32_t(std::strlen(vs)));
-    gb::Shader *pshader = gb::CreateShader(gb::Stage::Pixel, 101, ps, uint32_t(std::strlen(ps)));
+    gb::Shader *vshader = MakeShader(gb::Stage::Vertex, 100, TEST_SHADER(ClampVs));
+    gb::Shader *pshader = MakeShader(gb::Stage::Pixel, 101, TEST_SHADER(ClampPs));
     gb::PipelineDesc d;
     d.vertex = vshader;
     d.pixel = pshader;
@@ -746,6 +747,7 @@ void TestQueriesAndFences()
 
 void TestShaderFailure()
 {
+    // Neither GLSL nor SPIR-V, so it fails on either backend.
     const char broken[] = "#version 430 core\nvoid main() { this is not glsl }\n";
     gb::Shader *bad = gb::CreateShader(gb::Stage::Pixel, 0x1234, broken, uint32_t(sizeof(broken) - 1));
     gb::PipelineDesc d = Pipeline();
@@ -757,15 +759,19 @@ void TestShaderFailure()
 
 int main()
 {
+#if defined(GB_TEST_VULKAN)
+    setenv("BO1_GFX_BACKEND", "vulkan", 1);
+#else
     setenv("BO1_GFX_BACKEND", "gl", 1);
     if (SDL_Init(SDL_INIT_VIDEO))
     {
         std::printf("SDL video: %s\n", SDL_GetError());
         return 1;
     }
+#endif
     if (!gb::Init())
     {
-        std::printf("the GL backend has no device\n");
+        std::printf("the backend has no device\n");
         return 1;
     }
     std::printf("backend %s: %s\n", gb::Name(), gb::GetCaps().device);
@@ -775,10 +781,12 @@ int main()
     Check(caps.formatFlags[int(gb::Format::D24S8)] & gb::FORMAT_DEPTH_TARGET, "D24S8 is a depth attachment");
     Check(caps.formatFlags[int(gb::Format::BC3)] & gb::FORMAT_SAMPLED, "BC3 is sampled");
 
+#if !defined(GB_TEST_VULKAN)
     g.window = SDL_CreateWindow("gb_gl_test", 0, 0, kSize, kSize, SDL_WINDOW_OPENGL | SDL_WINDOW_HIDDEN);
+#endif
     g.swapchain = gb::CreateSwapchain({g.window, kSize, kSize, false});
-    g.vs = gb::CreateShader(gb::Stage::Vertex, 1, kVertex, uint32_t(sizeof(kVertex) - 1));
-    g.ps = gb::CreateShader(gb::Stage::Pixel, 2, kPixel, uint32_t(sizeof(kPixel) - 1));
+    g.vs = MakeShader(gb::Stage::Vertex, 1, TEST_SHADER(Vs));
+    g.ps = MakeShader(gb::Stage::Pixel, 2, TEST_SHADER(Ps));
     g.vertices = gb::CreateBuffer({gb::BufferType::Vertex, gb::Usage::Dynamic, gb::Memory::Shared, 1u << 20});
     gb::TextureDesc rt = {gb::TextureType::Tex2D, gb::Format::BGRA8, gb::Usage::RenderTarget, true, kSize, kSize, 1, 1, 1,
                           {}};
@@ -815,9 +823,11 @@ int main()
     gb::DestroyShader(g.vs);
     gb::DestroyShader(g.ps);
     gb::DestroySwapchain(g.swapchain);
-    SDL_DestroyWindow(g.window);
     gb::Shutdown();
+#if !defined(GB_TEST_VULKAN)
+    SDL_DestroyWindow(g.window);
     SDL_Quit();
+#endif
     std::printf("%d checks, %d failed\n", g_checks, g_failures);
     return g_failures ? 1 : 0;
 }

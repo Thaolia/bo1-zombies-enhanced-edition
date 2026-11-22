@@ -1,5 +1,6 @@
 // FSR 1.0 on the presented frame (d3d9emu_upscale.h). The shaders come from src/gfx_d3d9emu/shaders, embedded by
-// tools/upscale_shaders.py as GLSL and, in the Switch build, as DKSH: the backend gets the form shaders.pack has.
+// tools/embed_shaders.py as GLSL, as DKSH in the Switch build and as SPIR-V in builds with the Vulkan backend: the
+// backend gets the form shaders.pack has.
 
 #include "d3d9emu_upscale.h"
 
@@ -104,6 +105,15 @@ bool Upscaler::PrepareShaders(gb::Format format)
             m_rcas = Create(gb::Stage::Pixel, kHashRcas, upscale_shaders::kDkshRcas);
 #else
             Logf("d3d9emu: upscale: this build has no DKSH of the FSR 1.0 shaders: stretched instead");
+#endif
+            break;
+        case ShaderForm::Spirv:
+#if defined(BO1_UPSCALE_HAS_SPIRV)
+            m_vertex = Create(gb::Stage::Vertex, kHashVertex, upscale_shaders::kSpirvVs);
+            m_easu = Create(gb::Stage::Pixel, kHashEasu, upscale_shaders::kSpirvEasu);
+            m_rcas = Create(gb::Stage::Pixel, kHashRcas, upscale_shaders::kSpirvRcas);
+#else
+            Logf("d3d9emu: upscale: this build has no SPIR-V of the FSR 1.0 shaders: stretched instead");
 #endif
             break;
         case ShaderForm::None:

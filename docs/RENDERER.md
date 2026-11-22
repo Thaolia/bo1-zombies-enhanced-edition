@@ -123,8 +123,8 @@ console's compositor stretches the frame bilinearly.
     would return black there).
   - RCAS's divisors are kept off zero: AMD's code relies on the hardware's min/max dropping a NaN, which GLSL leaves
     undefined.
-  - `tools/upscale_shaders.py` embeds them in a generated header as GLSL and, in the Switch build, as DKSH from uam
-    (under `setarch -R`, deterministic). The frontend hands the backend the form its `shaders.pack` has
+  - `tools/embed_shaders.py` embeds them in a generated header as GLSL, in the Switch build also as DKSH from uam
+    (under `setarch -R`, deterministic), and with the Vulkan backend also as SPIR-V. The frontend hands the backend the form its `shaders.pack` has
     (`ShaderPackForm`), under fixed hashes (`b01f5a1000000001` to `03`) that no shader of the zombies zones' pack has.
   - Without a usable form (no pack, a DKSH pack in a build without the DKSH), the frame is stretched by a linear
     `Blit`, logged once.
@@ -182,7 +182,7 @@ and the windows to present to; the Switch would implement the same host with EGL
   the frontend side waited (frames, links, sync points) and how long the backend's thread spent on commands, builds
   and swaps.
 
-`tests/gfx_backend/gb_gl_test.cpp` draws with the backend alone under SDL's offscreen driver and reads the pixels
+`tests/gfx_backend/gb_backend_test.cpp`, built as `gb_gl_test`, draws with the backend alone under SDL's offscreen driver and reads the pixels
 back: row 0 on top, fragment coordinates, depth and the viewport's depth range, viewport and scissor rows, clockwise
 front faces and two-sided stencil, pixel centres through `bo1_pos_fixup` (with the fixup turned off it fails),
 4-sample edge pixels (with the old half-pixel viewport it fails), texture rows and formats (B5G6R5, B5G5R5A1,
