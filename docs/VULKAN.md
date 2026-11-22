@@ -126,8 +126,15 @@ Done on branch `vulkan` (2026-11-22):
 - Bink is a stub on win64 (`BO1_OFFLINE`), so `dx9rad3d.cpp` never runs; `win_configure.cpp` keeps the system's D3D9.
 - ZmClient: Launch view (F4), "API graphique": `+set r_mod_gfxApi d3d9|vulkan` (always, the dvar is archived), and
   `BO1_GFX_BACKEND=vulkan` in the environment for Linux.
+- MSAA (`r_aaSamples` 4, the user's config): the RESZ depth resolve went through `vkCmdResolveImage`, which Vulkan
+  allows for colour only; the Intel driver lost the device (`VK_ERROR_DEVICE_LOST`, a GPU load spike) at the first
+  frame in game, while lavapipe went on. It now resolves through dynamic rendering (sample 0), point lists use
+  `VK_KHR_maintenance5`, and `gb_backend_test` checks the depth resolve (47 checks, GL and Vulkan, no validation
+  message). Headless runs force `r_aaSamples 1`: an MSAA run needs `headless.ps1 -ClientAA 4` (or
+  `+set bo1_headless_aa 4`), without back-buffer screenshots.
 - Checked on the user's Intel Iris Xe: Kino on the headless client's private desktop renders on Vulkan at the 30 fps
-  cap, quits cleanly; native D3D9 with the same exe unchanged; the fallback without `shaders.spv` renders on D3D9.
+  cap, quits cleanly; native D3D9 with the same exe unchanged; the fallback without `shaders.spv` renders on D3D9;
+  with 4x MSAA, shadows and depth of field, 30 fps at ~3 400 draws a frame.
 
 Still to do in this step:
 - FSR1 on win64. The Win32 surface takes the window's size and the engine sizes its back buffer to the window (the

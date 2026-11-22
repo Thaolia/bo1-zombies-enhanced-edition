@@ -636,6 +636,52 @@ void TestMultisampledEdges()
     gb::DestroyTexture(depth);
 }
 
+// D3D9's RESZ (d3d9emu Device::Resolve): a 4-sample depth buffer Blit into a single-sample sampled D24S8 texture
+// resolves it. Vulkan resolves no depth with vkCmdResolveImage; an Intel driver lost the device on it.
+void TestMultisampledDepthResolve()
+{
+    if (gb::GetCaps().maxSamples < 4)
+    {
+        std::printf("skipped: no 4-sample attachments\n");
+        return;
+    }
+    gb::TextureDesc cd = {gb::TextureType::Tex2D, gb::Format::BGRA8, gb::Usage::RenderTarget, false, kSize, kSize, 1, 1,
+                          4, {}};
+    gb::TextureDesc dd = {gb::TextureType::Tex2D, gb::Format::D24S8, gb::Usage::DepthStencil, false, kSize, kSize, 1, 1,
+                          4, {}};
+    gb::TextureDesc rd = dd;
+    rd.sampled = true;
+    rd.samples = 1;
+    gb::Texture *colour = gb::CreateTexture(cd), *depth = gb::CreateTexture(dd), *resolved = gb::CreateTexture(rd);
+    gb::PipelineDesc d = Pipeline();
+    d.samples = 4;
+    d.depthStencil.depthTest = true;
+    d.depthStencil.depthWrite = true;
+    d.depthStencil.depthFunc = gb::Compare::Always;
+    gb::PassDesc pass;
+    pass.colorCount = 1;
+    pass.color[0].texture = colour;
+    pass.color[0].load = gb::LoadOp::Clear;
+    pass.depth = depth;
+    pass.depthLoad = pass.stencilLoad = gb::LoadOp::Clear;
+    pass.clearDepth = 1.0f;
+    gb::BeginPass(pass);
+    std::vector<Vertex> q;
+    Quad(q, -1, -1, 0, 1, 0.25f, kGreen);
+    Draw(State(d, 0), q);
+    gb::EndPass();
+    gb::Blit(depth, 0, 0, {0, 0, kSize, kSize}, resolved, 0, 0, {0, 0, kSize, kSize}, gb::Filter::Nearest);
+    std::vector<uint32_t> z(kSize * kSize);
+    gb::ReadTexture(resolved, 0, 0, {0, 0, 0, kSize, kSize, 1}, z.data(), kSize * 4);
+    const auto value = [&](int x, int y) { return double(z[y * kSize + x] >> 8) / double((1u << 24) - 1); };
+    Check(std::fabs(value(5, 5) - 0.25) < 1e-4 && std::fabs(value(60, 5) - 1.0) < 1e-4,
+          "a 4-sample depth buffer resolves into a single-sample depth texture (RESZ)");
+    EndFrame();
+    gb::DestroyTexture(colour);
+    gb::DestroyTexture(depth);
+    gb::DestroyTexture(resolved);
+}
+
 // A hardware shadow map (gfx_backend.h, SamplerDesc::depthCompare): a sampled D24S8 attachment read through a shadow
 // sampler gives 1 where the reference depth is less than or equal to the stored one.
 void TestShadowCompare()
@@ -811,6 +857,7 @@ int main()
     TestUploadAfterDraw();
     TestCopiesAndClears();
     TestMultisampledEdges();
+    TestMultisampledDepthResolve();
     TestShadowCompare();
     TestColorClamp();
     TestQueriesAndFences();

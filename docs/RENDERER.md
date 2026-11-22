@@ -229,6 +229,11 @@ run has no surface; it renders into its textures and `Present` only submits.
   - BGRX8 is `B8G8R8A8_UNORM` whose alpha stays 1: cleared to 1, never written by a pipeline, sampled through an
     alpha-one swizzle and read back as 0xFF;
   - `ReadTexture` of D24S8 packs depth in the top 24 bits and stencil in the low byte, as GL reads it;
+  - a multisampled depth buffer `Blit` into a single-sample depth texture (D3D9's RESZ with `r_aaSamples` above 1)
+    resolves at the end of an empty rendering scope, `VK_RESOLVE_MODE_SAMPLE_ZERO_BIT`: `vkCmdResolveImage` takes
+    colour only, and the Intel Iris Xe driver lost the device on it at the first frame in game;
+  - point lists need `VK_KHR_maintenance5` (a point whose vertex shader writes no `PointSize` is 1 pixel, as in D3D9);
+    without it their draws are skipped;
   - `MipFilter::None` clamps the level of detail to 0.25.
 - **Present** draws the image into the swapchain's through D3D9's gamma ramp (a 256x1 RGBA16 texture), filtered to
   the window's size, with the backend's own SPIR-V shaders (`vulkan/shaders`, embedded by `tools/embed_shaders.py`).

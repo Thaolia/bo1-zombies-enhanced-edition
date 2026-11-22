@@ -477,6 +477,9 @@ struct State
     VkQueue queue = VK_NULL_HANDLE;
     VmaAllocator allocator = VK_NULL_HANDLE;
     bool anisotropy = false, wireframe = false, mirrorClamp = false;
+    // VK_KHR_maintenance5: a point a vertex shader gives no size is 1 pixel, as in D3D9 (the zone shaders never
+    // write PointSize). Without it, point draws are skipped.
+    bool maintenance5 = false;
     bool timestamps = false;
     float timestampPeriod = 1.0f;
 
@@ -1137,7 +1140,8 @@ VkPipeline BuildPipeline(Pipeline *p, const Shader *vertex, const Shader *pixel)
     input.pVertexAttributeDescriptions = attributes;
 
     VkPipelineInputAssemblyStateCreateInfo assembly = {VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO};
-    assembly.topology = MapTopology(d.topology);
+    assembly.topology = d.topology == Topology::Points && !S().maintenance5 ? VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST
+                                                                         : MapTopology(d.topology);
     VkPipelineViewportStateCreateInfo viewport = {VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO};
     viewport.viewportCount = 1;
     viewport.scissorCount = 1;
@@ -1631,6 +1635,7 @@ bool Init()
             s.properties = p;
             s.family = uint32_t(graphics);
             s.timestamps = family[graphics].timestampValidBits != 0;
+            s.maintenance5 = HasExtension(deviceExtensions, VK_KHR_MAINTENANCE_5_EXTENSION_NAME);
         }
     }
     if (!s.physical)
@@ -1643,7 +1648,10 @@ bool Init()
 
     VkPhysicalDeviceVulkan12Features have12 = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES};
     VkPhysicalDeviceVulkan13Features have13 = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES};
+    VkPhysicalDeviceMaintenance5FeaturesKHR have5 = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MAINTENANCE_5_FEATURES_KHR};
     have12.pNext = &have13;
+    if (s.maintenance5)
+        have13.pNext = &have5;
     VkPhysicalDeviceFeatures2 have = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2};
     have.pNext = &have12;
     vkGetPhysicalDeviceFeatures2(s.physical, &have);
@@ -1660,6 +1668,11 @@ bool Init()
     VkPhysicalDeviceVulkan13Features want13 = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES};
     want13.dynamicRendering = VK_TRUE;
     want12.pNext = &want13;
+    s.maintenance5 = s.maintenance5 && have5.maintenance5;
+    VkPhysicalDeviceMaintenance5FeaturesKHR want5 = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MAINTENANCE_5_FEATURES_KHR};
+    want5.maintenance5 = VK_TRUE;
+    if (s.maintenance5)
+        want13.pNext = &want5;
     VkPhysicalDeviceFeatures2 want = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2};
     want.pNext = &want12;
     want.features.samplerAnisotropy = have.features.samplerAnisotropy;
@@ -1676,6 +1689,8 @@ bool Init()
     queueInfo.queueCount = 1;
     queueInfo.pQueuePriorities = &priority;
     std::vector<const char *> deviceExtensions = {VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME};
+    if (s.maintenance5)
+        deviceExtensions.push_back(VK_KHR_MAINTENANCE_5_EXTENSION_NAME);
     if (s.surfaces)
         deviceExtensions.push_back(VK_KHR_SWAPCHAIN_EXTENSION_NAME);
     VkDeviceCreateInfo deviceInfo = {VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};
@@ -2250,6 +2265,8 @@ void DoDraw(const DrawState &state, Primitive primitive, uint32_t count, uint32_
     const Pipeline *p = static_cast<const Pipeline *>(state.pipeline);
     if (!s.rendering || !p || !p->pipeline || !count)
         return;
+    if (primitive == Primitive::PointList && !s.maintenance5)
+        return;
     VkCommandBuffer cmd = s.cmd;
     if (s.bound != p)
     {
@@ -2390,7 +2407,29 @@ void Blit(gb::Texture *srcHandle, uint8_t srcLevel, uint8_t srcLayer, const Rect
     const VkImageSubresourceLayers to = {aspect, dstLevel, dst->desc.type == TextureType::Cube ? dstLayer : 0u, 1};
     const VkOffset3D srcOffset = {srcRect.x, srcRect.y, src->desc.type == TextureType::Tex3D ? int32_t(srcLayer) : 0};
     const VkOffset3D dstOffset = {dstRect.x, dstRect.y, dst->desc.type == TextureType::Tex3D ? int32_t(dstLayer) : 0};
-    if (src->desc.samples > 1 && sameSize && src->format == dst->format)
+    if (src->desc.samples > 1 && depth && sameSize && src->format == dst->format && dst->desc.samples <= 1 &&
+        srcRect.x == dstRect.x && srcRect.y == dstRect.y && dst->desc.usage == Usage::DepthStencil && !srcLevel &&
+        !dstLevel)
+    {
+        // vkCmdResolveImage takes colour only: a depth buffer resolves at the end of a rendering scope that does
+        // nothing else, sample 0 as D3D9's RESZ gives (VK_RESOLVE_MODE_SAMPLE_ZERO_BIT, which every device supports).
+        VkRenderingAttachmentInfo z = {VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
+        z.imageView = AttachmentView(src, 0, 0);
+        z.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+        z.resolveMode = VK_RESOLVE_MODE_SAMPLE_ZERO_BIT;
+        z.resolveImageView = AttachmentView(dst, 0, 0);
+        z.resolveImageLayout = VK_IMAGE_LAYOUT_GENERAL;
+        z.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+        z.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+        VkRenderingInfo info = {VK_STRUCTURE_TYPE_RENDERING_INFO};
+        info.renderArea = {{srcRect.x, srcRect.y}, {srcRect.width, srcRect.height}};
+        info.layerCount = 1;
+        info.pDepthAttachment = &z;
+        info.pStencilAttachment = HasStencil(src->desc.format) ? &z : nullptr;
+        vkCmdBeginRendering(cmd, &info);
+        vkCmdEndRendering(cmd);
+    }
+    else if (src->desc.samples > 1 && !depth && sameSize && src->format == dst->format)
     {
         const VkImageResolve region = {from, srcOffset, to, dstOffset, {srcRect.width, srcRect.height, 1}};
         vkCmdResolveImage(cmd, src->image, VK_IMAGE_LAYOUT_GENERAL, dst->image, VK_IMAGE_LAYOUT_GENERAL, 1, &region);
