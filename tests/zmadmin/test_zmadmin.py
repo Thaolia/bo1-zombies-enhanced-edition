@@ -423,8 +423,17 @@ class LaunchDialogTest(unittest.TestCase):
             from zmadmin.config import Config
             self.dist = dist
             self.config = Config(os.path.join(dist.root, "cfg"))
-            self.local = launcher.LocalServer(dist)
+            self.locals = {}
             self.modals, self.launched, self.messages = [], [], []
+
+        def profile_names(self):
+            return [n for n, _ in self.config.local_profiles(self.dist.root)]
+
+        def profile(self, name):
+            return self.config.local_profile(self.dist.root, name)
+
+        def local(self, name):
+            return self.locals.setdefault(name, launcher.LocalServer(self.dist, name))
 
         def open(self, dialog):
             self.modals.append(dialog)
@@ -432,8 +441,9 @@ class LaunchDialogTest(unittest.TestCase):
         def msg(self, text, *_):
             self.messages.append(text)
 
-        def launch_local(self, game, port, password):
-            self.launched.append((dict(game), port, password))
+        def launch_local(self, name):
+            local = self.profile(name)
+            self.launched.append((name, dict(local["game"]), local["port"], local["password"]))
 
     def test_flow(self):
         from zmadmin.views import ServersView
@@ -451,7 +461,7 @@ class LaunchDialogTest(unittest.TestCase):
                 f.write('{"base": "zombie_pentagon"}')
             gamemods.mapkit_layouts.cache_clear()
             app = self.FakeApp(launcher.find_dist(d))
-            ServersView(app).launch_dialog()
+            ServersView(app).configure_dialog("default", launch=True)
             maps = app.modals.pop()
             self.assertIsInstance(maps, ChoiceDialog)
             self.assertIn("mapkit:bo2_zm_transit_bsp", [v for v, _, _ in maps.items])
@@ -473,7 +483,8 @@ class LaunchDialogTest(unittest.TestCase):
             self.assertEqual(titles, ["Horde : zombies à la fois", "Vitesse d'apparition des zombies",
                                       "Armes de Black Ops II"])
             self.assertTrue(dialog.submit())
-            game, port, password = app.launched[0]
+            name, game, port, password = app.launched[0]
+            self.assertEqual(name, "default")
             self.assertEqual(port, 3074)
             self.assertEqual((game["map"], game["horde"], game["horde_max"], game["spawn_rate"], game["bo2_weapons"],
                               game["hitmarker"], game["noperks"]),
@@ -487,10 +498,255 @@ class LaunchDialogTest(unittest.TestCase):
         self.assertIn("+set horde_max_zombies 256", line)
 
     def test_older_settings(self):
-        from zmadmin.views import local_game
+        from zmadmin.profiles import local_game, profile_configured
+        self.assertFalse(profile_configured({"map": "zombie_moon", "port": 3074}))
+        self.assertTrue(profile_configured({"map": "zombie_moon", "bo2_box": 1}))
         self.assertEqual(local_game({"map": "zombie_moon", "bo2_box": 1, "dual_wield": True}),
                          {"map": "zombie_moon", "bo2_weapons": 2, "dual_wield": True})
         self.assertEqual(local_game({"map": "zombie_moon"})["bo2_weapons"], 0)
+
+
+def make_dist(d):
+    for name in (launcher.EXE_NAME, launcher.SCRIPT_NAME):
+        open(os.path.join(d, name), "w").close()
+    os.makedirs(os.path.join(d, "zone"), exist_ok=True)
+    return launcher.find_dist(d)
+
+
+def free_udp_port():
+    """An even port whose port + 1 is free too (a server takes both)."""
+    for _ in range(50):
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            s.bind(("0.0.0.0", 0))
+            port = s.getsockname()[1]
+        if port % 2 == 0 and port < 65534 and launcher.port_in_use(port) is None:
+            return port
+    raise unittest.SkipTest("no free UDP port pair")
+
+
+class ProfilesTest(unittest.TestCase):
+    """Several local servers of one folder: profiles in servers.json, their folders, ports and kept settings."""
+
+    def test_config_profiles(self):
+        import json
+        from zmadmin.config import Config
+        with tempfile.TemporaryDirectory() as d:
+            root = os.path.join(d, "dist")
+            cfg = os.path.join(d, "cfg")
+            os.makedirs(cfg)
+            # a servers.json of the ZmAdmin before profiles: its local server is the default profile
+            key = os.path.normcase(os.path.abspath(root))
+            with open(os.path.join(cfg, "servers.json"), "w") as f:
+                json.dump({"servers": [], "local": {key: {"password": "old", "port": 3075,
+                                                          "map": "zombie_moon", "game": {"map": "zombie_moon"}}}}, f)
+            config = Config(cfg)
+            self.assertEqual([(n, e["password"]) for n, e in config.local_profiles(root)], [("default", "old")])
+            self.assertIs(config.local_settings(root), config.local_profile(root, "default"))
+            # 3074 and 3076 touch 3075 (port + 1 is the clients' logs): the next one, by steps of 2, is 3078
+            self.assertEqual(config.next_port(root), 3078)
+            config.add_profile(root, "kino")
+            self.assertEqual(config.local_profile(root, "kino")["port"], 3078)
+            self.assertEqual(config.next_port(root), 3080)
+            for bad in ("Kino", "default", "a b", "", "x" * 33, "five/hard"):
+                self.assertIsNotNone(config.check_profile_name(root, bad), bad)
+            self.assertIsNone(config.check_profile_name(root, "five_hard-2"))
+            with self.assertRaises(ValueError):
+                config.add_profile(root, "KINO")
+            with self.assertRaises(ValueError):
+                config.remove_profile(root, "default")
+            config.local_profile(root, "kino")["settings"] = {"sv_hostname": "Kino"}
+            config.save()
+            again = Config(cfg)
+            self.assertEqual([n for n, _ in again.local_profiles(root)], ["default", "kino"])
+            self.assertEqual(again.local_profile(root, "kino")["settings"], {"sv_hostname": "Kino"})
+            self.assertNotEqual(again.local_profile(root, "kino")["password"], "old")
+            again.remove_profile(root, "kino")
+            self.assertIsNone(again.local_profile(root, "kino"))
+
+    def test_server_homes(self):
+        with tempfile.TemporaryDirectory() as d:
+            dist = make_dist(d)
+            root = os.path.abspath(d)
+            kino = dist.server_home("kino")
+            self.assertEqual(dist.server_home("default").log, dist.log)
+            self.assertEqual(kino.log, os.path.join(root, "servers", "kino", "main", "console_mp.log"))
+            cmd = launcher.server_command(dist, {"map": "zombie_moon"}, 3080, "pw", kino)
+            self.assertEqual(launcher.LocalServer(dist, "kino").home.state_path,
+                             os.path.join(root, "servers", "kino", "main", "zmadmin_server.json"))
+        self.assertEqual(cmd[cmd.index("fs_h") + 1], os.path.join(root, "servers", "kino"))
+        self.assertEqual(cmd[cmd.index("fs_b") + 1], root)
+
+    def test_port_in_use(self):
+        port = free_udp_port()
+        self.assertIsNone(launcher.port_in_use(port))
+        for taken in (port, port + 1):
+            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+                s.bind(("0.0.0.0", taken))
+                why = launcher.port_in_use(port)
+            self.assertIn(str(taken), why or "")
+
+    def test_kept_settings_and_server_cfg(self):
+        from zmadmin.settings import build_server_cfg, kept_settings
+        applied = {"zm_startpoints": "500", "rcon_password": "new", "fs_mods": "hitmarker", "sv_hostname": "Kino"}
+        self.assertEqual(kept_settings(applied, local=True), {"zm_startpoints": "500", "sv_hostname": "Kino"})
+        self.assertEqual(kept_settings(applied, local=False),
+                         {"zm_startpoints": "500", "sv_hostname": "Kino", "fs_mods": "hitmarker"})
+        fresh = build_server_cfg(None, {"zm_startpoints": "500", "sv_hostname": "Kino"}, "kino")
+        self.assertEqual(fresh.splitlines()[1:], ['set sv_hostname "Kino"', 'set zm_startpoints "500"'])
+        self.assertIn("profile kino", fresh.splitlines()[0])
+        mine = "// mine\nset g_inactivity 60\nset sv_hostname old\nexec more.cfg\n"
+        self.assertEqual(build_server_cfg(mine, {"sv_hostname": "Kino"}, "kino"),
+                         '// mine\nset g_inactivity 60\nset sv_hostname "Kino"\nexec more.cfg\n')
+        self.assertEqual(build_server_cfg(mine, {}, "kino"), mine)
+
+    def test_new_game_drops_what_its_line_sets(self):
+        """server.cfg runs after the command line: choosing the game again drops the kept settings its line sets, or
+        an old bo2weapons_box would silently replace the new choice."""
+        from zmadmin import profiles
+        with tempfile.TemporaryDirectory() as d:
+            dist = make_dist(d)
+            os.makedirs(os.path.join(d, "mods", "bo2weapons"))
+            open(os.path.join(d, "mods", "bo2weapons", "mod.ff"), "w").close()
+            home = dist.server_home("kino")
+            local = {"settings": {"bo2weapons_box": "0", "sv_hostname": "Kino"}}
+            self.assertIsNone(profiles.write_profile_cfg(home, local["settings"], "kino"))
+            self.assertIn("bo2weapons_box", profiles.line_settings({"bo2_weapons": 3}, d))
+            self.assertNotIn("bo2weapons_box", profiles.line_settings({"bo2_weapons": 0}, d))
+            # a game without BO2 weapons sets no box: the kept one stays
+            self.assertIsNone(profiles.configure_game(local, {"map": "zombie_moon"}, home, "kino", d))
+            self.assertEqual(local["settings"], {"bo2weapons_box": "0", "sv_hostname": "Kino"})
+            self.assertEqual(local["game"], {"map": "zombie_moon"})
+            self.assertIsNone(profiles.configure_game(local, {"map": "zombie_moon", "bo2_weapons": 3}, home, "kino", d))
+            self.assertEqual(local["settings"], {"sv_hostname": "Kino"})
+            with open(home.server_cfg) as f:
+                cfg = f.read()
+        self.assertNotIn("bo2weapons_box", cfg)
+        self.assertIn('set sv_hostname "Kino"', cfg)
+
+    def test_start_profile(self):
+        from zmadmin import profiles
+        from zmadmin.config import Config
+        started = []
+        real_start, real_running = launcher.LocalServer.start, launcher.LocalServer.running
+        launcher.LocalServer.start = lambda self, game, port, pw: started.append((self.profile, game, port, pw))
+        try:
+            with tempfile.TemporaryDirectory() as d:
+                dist = make_dist(d)
+                config = Config(os.path.join(d, "cfg"))
+                self.assertIn("pas de profil", profiles.start_profile(config, dist, launcher.LocalServer(dist, "x"), "x"))
+                kino = config.add_profile(dist.root, "kino")
+                kino.update(game={"map": "zombie_theater"}, settings={"sv_hostname": "Kino"})
+                self.assertIsNone(profiles.start_profile(config, dist, launcher.LocalServer(dist, "kino"), "kino"))
+                with open(dist.server_home("kino").server_cfg) as f:
+                    self.assertIn('set sv_hostname "Kino"', f.read())
+                self.assertFalse(os.path.exists(dist.server_cfg))       # default's is not touched
+                self.assertEqual(started, [("kino", {"map": "zombie_theater"}, kino["port"], kino["password"])])
+                # a running neighbour one port away: its port + 1 would be this one's
+                config.local_settings(dist.root)["port"] = kino["port"] - 1
+                launcher.LocalServer.running = lambda self: self.profile == "default"
+                why = profiles.start_profile(config, dist, launcher.LocalServer(dist, "kino"), "kino")
+                self.assertIn("default", why)
+        finally:
+            launcher.LocalServer.start, launcher.LocalServer.running = real_start, real_running
+
+    def test_cli_start_and_list(self):
+        import contextlib
+        import io
+        from zmadmin import cli
+        from zmadmin.config import Config
+        started = []
+        real_start = launcher.LocalServer.start
+
+        def fake_start(self, game, port, pw):
+            started.append(self.profile)
+            self.pid, self.port, self.map = 4242, port, game["map"]
+        launcher.LocalServer.start = fake_start
+        try:
+            with tempfile.TemporaryDirectory() as d:
+                dist = make_dist(d)
+                cfg = os.path.join(d, "cfg")
+                config = Config(cfg)
+                config.add_profile(dist.root, "kino")["game"] = {"map": "zombie_theater"}
+                config.add_profile(dist.root, "fresh")
+                config.save()
+                base = ["--dist", d, "--config", cfg]
+                out, err = io.StringIO(), io.StringIO()
+                with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+                    self.assertEqual(cli.main(base + ["--start", "nope", "--detach"]), 2)
+                    self.assertEqual(cli.main(base + ["--start", "fresh", "--detach"]), 2)
+                    self.assertEqual(cli.main(base + ["--start", "kino", "--detach"]), 0)
+                    self.assertEqual(cli.main(base + ["--list-profiles"]), 0)
+                self.assertEqual(started, ["kino"])
+                self.assertIn("no profile 'nope'", err.getvalue())
+                self.assertIn("never set up", err.getvalue())
+                self.assertIn("kino: started, PID 4242, port 3076", out.getvalue())
+                listing = out.getvalue().split(":\n", 1)[1]
+                self.assertEqual([line.split()[0] for line in listing.splitlines()], ["default", "fresh", "kino"])
+        finally:
+            launcher.LocalServer.start = real_start
+
+    def test_new_profile_dialog(self):
+        from zmadmin.views import ServersView
+        from zmadmin.widgets import ChoiceDialog, InputDialog
+        with tempfile.TemporaryDirectory() as d:
+            app = LaunchDialogTest.FakeApp(make_dist(d))
+            view = ServersView(app)
+            view.key("n")
+            ask = app.modals.pop()
+            self.assertIsInstance(ask, InputDialog)
+            ask.edits[0].set("default")
+            self.assertFalse(ask.submit())
+            ask.edits[0].set("kino")
+            self.assertTrue(ask.submit())
+            self.assertIsNotNone(app.profile("kino"))
+            self.assertEqual(view.entries()[view.sel], ("local", "kino"))
+            self.assertIsInstance(app.modals.pop(), ChoiceDialog)       # its map, then the rest of the chain
+            view.key("x")
+            app.modals.pop().on_yes(False)
+            self.assertIsNone(app.profile("kino"))
+
+
+class KeepSettingsTest(unittest.TestCase):
+    """Settings Save applied go to the profile they were sent to, and its server.cfg."""
+
+    def test_keep(self):
+        from zmadmin.app import App
+        from zmadmin.config import Config
+
+        class Fake:
+            keep_settings = App.keep_settings
+            write_cfg = App.write_cfg
+
+            def __init__(self, d):
+                self.dist = make_dist(d)
+                self.config = Config(os.path.join(d, "cfg"))
+                self.config.add_profile(self.dist.root, "kino")
+                self.messages, self.lines = [], []
+                self.console = type("C", (), {"add": lambda _, line, *a: self.lines.append(line)})()
+
+            def profile(self, name):
+                return self.config.local_profile(self.dist.root, name)
+
+            def local(self, name):
+                return launcher.LocalServer(self.dist, name)
+
+            def msg(self, text, *_):
+                self.messages.append(text)
+
+        with tempfile.TemporaryDirectory() as d:
+            app = Fake(d)
+            app.connected_to = ("local", "kino")
+            app.keep_settings({"sv_hostname": "Kino", "rcon_password": "x", "fs_mods": "hitmarker"})
+            self.assertEqual(app.profile("kino")["settings"], {"sv_hostname": "Kino"})
+            with open(app.dist.server_home("kino").server_cfg) as f:
+                self.assertIn('set sv_hostname "Kino"', f.read())
+            remote = {"name": "far", "host": "10.0.0.2", "port": 3074, "password": "p"}
+            app.connected_to = ("saved", remote)
+            app.keep_settings({"fs_mods": "hitmarker"})
+            self.assertEqual(remote["settings"], {"fs_mods": "hitmarker"})
+            with open(os.path.join(d, "cfg", "servers.json")) as f:
+                self.assertIn('"sv_hostname": "Kino"', f.read())
+            self.assertEqual(app.messages, [])
 
 
 class MouseTest(unittest.TestCase):

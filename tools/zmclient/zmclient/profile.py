@@ -188,10 +188,12 @@ def fs_game(p, dist_root=None, server_mods=None):
 
 
 def window_flags(p):
+    size = parse_size(p["window_size"]) or (1280, 720)
     if p["window"] == "fullscreen":
-        return ["+set", "r_fullscreen", "1", "+set", "r_borderless", "0"]
+        # R_SetWndParms reads r_mode in fullscreen (an enum of the monitor's modes: a size it lacks falls back to the
+        # engine's default); the command line runs after config.cfg, so this wins over its seta r_mode
+        return ["+set", "r_fullscreen", "1", "+set", "r_borderless", "0", "+set", "r_mode", f"{size[0]}x{size[1]}"]
     if p["window"] == "window":
-        size = parse_size(p["window_size"]) or (1280, 720)
         return ["+set", "r_fullscreen", "0", "+set", "r_borderless", "0", "+set", "r_customMode",
                 f"{size[0]}x{size[1]}", "+set", "vid_xpos", "60", "+set", "vid_ypos", "60"]
     return ["+set", "r_fullscreen", "0", "+set", "r_borderless", "1", "+set", "vid_xpos", "0", "+set", "vid_ypos", "0"]
@@ -316,8 +318,8 @@ def problems(p, dist_root=None, server_mods=None):
     if wants_dual_wield(p, dist_root) and not dual_wield_installed(dist_root):
         out.append("armes doublées : pas de mods/dualwield/mod.ff (à construire depuis le mod « Relaxing Dual "
                    "Wield », mods/dualwield/README.md)")
-    if p["window"] == "window" and not parse_size(p["window_size"]):
-        out.append("taille de fenêtre : LARGEURxHAUTEUR, ex. 1280x720")
+    if p["window"] in ("window", "fullscreen") and not parse_size(p["window_size"]):
+        out.append("résolution : LARGEURxHAUTEUR, ex. 1280x720")
     for e in p["extra"]:
         if e.get("on"):
             why = check_extra(e["text"])

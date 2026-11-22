@@ -9,30 +9,53 @@ The game (map and mods) is described as ZmClient's Solo view describes it (gamem
 is gamemods.mod_flags': a MapKit map (Black Ops II's native ones among them) sets fs_game, its layout, zones and BSP
 world; the mods stack on fs_mods (bo2weapons and dualwield load their mod.ff at start-up, DB_ListModZones). A
 server.cfg that sets fs_mods replaces it. Clients learn what to load with getmodinfo (protocol.query_modinfo).
+
+One folder runs several servers at once, one per ZmAdmin profile (config.py): the engine has no single-instance lock,
+but each server needs its own fs_h (console_mp.log, server.cfg, the clients' logs/) and its own ports (net_port, and
+net_port + 1 for the clients' logs). The default profile keeps server/, as server.sh / Server.bat; the others get
+servers/<name>/. The working folder stays the game folder for all of them.
 """
 import json
 import os
+import socket
 import subprocess
 import sys
 import time
 
 from . import gamemods
+from .config import DEFAULT_PROFILE
 
 IS_WINDOWS = os.name == "nt"
 EXE_NAME = "BO1Zombies.exe" if IS_WINDOWS else "BO1Zombies"
 SCRIPT_NAME = "Server.bat" if IS_WINDOWS else "server.sh"
 
 
-class Dist:
-    def __init__(self, root):
-        self.root = os.path.abspath(root)
-        self.exe = os.path.join(self.root, EXE_NAME)
-        self.home = os.path.join(self.root, "server")
+class ServerHome:
+    """A profile's server folder (fs_h) and the files ZmAdmin reads or writes there."""
+
+    def __init__(self, root, profile=DEFAULT_PROFILE):
+        self.profile = profile
+        if profile == DEFAULT_PROFILE:
+            self.home = os.path.join(root, "server")
+        else:
+            self.home = os.path.join(root, "servers", profile)
         self.main = os.path.join(self.home, "main")
         self.log = os.path.join(self.main, "console_mp.log")
         self.server_cfg = os.path.join(self.main, "server.cfg")
         self.output = os.path.join(self.main, "zmadmin_server_output.log")
         self.state_path = os.path.join(self.main, "zmadmin_server.json")
+
+
+class Dist(ServerHome):
+    """A make_dist.sh folder; its own paths (home, log, server_cfg...) are the default profile's."""
+
+    def __init__(self, root):
+        self.root = os.path.abspath(root)
+        self.exe = os.path.join(self.root, EXE_NAME)
+        super().__init__(self.root)
+
+    def server_home(self, profile):
+        return ServerHome(self.root, profile)
 
     def bo2_weapons(self):
         """mods/bo2weapons/mod.ff is in the folder: the player built it from their own Black Ops II."""
@@ -79,16 +102,34 @@ def server_game(game):
     return {**SERVER_DEFAULTS, **(game or {})}
 
 
-def server_command(dist, game, port, password):
-    """game: the map ("zombie_theater", "mapkit:bo2_zm_transit_bsp") and the mods, gamemods.MOD_DEFAULTS' keys."""
+def server_command(dist, game, port, password, home=None):
+    """game: the map ("zombie_theater", "mapkit:bo2_zm_transit_bsp") and the mods, gamemods.MOD_DEFAULTS' keys.
+    home: the profile's ServerHome (the default profile's when None)."""
     game = server_game(game)
     bsp, _ = gamemods.resolve_map(game["map"], dist.root)
     return [dist.exe,
-            "+set", "fs_b", dist.root, "+set", "fs_h", dist.home,
+            "+set", "fs_b", dist.root, "+set", "fs_h", (home or dist).home,
             "+set", "bo1_server", "1", "+set", "net_ip", "0.0.0.0", "+set", "net_port", str(port),
             "+set", "bo1_tui", "0", "+set", "rcon_password", password] + gamemods.mod_flags(game, dist.root) + [
             "+rcon_password", password,
             "+devmap", bsp]
+
+
+def port_in_use(port):
+    """Why the server could not have UDP `port` and port + 1 (the clients' logs) on every interface, or None. The
+    engine would silently take the next free port, and ZmAdmin would then talk to another server."""
+    for p in (port, port + 1):
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            if IS_WINDOWS:
+                # SO_EXCLUSIVEADDRUSE: without it Windows lets a second socket bind a port another one holds
+                sock.setsockopt(socket.SOL_SOCKET, getattr(socket, "SO_EXCLUSIVEADDRUSE", -5), 1)
+            sock.bind(("0.0.0.0", p))
+        except OSError as e:
+            return f"le port UDP {p} est déjà pris ({e.strerror or e})"
+        finally:
+            sock.close()
+    return None
 
 
 def _pid_exe(pid):
@@ -122,10 +163,12 @@ def _same_file(a, b):
 
 
 class LocalServer:
-    """The server this dist folder runs, found again through its state file by a later ZmAdmin."""
+    """The server a profile of this dist folder runs, found again through its state file by a later ZmAdmin."""
 
-    def __init__(self, dist):
+    def __init__(self, dist, profile=DEFAULT_PROFILE):
         self.dist = dist
+        self.profile = profile
+        self.home = dist.server_home(profile)
         self.pid = None
         self.port = None
         self.map = None
@@ -134,7 +177,7 @@ class LocalServer:
 
     def _read_state(self):
         try:
-            with open(self.dist.state_path, encoding="utf-8") as f:
+            with open(self.home.state_path, encoding="utf-8") as f:
                 state = json.load(f)
         except (OSError, ValueError):
             return
@@ -153,20 +196,23 @@ class LocalServer:
     def start(self, game, port, password):
         if self.running():
             raise RuntimeError(f"le serveur local tourne déjà (PID {self.pid})")
-        os.makedirs(self.dist.main, exist_ok=True)
-        out = open(self.dist.output, "wb")
+        why = port_in_use(port)
+        if why:
+            raise RuntimeError(why)
+        os.makedirs(self.home.main, exist_ok=True)
+        out = open(self.home.output, "wb")
         kwargs = {}
         if IS_WINDOWS:
             kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP
         else:
             kwargs["start_new_session"] = True
         try:
-            self._proc = subprocess.Popen(server_command(self.dist, game, port, password),
+            self._proc = subprocess.Popen(server_command(self.dist, game, port, password, self.home),
                                           cwd=self.dist.root, stdin=subprocess.DEVNULL, stdout=out, stderr=subprocess.STDOUT, **kwargs)
         finally:
             out.close()
         self.pid, self.port, self.map = self._proc.pid, port, server_game(game)["map"]
-        with open(self.dist.state_path, "w", encoding="utf-8") as f:
+        with open(self.home.state_path, "w", encoding="utf-8") as f:
             json.dump({"pid": self.pid, "port": port, "map": self.map, "started": time.time()}, f)
 
     def kill(self):
@@ -183,8 +229,8 @@ class LocalServer:
     def exit_text(self):
         """The last lines of the server's output, to explain why it stopped."""
         try:
-            with open(self.dist.output, "rb") as f:
-                f.seek(max(0, os.path.getsize(self.dist.output) - 2048))
+            with open(self.home.output, "rb") as f:
+                f.seek(max(0, os.path.getsize(self.home.output) - 2048))
                 return f.read().decode("latin-1").strip().splitlines()[-5:]
         except OSError:
             return []

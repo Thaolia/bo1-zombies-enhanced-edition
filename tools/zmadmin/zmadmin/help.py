@@ -246,16 +246,24 @@ GAME_ACTIONS = [
 
 VIEW_HELP = {
     "servers": [
-        "SERVEURS : les serveurs enregistrés, et le serveur local quand ZmAdmin est dans un dossier BO1Zombies.",
+        "SERVEURS : les serveurs locaux (un par profil) quand ZmAdmin est dans un dossier BO1Zombies, puis les "
+        "serveurs distants enregistrés.",
         "",
-        "Entrée      se connecter au serveur sélectionné (ou lancer le serveur local s'il est arrêté)",
-        "a           ajouter un serveur (nom, adresse, port, mot de passe rcon)",
-        "e           modifier le serveur sélectionné",
-        "Suppr / x   retirer le serveur sélectionné de la liste",
-        "l           lancer le serveur local (map, port, mot de passe rcon)",
-        "S           arrêter le serveur local (commande quit, puis arrêt forcé après 15 s)",
+        "Entrée      se connecter ; un serveur local arrêté est lancé tel que son profil l'a enregistré, sans question",
+        "n           nouveau serveur local : son nom, puis sa map, ses mods, son port et son mot de passe rcon",
+        "l           reconfigurer le serveur local sélectionné, puis le lancer",
+        "e           modifier : la partie d'un serveur local (sans le lancer), ou l'adresse d'un serveur distant",
+        "Suppr / x   retirer le serveur sélectionné (son dossier servers/<nom>/ reste sur le disque)",
+        "S           arrêter le serveur local sélectionné (commande quit, puis arrêt forcé après 15 s)",
+        "a           ajouter un serveur distant (nom, adresse, port, mot de passe rcon)",
         "",
-        "Les serveurs sont enregistrés dans le fichier servers.json du dossier de configuration de ZmAdmin.",
+        "Plusieurs serveurs locaux tournent à la fois depuis le même dossier : chacun a son dossier (server/ pour "
+        "default, comme server.sh / Server.bat, servers/<nom>/ sinon : log, server.cfg, logs des joueurs) et son "
+        "port. Un serveur prend aussi port + 1 (logs des joueurs) : ZmAdmin garde 2 d'écart entre deux profils "
+        "et refuse de lancer sur un port déjà pris.",
+        "En ligne de commande : zmadmin --start <nom> lance un profil sans question et l'affiche ; avec --detach, "
+        "il lance et rend la main ; zmadmin --list-profiles liste les profils.",
+        "Profils et serveurs sont enregistrés dans servers.json, dans le dossier de configuration de ZmAdmin.",
         "Un serveur a besoin d'un rcon_password : sans lui, il refuse toute commande à distance.",
     ],
     "players": [
@@ -291,7 +299,15 @@ VIEW_HELP = {
         "serveur n'en accepte qu'une toutes les 0,5 s), puis ZmAdmin relit chaque réglage : ✓ appliqué, ✗ refusé (la "
         "raison s'affiche sous le formulaire).",
         "Annuler revient aux valeurs du serveur. Relire relit tout.",
-        "En local, « Écrire aussi dans server.cfg » garde les valeurs pour le prochain lancement du serveur.",
+        "Les valeurs appliquées sont gardées par ZmAdmin pour ce serveur (son profil local, ou le serveur distant "
+        "enregistré). En local, ZmAdmin réécrit le server.cfg du profil après chaque Sauvegarder et avant chaque "
+        "lancement : elles reviennent au prochain démarrage. « Reconstruire server.cfg » le réécrit tout de suite ; "
+        "pour un serveur distant, « Exporter server.cfg » en écrit un dans le dossier de ZmAdmin.",
+        "rcon_password n'est jamais écrit dans server.cfg (le profil le donne en ligne de commande) ; en local, "
+        "fs_mods non plus (les mods viennent de la partie du profil).",
+        "server.cfg passe après la ligne de commande : un réglage gardé l'emporte sur la partie du profil (points ou "
+        "perks de départ, boîte BO2...). Reconfigurer la partie (vue Serveurs, l ou e) retire les réglages gardés "
+        "que sa nouvelle ligne de commande donne : le dernier choix gagne.",
     ],
     "console": [
         "CONSOLE : n'importe quelle commande du serveur, envoyée en rcon, et sa réponse.",
@@ -307,7 +323,8 @@ VIEW_HELP = {
         "immédiate). Les erreurs sont en rouge.",
     ],
     "log": [
-        "LOG : le fichier console_mp.log du serveur local, en direct.",
+        "LOG : le fichier console_mp.log d'un serveur local, en direct : celui du dernier profil local connecté "
+        "(default au départ) ; son nom et son chemin s'affichent en bas.",
         "",
         "/           filtrer (texte à chercher ; vide pour tout montrer)",
         "Espace      pause / reprise du défilement",

@@ -39,8 +39,8 @@ the local server's rcon password lives), `--no-mouse` keyboard only.
 | F2 | Serveurs | favourites and LAN servers with their live status (name, map, players, ping); add, edit, remove, join |
 | F3 | Solo | map (base maps, Dead Ops Arcade, the package's mapkit layouts, Black Ops II's Nuketown and TranZit when `make_dist.sh --bo2` packaged them, and the native Nuketown when its zone and BSP are there (`bo1_mod_zones zombie_bo2nuked`, `bo1_bspworld`); TranZit also loads Ascension's zone for Stamin-Up), god mode, zinfo, noperks, hit marker (mods/hitmarker), unlimited Pack-a-Punch (mods/unlimitedpap, greyed without its script `mods/unlimitedpap/maps/_zombiemode_perks.gsc`, which `tools/unlimitedpap/make_perks.py` writes from your zones), zombie spawn speed (mods/spawnrate: off, 2, 3, 5 or 10 times, `spawnrate_mult`; the sprint to the barriers, `spawnrate_rush`), these three stacked on `fs_mods` after the others, quick restart, start points, power and perks (mods/admin's `zm_startpoints` / `zm_startpower` / `zm_startperks`, stacked on the line's `fs_mods`), Black Ops II's weapons (mods/bo2weapons, when `mods/bo2weapons/mod.ff` is there: in the box with the map's, alone plus the map's special weapons, or alone; `bo2weapons` stacked on `fs_mods`, `bo2weapons_box`), horde settings, difficulty; rows a map does not use are greyed with the reason |
 | F4 | Lancement | player name, window mode and size, the split screen (mode, layout, player 2's name and sound), the port's FPS counter, the models drawn per frame (1024, 2048 or 4096: `r_mod_sceneModels` with a model lighting pool to match, for maps imported by MapKit), gamepad aim assist (each "game setting" / on / off), the local server's game (the Solo view's: Entrée goes there), port and rcon password |
-| F5 | Config du jeu | a form of `players/config.cfg`: mouse, gamepad, FOV, resolution, vsync, FPS cap, gamma, MSAA, anisotropy, texture quality, shadows, depth of field, blood, subtitles; any other dvar; key binds |
-| F6 | Dvars libres | free command lines, each one a `+line` before the map or the connection, enabled one by one |
+| F5 | Config du jeu | a form of `players/config.cfg`: mouse, gamepad, FOV, vsync, FPS cap, gamma, MSAA, anisotropy, texture quality, shadows, depth of field, blood, subtitles; any other dvar; key binds. Its Résolution row is the Launch view's (below), not a `config.cfg` line |
+| F6 | Dvars libres | free command lines, each one a `+line` before the map or the connection, enabled one by one; a Description column explains the dvars ZmClient knows (`zmclient/dvarhelp.py`: `bo1_netlog`, `r_shaderWarming`, `bo1_frameperf`, ...), and Add lists them first |
 | F7 | Installation | the Black Ops install (found in Steam's libraries, picked in a folder browser, or typed), the state of each part, Install, progress |
 | F8 | Journal | the running game's `console_mp.log`, live, with a filter |
 
@@ -92,6 +92,12 @@ marked `*` and written with **Sauvegarder** (Ctrl+S): an existing `seta` or `bin
 one goes after the last of its kind, every other line is kept, and the file keeps its line ends. `bo1_mod_fov` is
 also written to `players/bo1_shared.cfg`, which the engine reads after `config.cfg`. "Qualité des textures" writes
 `r_picmip_manual` and the `r_picmip*` family together (`r_picmip` alone is read-only while `r_picmip_manual` is 0).
+
+The resolution is not a `config.cfg` line: `R_SetWndParms` takes the monitor's size in borderless (ZmClient's
+default), `r_customMode` in a window and `r_mode` only in fullscreen, so a `seta r_mode` alone changed nothing in the
+two first modes. The Config view's "Résolution" row and the Launch view's are the same profile value (`window_size`),
+saved at once and given on the command line, after `config.cfg`: `r_customMode` in a window, `r_mode` in fullscreen
+(a size the monitor does not offer falls back to the engine's default mode).
 
 ## Installing the game files
 

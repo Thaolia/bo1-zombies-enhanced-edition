@@ -6,12 +6,14 @@ import socket
 import time
 
 from . import help as H
+from .config import DEFAULT_PROFILE
 from .launcher import LocalServer
 from .link import ServerLink
 from .logtail import LogTail
 from .model import merge_players
 from .protocol import strip_colors
-from .settings import Form, update_server_cfg
+from .profiles import start_profile, write_profile_cfg
+from .settings import Form, build_server_cfg, kept_settings
 from .views import ConsoleView, GameView, LogView, PlayersView, ServersView, SettingsView
 from .widgets import (BTAB, CTRL_C, C_ERR, C_INFO, C_OK, C_TITLE, C_WARN, ESC, MOUSE_MASK, TAB, ChecklistDialog,
                       ConfirmDialog, HitMap, InputDialog, MessageDialog, color, cursor, fill, init_colors,
@@ -29,7 +31,7 @@ class App:
         self.hits = HitMap()
         self.config = config
         self.dist = dist
-        self.local = LocalServer(dist) if dist else None
+        self.locals = {}            # profile -> LocalServer, made on first use
         self.admin_every = admin_every
         self.history = config.load_history()
         self.link = None
@@ -41,19 +43,23 @@ class App:
         self.modals = []
         self.message = ("", 0, 0.0)
         self.running = True
-        self.stopping = None        # deadline of a local server stop
+        self.stopping = {}          # profile -> deadline of its stop
         self.quit_after_stop = False
-        self.logtail = LogTail(dist.log) if dist else None
+        self.log_profile = None     # the profile whose console_mp.log the Log view follows
+        self.logtail = None
         self.next_log_poll = 0.0
         self.views = [ServersView(self), PlayersView(self), GameView(self), SettingsView(self), ConsoleView(self),
                       LogView(self)]
         self.current = 0
+        if dist:
+            self.follow_log(DEFAULT_PROFILE)
         if initial:
             self.connect(*initial)
             self.show(1)
-        elif self.local and self.local.running():
-            self.connect_local()
-            self.show(1)
+        else:
+            running = [n for n in self.profile_names() if self.local(n).running()]
+            if running:
+                self.connect_local(running[0])
 
     # ----------------------------------------------------------------------------------------------- helpers
     @property
@@ -108,6 +114,36 @@ class App:
     def is_local_link(self):
         return bool(self.link and self.connected_to and self.connected_to[0] == "local")
 
+    # ------------------------------------------------------------------------------------------------ profiles
+    def profile_names(self):
+        return [n for n, _ in self.config.local_profiles(self.dist.root)] if self.dist else []
+
+    def local(self, name):
+        server = self.locals.get(name)
+        if server is None:
+            server = self.locals[name] = LocalServer(self.dist, name)
+        return server
+
+    def profile(self, name):
+        return self.config.local_profile(self.dist.root, name)
+
+    @property
+    def local_profile_name(self):
+        """The profile of the local server the link talks to, or None."""
+        return self.connected_to[1] if self.is_local_link() else None
+
+    def running_locals(self):
+        return [n for n in self.profile_names() if self.local(n).running()]
+
+    def follow_log(self, name):
+        if self.log_profile == name:
+            return
+        if self.logtail:
+            self.logtail.close()
+        self.log_profile = name
+        self.logtail = LogTail(self.local(name).home.log)
+        self.views[5].reset()
+
     # ------------------------------------------------------------------------------------------- connections
     def connect(self, host, port, password, target):
         self.disconnect()
@@ -140,10 +176,11 @@ class App:
         self.connect(entry["host"], int(entry.get("port", 3074)), entry.get("password", ""), ("saved", entry))
         self.show(1)
 
-    def connect_local(self):
-        local = self.config.local_settings(self.dist.root)
-        port = self.local.port or local["port"]
-        self.connect("127.0.0.1", int(port), local["password"], ("local", None))
+    def connect_local(self, name):
+        local = self.profile(name)
+        port = self.local(name).port or local["port"]
+        self.follow_log(name)
+        self.connect("127.0.0.1", int(port), local["password"], ("local", name))
         self.show(1)
 
     def password_changed(self, password):
@@ -151,7 +188,7 @@ class App:
         self.link.set_password(password)
         kind, entry = self.connected_to
         if kind == "local":
-            self.config.local_settings(self.dist.root)["password"] = password
+            self.profile(entry)["password"] = password
         elif kind == "saved":
             entry["password"] = password
         try:
@@ -159,77 +196,113 @@ class App:
         except OSError as e:
             self.msg(f"Mot de passe changé, mais servers.json n'a pas pu être écrit : {e}", C_ERR)
 
-    # ------------------------------------------------------------------------------------------- local server
-    def launch_local(self, game, port, password):
-        """game: the map and mods (gamemods.MOD_DEFAULTS' keys, launcher.server_game)."""
-        try:
-            self.local.start(game, port, password)
-        except (OSError, RuntimeError) as e:
-            return f"lancement impossible : {e}"
-        label = H.map_label(self.local.map)
-        self.console.add(f"--- serveur local lancé : {label}, port {port}, PID {self.local.pid} ---", C_OK)
-        self.msg(f"Serveur lancé (PID {self.local.pid}) : chargement de {label}…", C_OK)
-        self.connect_local()
+    # ------------------------------------------------------------------------------------------- local servers
+    def launch_local(self, name):
+        """Starts profile `name` with its saved game, port and password; None or why not."""
+        why = start_profile(self.config, self.dist, self.local(name), name)
+        if why:
+            return why
+        server = self.local(name)
+        label = H.map_label(server.map)
+        self.console.add(f"--- serveur local « {name} » lancé : {label}, port {server.port}, PID {server.pid} ---", C_OK)
+        self.msg(f"« {name} » lancé (PID {server.pid}) : chargement de {label}…", C_OK)
+        self.connect_local(name)
         return None
 
-    def stop_local(self):
-        if not self.local.running():
-            self.msg("Le serveur local ne tourne pas.", C_INFO)
+    def stop_local(self, name):
+        server = self.local(name)
+        if not server.running():
+            self.msg(f"« {name} » ne tourne pas.", C_INFO)
             return
 
         def go(_):
-            if self.is_local_link() and self.link.online:
-                self.send("quit", tag="quit")
-            else:
-                self.local.kill()
-            self.stopping = time.monotonic() + STOP_TIMEOUT
-            self.msg("Arrêt du serveur local…", C_WARN)
-        self.open(ConfirmDialog("Arrêter le serveur local", ["Arrêter le serveur local ?",
-                                                             "Les joueurs sont déconnectés et la partie est perdue."],
+            self.request_stop(name)
+            self.msg(f"Arrêt de « {name} »…", C_WARN)
+        self.open(ConfirmDialog("Arrêter un serveur local", [f"Arrêter le serveur local « {name} » ?",
+                                                             "Ses joueurs sont déconnectés et sa partie est perdue."],
                                 go))
 
+    def request_stop(self, name):
+        """quit over rcon when connected to it, else kill; check_local forces it after STOP_TIMEOUT."""
+        if self.local_profile_name == name and self.link.online:
+            self.send("quit", tag="quit")
+        else:
+            self.local(name).kill()
+        self.stopping[name] = time.monotonic() + STOP_TIMEOUT
+
     def check_local(self, now):
-        if self.stopping is None:
-            if self.is_local_link() and not self.local.running() and self.local.pid:
-                tail = self.local.exit_text()
-                self.console.add("--- le serveur local s'est arrêté ---", C_ERR)
+        connected = self.local_profile_name
+        if connected and connected not in self.stopping:
+            server = self.local(connected)
+            if not server.running() and server.pid:
+                tail = server.exit_text()
+                self.console.add(f"--- le serveur local « {connected} » s'est arrêté ---", C_ERR)
                 for line in tail:
                     self.console.add(line, C_ERR)
-                self.msg("Le serveur local s'est arrêté (dernières lignes dans la Console).", C_ERR)
-                self.local.pid = None
+                self.msg(f"« {connected} » s'est arrêté (dernières lignes dans la Console).", C_ERR)
+                server.pid = None
                 self.disconnect()
-            return
-        if not self.local.running():
-            self.stopping = None
-            self.local.pid = None
-            if self.is_local_link():
-                self.disconnect()
-            self.msg("Serveur local arrêté.", C_OK)
-            if self.quit_after_stop:
-                self.running = False
-        elif now > self.stopping:
-            self.local.kill()
-            self.msg("Le serveur ne s'arrêtait pas : arrêt forcé.", C_WARN)
-            self.stopping = now + 5
+        for name, deadline in list(self.stopping.items()):
+            server = self.local(name)
+            if not server.running():
+                del self.stopping[name]
+                server.pid = None
+                if self.local_profile_name == name:
+                    self.disconnect()
+                self.msg(f"« {name} » arrêté.", C_OK)
+            elif now > deadline:
+                server.kill()
+                self.msg(f"« {name} » ne s'arrêtait pas : arrêt forcé.", C_WARN)
+                self.stopping[name] = now + 5
+        if self.quit_after_stop and not self.stopping:
+            self.running = False
 
-    def write_server_cfg(self, values):
-        path = self.dist.server_cfg
-        try:
-            with open(path, encoding="latin-1") as f:
-                text = f.read()
-        except FileNotFoundError:
-            text = "// written by ZmAdmin; see docs/SERVER.md, \"Settings and their order\"\n"
-        except OSError as e:
-            self.msg(f"server.cfg illisible : {e}", C_ERR)
+    def keep_settings(self, applied):
+        """Settings Save applied, kept in the profile (or the saved server's entry) they were sent to, so its
+        server.cfg can be rebuilt; a local profile's server.cfg is rewritten now."""
+        kind, entry = self.connected_to
+        if kind == "local":
+            target, name = self.profile(entry), entry
+        elif kind == "saved":
+            target, name = entry, None
+        else:
             return
+        kept = kept_settings(applied, local=kind == "local")
+        if not kept:
+            return
+        target.setdefault("settings", {}).update(kept)
         try:
-            os.makedirs(os.path.dirname(path), exist_ok=True)
+            self.config.save()
+        except OSError as e:
+            self.msg(f"Réglages appliqués, mais servers.json n'a pas pu être écrit : {e}", C_ERR)
+            return
+        if name:
+            self.write_cfg(name)
+
+    def write_cfg(self, name):
+        server = self.local(name)
+        settings = self.profile(name).get("settings") or {}
+        why = write_profile_cfg(server.home, settings, name)
+        if why:
+            self.msg(why, C_ERR)
+            return False
+        self.console.add(f"--- server.cfg de « {name} » : {len(settings)} réglage(s) gardé(s), "
+                         f"{server.home.server_cfg} ---", C_OK)
+        return True
+
+    def export_cfg(self, entry):
+        """A saved remote server's kept settings as a server.cfg in ZmAdmin's folder; returns its path or None."""
+        label = entry.get("name") or entry["host"]
+        safe = "".join(c if c.isalnum() or c in "-_" else "_" for c in label)
+        path = os.path.join(self.config.dir, f"{safe}_server.cfg")
+        try:
+            os.makedirs(self.config.dir, exist_ok=True)
             with open(path, "w", encoding="latin-1", newline="\n") as f:
-                f.write(update_server_cfg(text, values))
+                f.write(build_server_cfg(None, entry.get("settings") or {}, label))
         except OSError as e:
             self.msg(f"server.cfg non écrit : {e}", C_ERR)
-            return
-        self.console.add(f"--- server.cfg : {', '.join(values)} écrits dans {path} ---", C_OK)
+            return None
+        return path
 
     def edit_mods(self, current, on_done):
         mods = self.dist.mods() if self.dist and self.is_local_link() else []
@@ -356,11 +429,11 @@ class App:
         if self.link.online is None:
             parts.append(("● connexion…", C_WARN))
         elif not self.link.online:
-            starting = self.is_local_link() and self.local.running()
+            starting = self.is_local_link() and self.local(self.local_profile_name).running()
             parts.append(("● démarrage du serveur…" if starting else "● hors ligne", C_WARN if starting else C_ERR))
         else:
             parts.append(("● en ligne", C_OK))
-        where = "local " if self.is_local_link() else ""
+        where = f"local « {self.local_profile_name} » " if self.is_local_link() else ""
         parts.append((f"{where}{self.link.host}:{self.link.port}", 0))
         if self.status:
             parts.append((self.status.get("sv_hostname"), 0))
@@ -431,22 +504,22 @@ class App:
             self.console.edit.set("")
 
     def ask_quit(self):
-        if self.local and self.local.running():
+        running = self.running_locals()
+        if running:
             def go(stop):
                 if stop:
                     self.quit_after_stop = True
-                    if self.is_local_link() and self.link.online:
-                        self.send("quit", tag="quit")
-                    else:
-                        self.local.kill()
-                    self.stopping = time.monotonic() + STOP_TIMEOUT
-                    self.msg("Arrêt du serveur local avant de quitter…", C_WARN)
+                    for name in running:
+                        self.request_stop(name)
+                    self.msg("Arrêt des serveurs locaux avant de quitter…", C_WARN)
                 else:
                     self.running = False
+            names = ", ".join(f"« {n} »" for n in running)
             self.open(ConfirmDialog("Quitter ZmAdmin", ["Quitter ZmAdmin ?",
-                                                        "Le serveur local continue de tourner, sauf si la case",
-                                                        "ci-dessous est cochée. Un prochain ZmAdmin le retrouve."],
-                                    go, checkbox="Arrêter aussi le serveur local"))
+                                                        f"En marche : {names}.",
+                                                        "Ils continuent de tourner, sauf si la case ci-dessous",
+                                                        "est cochée. Un prochain ZmAdmin les retrouve."],
+                                    go, checkbox="Arrêter aussi les serveurs locaux"))
         else:
             self.running = False
 
@@ -464,7 +537,7 @@ class App:
             now = time.monotonic()
             self.pump()
             self.poll_log(now)
-            if self.local:
+            if self.dist:
                 self.check_local(now)
             self.draw()
             try:

@@ -8,7 +8,8 @@ import sys
 from . import __version__
 from . import help as H
 from .config import Config
-from .launcher import find_dist
+from .launcher import LocalServer, find_dist
+from .profiles import local_game, profile_configured, start_profile
 from .protocol import DEFAULT_PORT, ProtocolError, RconClient, parse_target, query_status, strip_colors
 
 DESCRIPTION = """ZmAdmin: administration console for the BO1 zombies dedicated server (docs/SERVER.md).
@@ -18,7 +19,12 @@ DESCRIPTION = """ZmAdmin: administration console for the BO1 zombies dedicated s
   zmadmin --status 192.168.1.20        print the server's status and exit (no rcon needed)
   zmadmin --rcon "zm_admin" HOST -p PW print one rcon command's output and exit
 
-Next to BO1Zombies and server.sh / Server.bat (a make_dist.sh folder) it can also start that folder's server."""
+Next to BO1Zombies and server.sh / Server.bat (a make_dist.sh folder) it also starts that folder's servers, one per
+profile (Servers view: n for a new one):
+  zmadmin --start kino                 start profile "kino" as saved, no question asked, then show it
+  zmadmin --start default --start kino --detach
+                                       start both and exit (a scheduled task, a service)
+  zmadmin --list-profiles              the folder's profiles: port, map, state"""
 
 
 def print_status(target, timeout):
@@ -65,6 +71,10 @@ def main(argv=None):
     parser.add_argument("--no-mouse", action="store_true",
                         help="keyboard only: leave the mouse to the terminal (text selection without Shift)")
     parser.add_argument("--config", help="ZmAdmin's settings folder (servers.json, history)")
+    parser.add_argument("--start", action="append", metavar="PROFILE",
+                        help="start this local server profile with its saved game, port and password (repeatable)")
+    parser.add_argument("--detach", action="store_true", help="with --start: start, print, exit without the interface")
+    parser.add_argument("--list-profiles", action="store_true", help="print the folder's local server profiles, exit")
     parser.add_argument("--version", action="version", version=f"zmadmin {__version__}")
     args = parser.parse_args(argv)
 
@@ -82,12 +92,72 @@ def main(argv=None):
         except ValueError as e:
             parser.error(str(e))
         initial = (host, port, args.password, ("cli", {"host": host, "port": port}))
+    if args.detach and not args.start:
+        parser.error("--detach goes with --start")
+    if args.start and args.target:
+        parser.error("--start connects to the profile it starts: no TARGET")
     dist = find_dist(args.dist)
     if args.dist and not dist:
         parser.error(f"{args.dist} is not a BO1Zombies folder (BO1Zombies, server script and zone/ needed)")
+    if (args.start or args.list_profiles) and not dist:
+        parser.error("no BO1Zombies folder here: run it from one, or give --dist")
     config = Config(args.config)
+    if args.list_profiles:
+        return list_profiles(config, dist)
+    if args.start:
+        code = start_profiles(config, dist, args.start)
+        if code or args.detach:
+            return code
 
     locale.setlocale(locale.LC_ALL, "")
     os.environ.setdefault("ESCDELAY", "25")  # Esc closes a dialog at once instead of after 1 s
     from .app import App
-    return curses.wrapper(lambda scr: App(scr, config, dist, initial, args.admin_poll, not args.no_mouse).run()) or 0
+
+    def run(scr):
+        app = App(scr, config, dist, initial, args.admin_poll, not args.no_mouse)
+        if args.start:
+            app.connect_local(args.start[0])
+        return app.run()
+    return curses.wrapper(run) or 0
+
+
+def list_profiles(config, dist):
+    print(f"{dist.root}:")
+    for name, local in config.local_profiles(dist.root):
+        server = LocalServer(dist, name)
+        if server.running():
+            state = f"running, PID {server.pid}, port {server.port}"
+        else:
+            state = "stopped" if profile_configured(local) else "stopped, never set up"
+        print(f"  {name:<20} port {local['port']:<6} {H.map_label(local_game(local).get('map', '')):<28} {state}")
+    return 0
+
+
+def start_profiles(config, dist, names):
+    """Starts each profile as saved (profiles.start_profile), before the interface. 0, or 2 on the first that cannot
+    start: an unknown name, a profile never set up (its game was never chosen), a busy port."""
+    for name in dict.fromkeys(names):
+        local = config.local_profile(dist.root, name)
+        if local is None:
+            known = ", ".join(n for n, _ in config.local_profiles(dist.root))
+            print(f"zmadmin: no profile {name!r} in {dist.root} (profiles: {known})", file=sys.stderr)
+            return 2
+        if not profile_configured(local):
+            print(f"zmadmin: profile {name!r} was never set up: choose its game once in the Servers view "
+                  "(l or Enter)", file=sys.stderr)
+            return 2
+        server = LocalServer(dist, name)
+        if server.running():
+            print(f"{name}: already running, PID {server.pid}, port {server.port}")
+            continue
+        why = start_profile(config, dist, server, name)
+        if why:
+            print(f"zmadmin: {name}: {why}", file=sys.stderr)
+            return 2
+        print(f"{name}: started, PID {server.pid}, port {server.port}, {H.map_label(server.map)}, "
+              f"log {server.home.log}")
+    try:
+        config.save()       # a password local_settings generated must stay the server's
+    except OSError as e:
+        print(f"zmadmin: servers.json not written: {e}", file=sys.stderr)
+    return 0

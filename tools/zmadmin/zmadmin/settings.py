@@ -1,4 +1,5 @@
-"""The Settings view's form, without curses: what changed, the commands Save sends, and server.cfg."""
+"""The Settings view's form, without curses: what changed, the commands Save sends, the settings a profile keeps,
+and server.cfg."""
 import re
 
 from .help import PERKS
@@ -142,16 +143,18 @@ class Form:
 _CFG_LINE = re.compile(r'^\s*(set[as]?\s+)?([A-Za-z_][A-Za-z0-9_]*)(\s|$)')
 
 
-def update_server_cfg(text, values):
+def update_server_cfg(text, values, drop=()):
     """server.cfg with each name of `values` set: an existing 'set name ...' line is rewritten in place (its first
     occurrence; later ones would override it, they are dropped); a missing one goes before the first map load
-    (devmap/map lines), or at the end. Every other line is kept as it was."""
+    (devmap/map lines), or at the end. Lines that set a name of `drop` go. Every other line is kept as it was."""
     lines = text.splitlines()
     written = set()
     out = []
     for line in lines:
         m = _CFG_LINE.match(line)
         name = m.group(2) if m else None
+        if name in drop and name not in values:
+            continue
         if name in values:
             if name in written:
                 continue
@@ -164,3 +167,23 @@ def update_server_cfg(text, values):
         at = next((i for i, l in enumerate(out) if re.match(r"^\s*(dev)?map\s", l)), len(out))
         out[at:at] = missing
     return "\n".join(out) + "\n"
+
+
+CFG_HEADER = "// written by ZmAdmin from profile {}; see docs/SERVER.md, \"Settings and their order\""
+
+
+def kept_settings(applied, local):
+    """The part of the settings Save applied that a profile keeps: never rcon_password (the profile's password, which
+    the command line gives after server.cfg runs), and for a local profile never fs_mods (its mods come from the
+    profile's game on the command line, and a server.cfg fs_mods would replace them)."""
+    skip = {"rcon_password"} | ({"fs_mods"} if local else set())
+    return {n: v for n, v in applied.items() if n in BY_NAME and n not in skip}
+
+
+def build_server_cfg(text, settings, profile, drop=()):
+    """server.cfg's text with the profile's kept settings, in SETTINGS' order, and without the lines that set a name
+    of `drop`; text is the file as it is (None when there is none): its other lines stay."""
+    if text is None:
+        text = CFG_HEADER.format(profile) + "\n"
+    ordered = {s.name: settings[s.name] for s in SETTINGS if s.name in settings}
+    return update_server_cfg(text, ordered, drop) if ordered or drop else text

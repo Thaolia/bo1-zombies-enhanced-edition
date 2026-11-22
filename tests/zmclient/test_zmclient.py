@@ -27,7 +27,7 @@ from zmclient import dirbrowser, gamesetup, profile as P  # noqa: E402
 from zmclient.browser import Browser  # noqa: E402
 from zmclient.cli import main as cli_main  # noqa: E402
 from zmclient.client import Client  # noqa: E402
-from zmclient.gamecfg import GameConfig, validate  # noqa: E402
+from zmclient.gamecfg import BY_NAME, GameConfig, validate  # noqa: E402
 from zmclient.modflags import horde_flags, nightmare_flags  # noqa: E402
 from zmadmin.launcher import Dist, EXE_NAME  # noqa: E402
 
@@ -180,6 +180,18 @@ class CommandLine(unittest.TestCase):
         self.assertIn("+set bo1_aimassist 1", line)
         self.assertIn("+set aim_lockon_enabled 0", line)
         self.assertNotIn("aim_slowdown_enabled", line)
+        self.assertNotIn("r_mode", line)
+        # the same size picks the fullscreen mode; borderless takes the monitor's
+        p["window"] = "fullscreen"
+        line = " ".join(P.build_command(p, "x", "/g"))
+        self.assertIn("+set r_fullscreen 1 +set r_borderless 0 +set r_mode 1600x900", line)
+        self.assertNotIn("r_customMode", line)
+        p["window"] = "borderless"
+        line = " ".join(P.build_command(p, "x", "/g"))
+        self.assertNotIn("r_mode", line)
+        self.assertNotIn("r_customMode", line)
+        p["window"], p["window_size"] = "fullscreen", "big"
+        self.assertIn("résolution : LARGEURxHAUTEUR, ex. 1280x720", P.problems(p, "/g"))
 
     def test_refusals(self):
         p = P.Profile()
@@ -682,7 +694,8 @@ class ConfigFile(unittest.TestCase):
         self.assertIsNotNone(validate("r_vsync", "2")[1])
         self.assertIsNotNone(validate("bo1_mod_fov", "40")[1])
         self.assertEqual(validate("bo1_mod_fov", "0"), ("0", None))
-        self.assertIsNotNone(validate("r_mode", "big")[1])
+        # the resolution is the Launch view's (window_size), not a config.cfg line any more
+        self.assertNotIn("r_mode", BY_NAME)
         self.assertIsNotNone(validate("anything", 'a"b')[1])
 
     def test_missing_file(self):
@@ -723,6 +736,132 @@ class FakeStatusServer(threading.Thread):
                 lines = "".join(f'{i} 500 20 5 "P{i}"\n' for i in range(self.players))
                 self.sock.sendto(OOB + f"statusResponse\n\\sv_hostname\\{self.name}\\mapname\\zombie_moon"
                                        f"\\sv_maxclients\\4\n{lines}".encode(), src)
+
+
+class FakeScr:
+    """A curses window that keeps what was drawn, line by line."""
+
+    def __init__(self, h=30, w=120):
+        self.h, self.w = h, w
+        self.rows = [[" "] * w for _ in range(h)]
+
+    def getmaxyx(self):
+        return self.h, self.w
+
+    def addstr(self, y, x, text, attr=0):
+        for i, c in enumerate(text[:self.w - x]):
+            self.rows[y][x + i] = c
+
+    def text(self):
+        return ["".join(r).rstrip() for r in self.rows]
+
+
+class ViewsApp:
+    """What the Config and Free dvars views use of the app."""
+
+    def __init__(self, root=None):
+        from zmadmin.widgets import HitMap
+        self.profile = P.Profile()
+        self.gamecfg = GameConfig(root) if root else None
+        self.client = None
+        self.hits = HitMap()
+        self.modals, self.saved = [], 0
+
+    def open(self, dialog):
+        self.modals.append(dialog)
+
+    def save_profile(self):
+        self.saved += 1
+
+    def msg(self, *_):
+        pass
+
+
+class FreeDvarsAndResolution(unittest.TestCase):
+    def setUp(self):
+        from zmclient import views
+        self.views = views
+        self.real_color = views.color
+        views.color = lambda _: 0          # no curses screen in tests
+
+    def tearDown(self):
+        self.views.color = self.real_color
+
+    def test_describe(self):
+        from zmclient.dvarhelp import describe, dvar_of
+        self.assertEqual(dvar_of("set r_fog 0"), "r_fog")
+        self.assertEqual(dvar_of("seta  BO1_NETLOG 0"), "BO1_NETLOG")
+        self.assertEqual(dvar_of("devmap zombie_moon"), "devmap")
+        self.assertTrue(describe("set bo1_netlog 0")[0])
+        self.assertEqual(describe("SET Bo1_NetLog 0"), describe("set bo1_netlog 0"))
+        self.assertEqual(describe("set no_such_dvar 1"), ("", ""))
+        self.assertEqual(describe(""), ("", ""))
+
+    def test_known_dvars_exist(self):
+        """Every described dvar is still in the engine's sources (a typo would describe nothing)."""
+        from zmclient.dvarhelp import KNOWN
+        repo = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..")
+        if not os.path.isdir(os.path.join(repo, "src")) or not shutil.which("git"):
+            self.skipTest("no src/ or no git")
+        # git grep: a plain recursive grep of src/ takes 30 s+ from /mnt/c
+        out = subprocess.run(["git", "-C", repo, "grep", "-ahoF"] + [x for n in KNOWN for x in ("-e", f'"{n}"')]
+                             + ["--", "src/*.cpp", "src/*.h"], capture_output=True, text=True).stdout
+        found = {line.strip('"') for line in out.split()}
+        self.assertEqual(sorted(set(KNOWN) - found), [])
+        for name, (short, long) in KNOWN.items():
+            self.assertTrue(short and long and len(short) <= 50, name)
+
+    def test_free_dvars_view(self):
+        app = ViewsApp()
+        app.profile["extra"] = [{"on": True, "text": "set bo1_netlog 0"}, {"on": False, "text": "set mine 1"}]
+        view = self.views.ExtraView(app)
+        scr = FakeScr()
+        view.draw(scr, 0, 28, 120)
+        lines = scr.text()
+        header = next(l for l in lines if l.endswith("Description"))
+        netlog = next(l for l in lines if "+set bo1_netlog 0" in l)
+        mine = next(l for l in lines if "+set mine 1" in l)
+        col = header.index("Description")
+        self.assertEqual(netlog[col:], "Envoie le log du jeu au serveur rejoint")
+        self.assertEqual(mine[col:].strip(), "")
+        # the selected line's full text under the buttons
+        self.assertTrue(any("port du serveur + 1" in l for l in lines))
+        # Add: the known dvars first, then the command prefilled and explained
+        view.key("a")
+        pick = app.modals.pop()
+        self.assertEqual(pick.items[0][0], "")
+        self.assertIn("r_shaderWarming", [v for v, _, _ in pick.items])
+        pick.on_pick("r_shaderWarming")
+        ask = app.modals.pop()
+        self.assertEqual(ask.edits[0].text, "set r_shaderWarming ")
+        self.assertTrue(any("shaders" in line for line in ask.intro))
+        ask.edits[0].set("set r_shaderWarming 1")
+        self.assertTrue(ask.submit())
+        self.assertEqual(app.profile["extra"][-1], {"on": True, "text": "set r_shaderWarming 1"})
+
+    def test_config_resolution_row(self):
+        with tempfile.TemporaryDirectory() as d:
+            app = ViewsApp(d)
+            view = self.views.ConfigView(app)
+            view.on_show()
+            rows = view.rows()
+            keys = [r.key for r in rows]
+            self.assertNotIn("r_mode", keys)
+            self.assertEqual(keys[keys.index("bo1_mod_fov") + 1], "window_size")
+            res = rows[keys.index("window_size")]
+            self.assertIn("sans effet", res.value)              # borderless, the default
+            app.profile["window"] = "fullscreen"
+            res = view.rows()[keys.index("window_size")]
+            self.assertEqual(res.value, "1280x720")
+            res.action()
+            ask = app.modals.pop()
+            ask.edits[0].set("huge")
+            self.assertFalse(ask.submit())
+            ask.edits[0].set("1920x1080")
+            self.assertTrue(ask.submit())
+            self.assertEqual((app.profile["window_size"], app.saved), ("1920x1080", 1))
+            self.assertEqual(view.edits, {})                    # nothing for config.cfg
+            self.assertIn("+set r_mode 1920x1080", " ".join(P.build_command(app.profile, "x", "/g")))
 
 
 class ServerBrowser(unittest.TestCase):

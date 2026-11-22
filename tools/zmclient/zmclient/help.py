@@ -107,8 +107,10 @@ ROW_HELP = {
                         "charge alors le même mods/bo2weapons/mod.ff. Sans lui, l'entrée sur ce serveur échoue "
                         "et le jeu revient au menu avec un message (arme manquante).",
     "window": "Sans bordure : une fenêtre de la taille de l'écran (comme Play.bat). Fenêtre : la taille ci-dessous. "
-              "Plein écran : à la résolution de config.cfg (vue Config du jeu, F5).",
-    "window_size": "La taille de la fenêtre en mode Fenêtre, LARGEURxHAUTEUR.",
+              "Plein écran : à la résolution ci-dessous.",
+    "window_size": "La résolution en Fenêtre (taille de la fenêtre) et en Plein écran (mode de l'écran ; une taille "
+                   "que l'écran ne propose pas revient à celle du jeu), LARGEURxHAUTEUR. Aussi dans Config du jeu "
+                   "(F5). Sans effet en Sans bordure.",
     "run_info": "Les réglages qui changent une partie et un hash SHA-512 du programme et des zones chargées "
                 "(bo1_runinfo), en bas de l'écran de chargement, ou aussi dans un coin pendant la partie, pour un "
                 "stream ou un speedrun. Le hash complet est aussi écrit dans console_mp.log (ligne runinfo:).",
@@ -190,11 +192,16 @@ VIEW_HELP = {
         "b           touches : changer ou retirer une commande liée (bind)",
         "r           relire le fichier",
         "Le jeu réécrit config.cfg en quittant : ZmClient refuse de sauvegarder pendant qu'il tourne.",
+        "La ligne Résolution est celle de la vue Lancement (F4), pas une ligne de config.cfg : le jeu la reçoit en "
+        "ligne de commande (r_mode en Plein écran, r_customMode en Fenêtre) ; en Sans bordure il prend la taille de "
+        "l'écran. Modifiée ici, elle est enregistrée tout de suite.",
     ],
     "extra": [
         "Dvars libres : des commandes ajoutées à la ligne de commande, avant la map ou la connexion.",
-        "a           ajouter une ligne (ex. « set r_fog 0 », « set bo1_frameperf 1 »)",
+        "a           ajouter une ligne : un dvar connu dans la liste (avec son explication), ou une commande libre",
         "e           modifier          x  retirer          Espace  activer / désactiver",
+        "La colonne Description explique les dvars que ZmClient connaît (ceux du portage surtout) ; le texte complet "
+        "de la ligne choisie s'affiche sous les boutons.",
         "Chaque ligne devient une commande « +ligne ». Pas de « + » dans une ligne : le jeu coupe sa ligne de "
         "commande à chaque « + », et n'en lit que 63.",
     ],

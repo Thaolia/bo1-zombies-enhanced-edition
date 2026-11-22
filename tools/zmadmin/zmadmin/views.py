@@ -1,11 +1,14 @@
 """The six views. Each draws itself in the body area and handles the keys the app does not take."""
 import collections
 import curses
+import os
 import re
 
 from . import gamemods, launcher
 from . import help as H
+from .config import DEFAULT_PROFILE
 from .model import parse_dvars
+from .profiles import configure_game, local_game, profile_configured
 from .settings import APPLIED, BY_NAME, REFUSED, SETTINGS, validate
 from .widgets import (BAD_MARK, BTAB, C_DIM, C_ERR, C_INFO, C_OK, C_WARN, CTRL_S, ENTER, OK_MARK, TAB, ChecklistDialog,
                       ChoiceDialog, ConfirmDialog, FormDialog, InputDialog, LineEdit, color, put, wrap)
@@ -59,16 +62,21 @@ def _int_field(text, minimum=None):
 # ---------------------------------------------------------------------------------------------------------- Servers
 class ServersView(View):
     name, title = "servers", "Serveurs"
-    hints = "Entrée/double-clic connecter  a ajouter  e modifier  x retirer  l lancer local  S arrêter local  ? aide"
+    hints = ("Entrée connecter/lancer  n nouveau local  l reconfigurer+lancer  e modifier  x retirer  S arrêter  "
+             "a ajouter distant  ? aide")
 
     def __init__(self, app):
         super().__init__(app)
         self.sel = 0
 
     def entries(self):
-        items = [("local", None)] if self.app.dist else []
+        items = [("local", name) for name in self.app.profile_names()]
         items += [("saved", s) for s in self.app.config.servers]
         return items
+
+    def selected(self):
+        entries = self.entries()
+        return entries[self.sel] if entries and 0 <= self.sel < len(entries) else (None, None)
 
     def draw(self, scr, top, height, width):
         app = self.app
@@ -78,13 +86,16 @@ class ServersView(View):
         y = top + 1
         if not entries:
             put(scr, y + 1, 3, "Aucun serveur enregistré : « a » pour en ajouter un.", color(C_INFO))
-        for i, (kind, entry) in enumerate(entries):
+        for i, (kind, entry) in enumerate(entries[:max(1, height - 12)]):
             if kind == "local":
-                local = app.local
-                port = local.port if local.running() else app.config.local_settings(app.dist.root)["port"]
-                name, addr = "Serveur local", f"127.0.0.1:{port}"
-                state = f"en marche (PID {local.pid}, {H.map_label(local.map or '')})" if local.running() \
-                    else "arrêté"
+                server, local = app.local(entry), app.profile(entry)
+                running = server.running()
+                name = f"Local : {entry}"
+                addr = f"127.0.0.1:{server.port if running and server.port else local['port']}"
+                if running:
+                    state = f"en marche (PID {server.pid}, {H.map_label(server.map or '')})"
+                else:
+                    state = "arrêté" if profile_configured(local) else "arrêté, pas encore configuré"
             else:
                 name, addr = entry.get("name") or entry["host"], f"{entry['host']}:{entry.get('port', 3074)}"
                 state = ""
@@ -95,9 +106,13 @@ class ServersView(View):
             self.zone(y, 1, width - 2, lambda i=i: self.select(i), lambda i=i: self.select(i, ENTER))
             y += 1
         y += 1
-        rows = [[("Connecter", ENTER, bool(entries)), ("Ajouter", "a", True), ("Modifier", "e", bool(entries)),
-                 ("Retirer", "x", bool(entries))],
-                [("Lancer le serveur local", "l", bool(app.dist)), ("Arrêter le serveur local", "S", bool(app.dist))]]
+        kind, _ = self.selected()
+        local = kind == "local"
+        rows = [[("Lancer" if local and not self.selected_running() else "Connecter", ENTER, bool(entries)),
+                 ("Modifier", "e", bool(entries)), ("Retirer", "x", bool(entries)),
+                 ("Ajouter un serveur distant", "a", True)],
+                [("Nouveau serveur local", "n", bool(app.dist)), ("Reconfigurer et lancer", "l", local),
+                 ("Arrêter", "S", local)]]
         for row in rows:
             x = 3
             for label, k, shown in row:
@@ -108,16 +123,23 @@ class ServersView(View):
         y += 1
         if app.dist:
             text = [f"Dossier BO1Zombies : {app.dist.root}",
-                    "Le serveur local se lance depuis ce dossier, comme server.sh / Server.bat, avec un mot de passe "
-                    "rcon que ZmAdmin choisit et garde (« l » pour le voir ou le changer). Son log s'affiche en direct "
-                    "dans les vues Console et Log."]
+                    "Chaque serveur local est un profil : sa map, ses mods, son port, son mot de passe rcon et les "
+                    "réglages appliqués dans la vue Réglages, gardés par ZmAdmin. Entrée lance un profil arrêté tel "
+                    "qu'il a été enregistré (« zmadmin --start <nom> » aussi). Plusieurs profils tournent à la fois, "
+                    "chacun dans son dossier (server/ pour default, servers/<nom>/ sinon) et sur son port (et port + 1)."]
         else:
             text = ["Pas de dossier BO1Zombies ici : ZmAdmin pilote des serveurs à distance. Posé à côté de "
-                    "BO1Zombies et de server.sh / Server.bat (un dossier de make_dist.sh), il peut aussi en lancer un."]
+                    "BO1Zombies et de server.sh / Server.bat (un dossier de make_dist.sh), il peut aussi en lancer."]
         for paragraph in text:
             for line in wrap(paragraph, width - 6):
+                if y >= top + height:
+                    return
                 put(scr, y, 3, line, color(C_DIM), width=width - 4)
                 y += 1
+
+    def selected_running(self):
+        kind, entry = self.selected()
+        return kind == "local" and self.app.local(entry).running()
 
     def select(self, i, then=None):
         self.sel = i
@@ -125,39 +147,85 @@ class ServersView(View):
             self.key(then)
 
     def key(self, k):
-        entries = self.entries()
+        app = self.app
+        kind, entry = self.selected()
         if k == curses.KEY_UP:
             self.sel -= 1
         elif k == curses.KEY_DOWN:
             self.sel += 1
-        elif k == ENTER and entries:
-            kind, entry = entries[self.sel]
-            if kind == "local":
-                if self.app.local.running():
-                    self.app.connect_local()
-                else:
-                    self.launch_dialog()
+        elif k == ENTER and kind == "local":
+            if app.local(entry).running():
+                app.connect_local(entry)
+            elif profile_configured(app.profile(entry)):
+                why = app.launch_local(entry)
+                if why:
+                    app.msg(f"« {entry} » : {why}", C_ERR)
             else:
-                self.app.connect_saved(entry)
+                self.configure_dialog(entry, launch=True)
+        elif k == ENTER and kind == "saved":
+            app.connect_saved(entry)
         elif k == "a":
             self.edit_dialog(None)
-        elif k == "e" and entries and entries[self.sel][0] == "saved":
-            self.edit_dialog(entries[self.sel][1])
-        elif k in ("x", curses.KEY_DC) and entries and entries[self.sel][0] == "saved":
-            entry = entries[self.sel][1]
-
+        elif k == "n" and app.dist:
+            self.new_profile_dialog()
+        elif k == "e" and kind == "saved":
+            self.edit_dialog(entry)
+        elif k in ("e", "l") and kind == "local":
+            if app.local(entry).running():
+                app.msg(f"« {entry} » tourne : l'arrêter (S) avant de changer sa partie.", C_WARN)
+            else:
+                self.configure_dialog(entry, launch=k == "l")
+        elif k in ("x", curses.KEY_DC) and kind == "saved":
             def remove(_):
-                self.app.config.servers.remove(entry)
-                self.app.config.save()
-            self.app.open(ConfirmDialog("Retirer", [f"Retirer {entry.get('name') or entry['host']} de la liste ?"],
-                                        remove))
-        elif k == "l" and self.app.dist:
-            self.launch_dialog()
-        elif k == "S" and self.app.dist:
-            self.app.stop_local()
+                app.config.servers.remove(entry)
+                app.config.save()
+            app.open(ConfirmDialog("Retirer", [f"Retirer {entry.get('name') or entry['host']} de la liste ?"],
+                                   remove))
+        elif k in ("x", curses.KEY_DC) and kind == "local":
+            self.remove_profile(entry)
+        elif k == "S" and kind == "local":
+            app.stop_local(entry)
         else:
             return False
         return True
+
+    def remove_profile(self, name):
+        app = self.app
+        if name == DEFAULT_PROFILE:
+            app.msg("Le profil default ne se retire pas (c'est celui de server.sh / Server.bat et de ZmClient).", C_WARN)
+            return
+        if app.local(name).running():
+            app.msg(f"« {name} » tourne : l'arrêter (S) avant de le retirer.", C_WARN)
+            return
+
+        def remove(_):
+            app.config.remove_profile(app.dist.root, name)
+            app.locals.pop(name, None)
+            app.config.save()
+            app.msg(f"Profil « {name} » retiré.", C_INFO)
+        app.open(ConfirmDialog("Retirer un serveur local", [
+            f"Retirer le profil « {name} » de ZmAdmin ?",
+            f"Son dossier {app.local(name).home.home} (log, server.cfg, logs des joueurs) reste sur le disque."],
+            remove))
+
+    def new_profile_dialog(self):
+        app = self.app
+
+        def ok(v):
+            name = v.strip()
+            why = app.config.check_profile_name(app.dist.root, name)
+            if why:
+                return why
+            app.config.add_profile(app.dist.root, name)
+            try:
+                app.config.save()
+            except OSError as e:
+                return f"servers.json non écrit : {e}"
+            self.sel = [e for _, e in self.entries()].index(name)
+            self.configure_dialog(name, launch=False)
+            return None
+        app.open(InputDialog("Nouveau serveur local", "Nom", "", "lettres, chiffres, - et _ ; ex. kino, five_hard",
+                             ok, intro=["Le nom sert aussi à « zmadmin --start <nom> » et au dossier servers/<nom>/."]))
 
     def edit_dialog(self, entry):
         e = entry or {}
@@ -186,14 +254,12 @@ class ServersView(View):
             ("password", "Mot de passe rcon", e.get("password", ""), "le rcon_password du serveur", True),
         ], ok, intro=["Enregistré dans servers.json (dossier de configuration de ZmAdmin, lisible par vous seul)."]))
 
-    def launch_dialog(self):
-        """The local server's game, one dialog per choice that applies (map, mods, then difficulty, horde size, spawn
-        speed, Black Ops II's weapons, dual wield), then the port and rcon password. Kept in servers.json."""
+    def configure_dialog(self, profile, launch):
+        """A local profile's game, one dialog per choice that applies (map, mods, then difficulty, horde size, spawn
+        speed, Black Ops II's weapons, dual wield), then the port and rcon password; kept in servers.json, then
+        started when `launch`."""
         app = self.app
-        if app.local.running():
-            app.msg(f"Le serveur local tourne déjà (PID {app.local.pid}).", C_WARN)
-            return
-        local = app.config.local_settings(app.dist.root)
+        local = app.profile(profile)
         game = launcher.server_game(local_game(local))
         root = app.dist.root
         maps = [(value, label + ("" if gamemods.map_installed(bsp, root) else "  (non installée)"), value)
@@ -205,18 +271,31 @@ class ServersView(View):
                     port = _int_field(v["port"], 1)
                 except ValueError as err:
                     return f"port : {err}"
+                if port > 65534:
+                    return "port : au plus 65534 (le serveur prend aussi port + 1)"
                 if not re.fullmatch(r"[A-Za-z0-9_.-]+", v["password"]):
                     return "mot de passe : lettres, chiffres, - _ . seulement, et pas vide"
-                local.update(port=port, password=v["password"], map=game["map"], game=dict(game))
+                for other, entry in app.config.local_profiles(root):
+                    if other != profile and abs(int(entry["port"]) - port) < 2:
+                        return (f"port : « {other} » a le port {entry['port']} ; chaque serveur prend aussi port + 1, "
+                                f"gardez 2 d'écart (libre : {app.config.next_port(root)})")
+                local.update(port=port, password=v["password"])
+                why = configure_game(local, game, app.local(profile).home, profile, root)
                 app.config.save()
-                return app.launch_local(game, port, v["password"])
-            app.open(FormDialog(f"Lancer {H.map_label(game['map'])}", [
-                ("port", "Port UDP", local["port"], "3074 par défaut ; à ouvrir dans le pare-feu", False),
+                if why:
+                    return why
+                if launch:
+                    return app.launch_local(profile)
+                app.msg(f"Profil « {profile} » enregistré : Entrée pour le lancer.", C_OK)
+                return None
+            app.open(FormDialog(f"{'Lancer' if launch else 'Enregistrer'} « {profile} » : "
+                                f"{H.map_label(game['map'])}", [
+                ("port", "Port UDP", local["port"], "le serveur prend aussi port + 1 ; à ouvrir dans le pare-feu", False),
                 ("password", "Mot de passe rcon", local["password"],
-                 "choisi par ZmAdmin, gardé pour ce dossier", False),
+                 "choisi par ZmAdmin, gardé pour ce profil", False),
             ], ok, intro=["Le serveur démarre sans fenêtre et charge la map (une minute environ).",
                           "Les joueurs qui le rejoignent avec ZmClient chargent les mêmes mods tout seuls.",
-                          "Son log : server/main/console_mp.log, visible dans la vue Log."]))
+                          f"Son log : {os.path.relpath(app.local(profile).home.log, root)}, visible dans la vue Log."]))
 
         def steps():
             """The choices left for this map and these mods, as (title, items, key)."""
@@ -258,18 +337,9 @@ class ServersView(View):
 
         def map_picked(value):
             game["map"] = value
-            app.open(ChecklistDialog("Mods du serveur", H.MOD_CHOICES, [k for k, _ in H.MOD_CHOICES if game[k]],
+            app.open(ChecklistDialog(f"Mods de « {profile} »", H.MOD_CHOICES, [k for k, _ in H.MOD_CHOICES if game[k]],
                                      mods_picked, intro=["Espace pour cocher, Entrée pour continuer."]))
-        app.open(ChoiceDialog("Map du serveur local", maps, map_picked, current=game["map"]))
-
-
-def local_game(local):
-    """The local server's saved game; a servers.json of an older ZmAdmin kept only the map and two mods."""
-    if isinstance(local.get("game"), dict):
-        return local["game"]
-    box = local.get("bo2_box")
-    return {"map": local.get("map", "zombie_theater"), "bo2_weapons": 0 if box is None else box + 1,
-            "dual_wield": bool(local.get("dual_wield"))}
+        app.open(ChoiceDialog(f"Map de « {profile} »", maps, map_picked, current=game["map"]))
 
 
 # ---------------------------------------------------------------------------------------------------------- Players
@@ -492,23 +562,38 @@ class SettingsView(View):
                    "du serveur."),
         "reload": ("Relire", "Relit toutes les valeurs sur le serveur (par exemple après une commande tapée dans la "
                    "Console ou un autre admin)."),
-        "cfg": ("Écrire aussi dans server.cfg", "Cochée : Sauvegarder écrit aussi les valeurs appliquées dans "
-                "server/main/server.cfg du dossier local, pour qu'elles restent au prochain lancement du serveur. "
-                "Les autres lignes du fichier ne changent pas."),
+        "cfg": ("Reconstruire server.cfg", "Réécrit tout de suite le server.cfg du profil (server/main/ pour "
+                "default, servers/<nom>/main/ sinon) avec les réglages qu'il garde. ZmAdmin le fait aussi après chaque "
+                "Sauvegarder et avant chaque lancement du profil. Les autres lignes du fichier ne changent pas ; "
+                "rcon_password (celui du profil, donné en ligne de commande) et fs_mods (les mods de sa partie) n'y "
+                "vont jamais."),
+        "export": ("Exporter server.cfg", "Écrit les réglages gardés pour ce serveur distant dans un server.cfg du "
+                   "dossier de ZmAdmin, à copier sur la machine du serveur (dans <fs_h>/main/)."),
     }
 
     def __init__(self, app):
         super().__init__(app)
         self.focus = 0
         self.loaded = False
-        self.write_cfg = False
         self.saving = None          # dict while a Save runs
+
+    def kept_target(self):
+        """(label, kept settings dict) of what the link talks to, or (None, None) for an unsaved address."""
+        kind, entry = self.app.connected_to or (None, None)
+        if kind == "local":
+            return f"profil local « {entry} »", self.app.profile(entry).get("settings") or {}
+        if kind == "saved":
+            return f"serveur « {entry.get('name') or entry['host']} »", entry.get("settings") or {}
+        return None, None
 
     def focus_items(self):
         items = [("setting", s.name) for s in SETTINGS] + [("button", "save"), ("button", "cancel"),
                                                             ("button", "reload")]
-        if self.app.is_local_link():
+        kind = self.app.connected_to[0] if self.app.link and self.app.connected_to else None
+        if kind == "local":
             items.append(("button", "cfg"))
+        elif kind == "saved":
+            items.append(("button", "export"))
         return items
 
     def on_show(self):
@@ -551,8 +636,8 @@ class SettingsView(View):
             if "fs_mods" in saving["edits"]:
                 # zm_mods only sets the dvar and reloads: its reply confirms it (save-reload)
                 applied["fs_mods"] = saving["edits"]["fs_mods"]
-            if saving["write_cfg"] and applied:
-                self.app.write_server_cfg(applied)
+            if applied:
+                self.app.keep_settings(applied)
             for cmd in saving["reload"]:
                 self.app.send(cmd, tag="save-reload")
             self.saving = None if not saving["reload"] else saving
@@ -581,9 +666,12 @@ class SettingsView(View):
             put(scr, top + 1, 3, "Pas connecté : F1 pour choisir un serveur.", color(C_INFO))
             return
         y = top
+        label, kept = self.kept_target()
         put(scr, y, 1, f"  {'Réglage':<36}{'Valeur':<21}Dvar", curses.A_BOLD)
         if not self.loaded:
             put(scr, y, 66, "lecture…", color(C_WARN))
+        elif label:
+            put(scr, y, 66, f"{len(kept)} gardé(s)", color(C_DIM), width=width - 67)
         y += 1
         for s in SETTINGS:
             label = H.SETTINGS_HELP[s.name][0]
@@ -615,7 +703,7 @@ class SettingsView(View):
             if kind != "button":
                 continue
             label = self.BUTTON_HELP[b][0]
-            text = f"[{'x' if self.write_cfg else ' '}] {label}" if b == "cfg" else f"[ {label} ]"
+            text = f"[ {label} ]"
             if b == "save" and form.dirty:
                 text = f"[ {label} ({len(form.edits)}) ]"
             sel = items[self.focus] == ("button", b)
@@ -633,6 +721,9 @@ class SettingsView(View):
                 body.append(f"Refusé : {st[1]}")
         else:
             title, text = self.BUTTON_HELP[name]
+            if label and name in ("save", "cfg", "export"):
+                names = ", ".join(n for n in (s.name for s in SETTINGS) if n in kept) or "aucun"
+                text += f" Gardés pour le {label} : {names}."
             body = wrap(text, width - 6)
         put(scr, y, 2, title, curses.A_BOLD | color(C_INFO))
         for line in body[:max(0, top + height - y - 2)]:
@@ -650,7 +741,8 @@ class SettingsView(View):
         elif k in (ENTER, " "):
             kind, name = items[self.focus]
             if kind == "button":
-                {"save": self.save, "cancel": self.cancel, "reload": self.read_all, "cfg": self.toggle_cfg}[name]()
+                {"save": self.save, "cancel": self.cancel, "reload": self.read_all, "cfg": self.rebuild_cfg,
+                 "export": self.export_cfg}[name]()
             elif k == " ":
                 self.toggle(BY_NAME[name])
             else:
@@ -666,8 +758,18 @@ class SettingsView(View):
             if then:
                 self.key(then)
 
-    def toggle_cfg(self):
-        self.write_cfg = not self.write_cfg
+    def rebuild_cfg(self):
+        name = self.app.local_profile_name
+        if name and self.app.write_cfg(name):
+            self.app.msg(f"server.cfg de « {name} » reconstruit.", C_OK)
+
+    def export_cfg(self):
+        kind, entry = self.app.connected_to or (None, None)
+        if kind != "saved":
+            return
+        path = self.app.export_cfg(entry)
+        if path:
+            self.app.msg(f"server.cfg écrit : {path}", C_OK)
 
     def cancel(self):
         self.app.form.cancel()
@@ -730,7 +832,7 @@ class SettingsView(View):
             cmds = form.commands(reset=checked)
             sets = [c for c in cmds if c.startswith("set ")]
             self.saving = {"edits": dict(form.edits), "reload": [c for c in cmds if not c.startswith("set ")],
-                           "write_cfg": self.write_cfg and app.is_local_link(), "output": ""}
+                           "output": ""}
             for name in form.edits:
                 form.status.pop(name, None)
             if sets:
@@ -742,8 +844,10 @@ class SettingsView(View):
         lines = ["Ces commandes vont être envoyées au serveur, dans cet ordre :", ""] + [f"  {c}" for c in preview]
         if "fs_mods" in form.edits:
             lines += ["", "zm_mods recharge la map tout de suite : la partie en cours est perdue."]
-        if self.write_cfg and app.is_local_link():
-            lines += ["", "Les valeurs appliquées seront aussi écrites dans server.cfg."]
+        label, _ = self.kept_target()
+        if label:
+            lines += ["", f"Les valeurs appliquées seront gardées pour le {label}"
+                          + (" et écrites dans son server.cfg." if app.is_local_link() else ".")]
         app.open(ConfirmDialog("Sauvegarder", lines, go, checkbox=reload_box, checked=bool(reload_box)))
 
 
@@ -815,6 +919,11 @@ class LogView(View):
         self.paused = False
         self.scroll = 0
 
+    def reset(self):
+        """Another log to follow (ZmAdmin's Log view follows one local profile at a time)."""
+        self.lines.clear()
+        self.scroll = 0
+
     def add(self, lines):
         self.lines.extend(lines)
         if self.paused or self.scroll:
@@ -846,7 +955,8 @@ class LogView(View):
         buttons = (("[ Filtrer ]", "/"), ("[ Reprendre ]" if self.paused else "[ Pause ]", " "),
                    ("[ Fin ]", curses.KEY_END))
         bw = sum(len(b) + 1 for b, _ in buttons)
-        put(scr, top + height - 1, 1, " | ".join(state) or self.app.dist.log, color(C_WARN if state else C_DIM),
+        followed = f"« {self.app.log_profile} » : {self.app.logtail.path}" if self.app.logtail else ""
+        put(scr, top + height - 1, 1, " | ".join(state) or followed, color(C_WARN if state else C_DIM),
             width=width - 3 - bw)
         x = width - bw
         for label, k in buttons:

@@ -11,6 +11,7 @@ from zmadmin.widgets import (BAD_MARK, C_DIM, C_ERR, C_INFO, C_OK, C_WARN, CTRL_
 from . import gamesetup
 from . import help as H
 from .dirbrowser import FolderDialog, start_folder
+from .dvarhelp import KNOWN, describe
 from .gamecfg import BY_NAME, SETTINGS, valid_bind_key, validate
 from .profile import (BO2_WEAPON_CHOICES, DEFAULT_PORT, MAP_LABELS, START_PERKS, bo2_weapons_available,
                       bo2_weapons_installed, dual_wield_installed, FAR_RESPAWN_CHOICES, SPAWN_RATE_CHOICES,
@@ -184,6 +185,12 @@ class RowsView(View):
 
 def _yes(b):
     return "oui" if b else "non"
+
+
+def size_value(text):
+    if not parse_size(text):
+        raise ValueError("LARGEURxHAUTEUR, ex. 1280x720")
+    return text.strip()
 
 
 def _points(n):
@@ -630,10 +637,10 @@ class LaunchView(RowsView):
             Row("window", "Affichage", H.WINDOW_LABELS[p["window"]],
                 self.choose("window", "Affichage", [(k, v, H.ROW_HELP["window"]) for k, v in H.WINDOW_LABELS.items()]),
                 disabled=split_off),
-            Row("window_size", "Taille de la fenêtre", p["window_size"],
-                self.ask("window_size", "Taille de la fenêtre", "Taille", "LARGEURxHAUTEUR, ex. 1600x900",
-                         self._size),
-                disabled=split_off or (None if p["window"] == "window" else "seulement en mode Fenêtre")),
+            Row("window_size", "Résolution", p["window_size"],
+                self.ask("window_size", "Résolution", "Taille", "LARGEURxHAUTEUR, ex. 1920x1080", size_value),
+                disabled=split_off or (None if p["window"] != "borderless" else
+                                       "Sans bordure prend la taille de l'écran")),
             Row("fps_counter", "Compteur FPS du portage", _yes(p["fps_counter"]), self.toggle("fps_counter")),
             Row("run_info", "Infos speedrun", H.RUN_INFO_LABELS[p["run_info"]],
                 self.choose("run_info", "Infos speedrun",
@@ -671,12 +678,6 @@ class LaunchView(RowsView):
                 self.edit_password, disabled=None if app.dist else "pas de dossier du jeu"),
         ]
         return rows
-
-    @staticmethod
-    def _size(text):
-        if not parse_size(text):
-            raise ValueError("LARGEURxHAUTEUR, ex. 1280x720")
-        return text.strip()
 
     def edit_password(self):
         def ok(v):
@@ -718,6 +719,8 @@ class ConfigView(RowsView):
             shown = {"0": "0 (non)", "1": "1 (oui)"}.get(value, value) if kind == "bool" else value
             rows.append(Row(name, ("* " if edited else "  ") + label, shown if value != "" else "(défaut du jeu)",
                             lambda n=name: self.edit(n), help_text=f"{name} : {help_text}"))
+            if name == "bo1_mod_fov":
+                rows.append(self.resolution_row())
         others = [n for n in self.edits if n not in BY_NAME]
         if others or self.bind_edits:
             rows.append(section("Autres modifications"))
@@ -732,6 +735,19 @@ class ConfigView(RowsView):
     def buttons(self):
         return [("Sauvegarder", CTRL_S), ("Annuler les modifications", "u"), ("Autre dvar", "n"), ("Touches", "b"),
                 ("Relire", "r")]
+
+    def resolution_row(self):
+        """The Launch view's resolution (profile window_size), not a config.cfg line: changed here, it is saved at
+        once, as in the Launch view."""
+        p = self.p
+        mode = H.WINDOW_LABELS[p["window"]]
+        note = " (sans effet : Sans bordure)" if p["window"] == "borderless" else ""
+        return Row("window_size", "  Résolution (vue Lancement)", p["window_size"] + note,
+                   self.ask("window_size", "Résolution", "Taille", "LARGEURxHAUTEUR, ex. 1920x1080", size_value),
+                   help_text=f"La même que la vue Lancement (F4), donnée au jeu en ligne de commande à chaque "
+                             f"lancement : r_mode en Plein écran, r_customMode en Fenêtre. Affichage actuel : {mode} ; "
+                             "en Sans bordure, le jeu prend la taille de l'écran. Enregistrée tout de suite, pas dans "
+                             "config.cfg.")
 
     def draw_header(self, scr, top, width):
         if not self.cfg:
@@ -875,13 +891,25 @@ class ExtraView(View):
             curses.A_BOLD)
         y = top + 2
         if not lines:
-            put(scr, y, 3, "Aucune : « a » pour en ajouter une (ex. « set bo1_frameperf 1 »).", color(C_INFO))
+            put(scr, y, 3, "Aucune : « a » pour en ajouter une (ex. « set bo1_frameperf 200 »).", color(C_INFO))
             y += 1
-        for i, e in enumerate(lines[:max(0, height - 8)]):
+        # the command column takes what its lines need, up to half the width; the description gets the rest
+        cmd_w = min(max([len(e["text"]) + 1 for e in lines] + [20]), (width - 10) // 2)
+        desc_x = 7 + cmd_w + 2       # the command starts at 7, after "  [x] "
+        if lines:
+            put(scr, y - 1, 7, f"{'Commande':<{cmd_w}}  Description", color(C_DIM))
+        shown = lines[:max(0, height - 12)]
+        for i, e in enumerate(shown):
             mark = "[x]" if e.get("on") else "[ ]"
             why = check_extra(e["text"])
-            attr = curses.A_REVERSE if i == self.sel else (color(C_ERR) if why else 0)
-            put(scr, y, 1, f"  {mark} +{e['text']}".ljust(width - 2), attr)
+            sel = i == self.sel
+            attr = curses.A_REVERSE if sel else (color(C_ERR) if why else 0)
+            command = "+" + e["text"]
+            if len(command) > cmd_w:
+                command = command[:cmd_w - 1] + "…"
+            put(scr, y, 1, f"  {mark} {command:<{cmd_w}}".ljust(width - 2), attr)
+            short = why or describe(e["text"])[0]
+            put(scr, y, desc_x, short, attr | (0 if sel or why else color(C_DIM)), width=width - desc_x - 1)
             self.zone(y, 1, 6, lambda i=i: self.select(i, " "))
             self.zone(y, 7, width - 8, lambda i=i: self.select(i), lambda i=i: self.select(i, "e"))
             y += 1
@@ -890,9 +918,20 @@ class ExtraView(View):
         for label, k in (("Ajouter", "a"), ("Modifier", "e"), ("Retirer", "x"), ("Activer/désactiver", " ")):
             x = self.button(scr, y, x, f"[ {label} ]", curses.A_BOLD, lambda k=k: self.key(k))
         y += 2
+        cur = lines[self.sel] if lines else None
+        detail = describe(cur["text"])[1] if cur else ""
+        if detail:
+            put(scr, y, 3, f"+{cur['text']}", curses.A_BOLD | color(C_INFO), width=width - 4)
+            y += 1
+            for line in wrap(detail, width - 6)[:max(0, top + height - y - 3)]:
+                put(scr, y, 3, line)
+                y += 1
+            y += 1
         for line in wrap("Chaque ligne devient « +ligne ». Pas de « + » dans une ligne : le jeu coupe sa ligne de "
                          "commande à chaque « + » et n'en garde que 63 ; ZmClient refuse de lancer au-delà.",
                          width - 6):
+            if y >= top + height:
+                break
             put(scr, y, 3, line, color(C_DIM))
             y += 1
 
@@ -901,7 +940,7 @@ class ExtraView(View):
         if then:
             self.key(then)
 
-    def edit(self, entry):
+    def edit(self, entry, initial="set "):
         def ok(v):
             why = check_extra(v)
             if why:
@@ -913,9 +952,20 @@ class ExtraView(View):
                 entry["text"] = v.strip()
             self.app.save_profile()
             return None
+        intro = None
+        if entry is None and initial.split()[1:]:
+            intro = [describe(initial)[1]]
         self.app.open(InputDialog("Ajouter une commande" if entry is None else "Modifier la commande", "Commande",
-                                  entry["text"] if entry else "set ",
-                                  "sans le « + » : « set r_fog 0 », « set bo1_frameperf 1 »", ok))
+                                  entry["text"] if entry else initial,
+                                  "sans le « + » : « set r_fog 0 », « set bo1_frameperf 200 »", ok, intro=intro))
+
+    def add(self):
+        """The known dvars first (dvarhelp), each with its description; then the command, prefilled."""
+        items = [("", "(une commande libre…)", "n'importe quelle commande ou dvar, tapée en entier")]
+        items += [(name, f"{name:<27} {short}", long) for name, (short, long) in sorted(KNOWN.items(),
+                                                                                        key=lambda kv: kv[0].lower())]
+        self.app.open(ChoiceDialog("Ajouter une commande", items,
+                                   lambda name: self.edit(None, f"set {name} " if name else "set ")))
 
     def key(self, k):
         lines = self.lines
@@ -925,7 +975,7 @@ class ExtraView(View):
         elif k == curses.KEY_DOWN:
             self.sel = min(len(lines) - 1, self.sel + 1)
         elif k == "a":
-            self.edit(None)
+            self.add()
         elif k in ("e", ENTER) and cur:
             self.edit(cur)
         elif k == " " and cur:

@@ -11,8 +11,10 @@ _SETA = re.compile(r'^\s*seta\s+(\S+)\s+"([^"]*)"\s*$')
 _BIND = re.compile(r'^\s*bind\s+(\S+)\s+"(.*)"\s*$')
 _BIND_KEY = re.compile(r"^[A-Za-z0-9_]{1,24}$")
 
-# (dvar, label, kind, options, help). kinds: bool, int (min, max), float (min, max), choice (values), text, size, fov,
-# picmip (writes the r_picmip_* family). Ranges are the engine's (_Dvar_Register* in src/).
+# (dvar, label, kind, options, help). kinds: bool, int (min, max), float (min, max), choice (values), text, fov,
+# picmip (writes the r_picmip_* family). Ranges are the engine's (_Dvar_Register* in src/). No r_mode: the resolution is
+# the Launch view's (profile window_size), which the command line gives (profile.window_flags) and which wins over
+# config.cfg; the Config view shows it as a row of its own.
 SETTINGS = [
     ("sensitivity", "Sensibilité de la souris", "float", (0.01, 100.0),
      "Vitesse de la visée à la souris. Défaut 5."),
@@ -26,8 +28,6 @@ SETTINGS = [
     ("bo1_mod_fov", "Champ de vision (FOV)", "fov", None,
      "0 : celui du jeu (65). 65 à 120 : plus large. Un seul réglage pour tous les modes (aussi écrit dans "
      "players/bo1_shared.cfg, que le jeu lit après config.cfg)."),
-    ("r_mode", "Résolution", "size", None,
-     "LARGEURxHAUTEUR en plein écran, ex. 1920x1080. En fenêtre, la vue Lancement (F4) donne la taille."),
     ("r_displayRefresh", "Fréquence de l'écran", "text", None, "Ex. « 60 Hz », « 144 Hz » (plein écran)."),
     ("r_vsync", "Synchronisation verticale", "bool", None,
      "1 : pas de déchirure d'image, FPS limités à la fréquence de l'écran. Au prochain lancement."),
@@ -73,9 +73,6 @@ def validate(name, text):
     elif kind in ("choice", "picmip"):
         if text not in opts:
             return None, "une de : " + ", ".join(opts)
-    elif kind == "size":
-        if not re.fullmatch(r"\d{3,5}x\d{3,5}", text):
-            return None, "LARGEURxHAUTEUR, ex. 1920x1080"
     elif kind == "fov":
         try:
             v = float(text)

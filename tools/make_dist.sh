@@ -676,7 +676,9 @@ SPEEDRUN    en bas de l'écran de chargement : les réglages qui changent la par
             deux runs faites avec des fichiers différents ; il ne prouve rien : un programme modifié peut afficher
             n'importe quel hash.
 ADMIN       zmadmin.exe                      console d'administration du serveur (joueurs, partie, réglages,
-            log). Depuis ce dossier, elle lance aussi le serveur avec un mot de passe rcon qu'elle garde.
+            log). Depuis ce dossier, elle lance aussi des serveurs, plusieurs à la fois : un profil chacun
+            (map, mods, port, mot de passe rcon, réglages gardés ; F1, n pour en créer un).
+            zmadmin.exe --start <profil> le lance tel qu'enregistré, sans question (--detach : sans interface).
             zmadmin.exe 192.168.1.20 -p <rcon_password> pilote un serveur distant. ? : aide dans chaque vue.
 SWITCH      switch-tools\uam.exe             le compilateur de shaders de deko3d, pour faire sous Windows le
             shaders.dksh d'un paquet Switch à partir de votre shaders.pack (Python 3 nécessaire) :
@@ -787,7 +789,9 @@ SPEEDRUN    en bas de l'écran de chargement : les réglages qui changent la par
             deux runs faites avec des fichiers différents ; il ne prouve rien : un programme modifié peut afficher
             n'importe quel hash.
 ADMIN       ./zmadmin                     console d'administration du serveur (joueurs, partie, réglages, log).
-            Depuis ce dossier, elle lance aussi le serveur avec un mot de passe rcon qu'elle garde.
+            Depuis ce dossier, elle lance aussi des serveurs, plusieurs à la fois : un profil chacun (map, mods,
+            port, mot de passe rcon, réglages gardés ; F1, n pour en créer un).
+            ./zmadmin --start <profil> le lance tel qu'enregistré, sans question (--detach : sans interface).
             ./zmadmin 192.168.1.20 -p <rcon_password> pilote un serveur distant. ? : aide dans chaque vue.
 
 Prérequis : SDL2 et ncurses (Debian, Ubuntu : sudo apt install libsdl2-2.0-0 libncurses6) et un pilote OpenGL 4.3.

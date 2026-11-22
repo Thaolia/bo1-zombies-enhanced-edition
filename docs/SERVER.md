@@ -183,6 +183,23 @@ the horde's size, the spawn speed, the BO2 weapons and dual wield when the packa
 the Solo view's game, start kit included (its own `host_*` map and weapon choices are gone), and ZmClient's own client
 of that server loads what the game needs without asking.
 
+### Several servers from one folder (ZmAdmin profiles)
+
+One package folder runs several dedicated servers at once, one per ZmAdmin **profile** (`tools/zmadmin/README.md`,
+"The local servers"): a name, a game, a port, an rcon password and the settings its Settings view applied, kept in
+ZmAdmin's `servers.json`. The engine has no single-instance lock; what two servers must not share is their `fs_h` and
+their ports. ZmAdmin gives the profile `default` the folder `server/` (as `server.sh` / `Server.bat`, and ZmClient's
+local server) and every other one `servers/<name>/`: its `main/console_mp.log`, `main/server.cfg`, `logs/` (the
+players' logs) and `main/mapkit_bank.txt` (the TranZit bank, so each profile has its own accounts). Each server takes
+UDP `net_port` and `net_port + 1`: profiles keep two ports apart, and ZmAdmin refuses to start one whose ports are
+taken, since the engine would quietly open the next free port. All of them run with the package folder as working
+directory: a Windows hitch dump (`main\bo1_threads.log`, below) of any of them lands in the same file.
+
+`zmadmin --start <profile> [--start <profile>...] [--detach]` starts profiles as saved, with no dialog (exit code 2
+when a profile is unknown, never set up or its port busy); `zmadmin --list-profiles` lists them. Before each start,
+ZmAdmin rewrites the profile's `server.cfg` from its kept settings (other lines untouched; never `rcon_password`, nor
+`fs_mods`, which the profile's game sets on the command line).
+
 ## Split screen: two players on one PC
 
 ZmClient's split screen (`tools/zmclient/README.md`) starts **two game windows** on the primary monitor, each a client

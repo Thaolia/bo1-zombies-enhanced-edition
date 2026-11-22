@@ -4,9 +4,11 @@ import os
 import threading
 import time
 
+from zmadmin.config import DEFAULT_PROFILE
 from zmadmin.config import Config as AdminConfig
 from zmadmin.launcher import LocalServer
 from zmadmin.logtail import LogTail
+from zmadmin.profiles import write_profile_cfg
 from zmadmin.protocol import ProtocolError, RconClient, RconTimeout, query_modinfo
 from zmadmin.widgets import (BTAB, CTRL_C, C_ERR, C_INFO, C_OK, C_TITLE, C_WARN, MOUSE_MASK, TAB, ConfirmDialog,
                              FormDialog, HitMap, MessageDialog, color, cursor, fill, init_colors, normalize_key, put,
@@ -234,6 +236,11 @@ class App:
                 password = self.local_password()
                 # a password local_settings just generated must reach servers.json, or ZmAdmin cannot use rcon
                 self.admin_config.save()
+                # the settings ZmAdmin keeps for the default profile come back at each start, as from ZmAdmin
+                why = write_profile_cfg(self.local.home, self.admin_config.local_settings(self.root).get("settings")
+                                        or {}, DEFAULT_PROFILE)
+                if why:
+                    raise RuntimeError(why)
                 self.local.start(p.data, int(p["host_port"]), password)
             except (OSError, RuntimeError) as e:
                 self.msg(f"Serveur local non lancé : {e}", C_ERR)
