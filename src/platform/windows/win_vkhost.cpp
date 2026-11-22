@@ -9,6 +9,7 @@
 #include <vulkan/vulkan_win32.h>
 
 void Com_Printf(int channel, const char *fmt, ...);
+char *__cdecl Sys_DefaultInstallPath();
 
 namespace gb::vulkan::host
 {
@@ -46,6 +47,13 @@ void DrawableSize(void *window, int *width, int *height)
     GetClientRect(static_cast<HWND>(window), &rect);
     *width = rect.right - rect.left;
     *height = rect.bottom - rect.top;
+}
+
+// Beside the exe, as shaders.spv: the package folder is the player's own.
+bool PipelineCachePath(std::string *path)
+{
+    *path = std::string(Sys_DefaultInstallPath()) + "\\vk_pipelines.bin";
+    return true;
 }
 
 void Close()

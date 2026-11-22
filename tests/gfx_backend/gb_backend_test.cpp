@@ -68,6 +68,11 @@ void DrawableSize(void *, int *width, int *height)
     *width = *height = 0;
 }
 
+bool PipelineCachePath(std::string *)
+{
+    return false;
+}
+
 void Close()
 {
 }

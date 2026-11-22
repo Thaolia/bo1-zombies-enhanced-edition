@@ -3,6 +3,7 @@
 // Only BO1_GFX_BACKEND=vulkan asks for this backend (docs/VULKAN.md): GL stays the default.
 
 #include "posix_video.h"
+#include "win32_handles.h"
 
 #include <gfx_backend/vulkan/gb_vk_host.h>
 
@@ -12,6 +13,7 @@
 #include <vector>
 
 bool __cdecl Sys_IsHeadless();
+char *__cdecl Sys_DefaultInstallPath();
 void Com_Printf(int channel, const char *fmt, ...);
 
 namespace gb::vulkan::host
@@ -76,6 +78,13 @@ bool CreateSurface(VkInstance instance, void *window, VkSurfaceKHR *surface)
 void DrawableSize(void *window, int *width, int *height)
 {
     SDL_Vulkan_GetDrawableSize(static_cast<SDL_Window *>(window), width, height);
+}
+
+// Beside shaders.spv in the install folder (posix_d3d9host.cpp's ShaderPackPath).
+bool PipelineCachePath(std::string *path)
+{
+    *path = Bo1_PosixPath(Sys_DefaultInstallPath()) + "/vk_pipelines.bin";
+    return true;
 }
 
 void Close()

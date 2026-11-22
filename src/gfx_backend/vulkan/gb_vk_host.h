@@ -20,6 +20,9 @@ bool Open(std::vector<std::string> *instanceExtensions);
 bool CreateSurface(VkInstance instance, void *window, VkSurfaceKHR *surface);
 // A window's size in pixels, for a surface that does not report its own.
 void DrawableSize(void *window, int *width, int *height);
+// Where the pipeline cache is kept between runs (a file the backend reads at Init and writes as pipelines are made);
+// false keeps it in memory only.
+bool PipelineCachePath(std::string *path);
 // On the thread that calls gb::Shutdown, once the instance is destroyed.
 void Close();
 // One line, without the newline, for the engine's log.

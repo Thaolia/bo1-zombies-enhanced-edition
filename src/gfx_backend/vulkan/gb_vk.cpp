@@ -47,6 +47,13 @@ constexpr uint32_t kUniformBlockBytes = 4u << 20;
 constexpr uint32_t kStagingChunkBytes = 16u << 20;
 constexpr uint32_t kQueriesPerFrame = 4096;
 constexpr int kMaxDebugMessages = 64;
+constexpr double kHitchMs = 50.0;
+constexpr uint32_t kMaxHitchLines = 500; // loading screens are long frames too
+
+double MsSince(std::chrono::steady_clock::time_point start)
+{
+    return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
+}
 
 void Log(const char *fmt, ...) BO1_PRINTF_FORMAT(1, 2);
 void Log(const char *fmt, ...)
@@ -490,6 +497,8 @@ struct State
     VkDescriptorSetLayout setLayout = VK_NULL_HANDLE;
     VkPipelineLayout layout = VK_NULL_HANDLE;
     VkPipelineCache cache = VK_NULL_HANDLE;
+    std::string cachePath;   // empty: the cache is not kept between runs
+    bool cacheDirty = false; // pipelines made since it was last written
     VkShaderModule presentVertex = VK_NULL_HANDLE, presentPixel = VK_NULL_HANDLE;
 
     FrameSlot frames[kFramesInFlight];
@@ -521,6 +530,17 @@ struct State
 
     // perf
     uint64_t draws = 0, presented = 0, flushes = 0, renames = 0, suspends = 0, newPipelines = 0;
+    double pipelineMs = 0.0; // spent in vkCreateGraphicsPipelines since the last perf line: the driver compiles there
+    // This frame's share of a long frame (a `vk hitch:` line past kHitchMs, from Present to Present): what the backend
+    // did in it; whatever the line does not account for was spent in the engine.
+    struct FrameWork
+    {
+        double waitMs = 0.0, acquireMs = 0.0, presentMs = 0.0, pipelineMs = 0.0;
+        uint64_t stagedBytes = 0;
+        uint32_t textures = 0, pipelines = 0, flushes = 0;
+    } frameWork;
+    std::chrono::steady_clock::time_point lastPresent{};
+    uint32_t hitches = 0;
     std::chrono::steady_clock::time_point perfStart = std::chrono::steady_clock::now();
 };
 
@@ -553,7 +573,9 @@ void WaitSerial(uint64_t serial)
     wait.semaphoreCount = 1;
     wait.pSemaphores = &s.timeline;
     wait.pValues = &serial;
+    const auto start = std::chrono::steady_clock::now();
     Ok(vkWaitSemaphores(s.device, &wait, UINT64_MAX), "vkWaitSemaphores");
+    s.frameWork.waitMs += MsSince(start);
     Completed();
 }
 
@@ -819,6 +841,7 @@ void Flush()
         SuspendRendering();
     Submit();
     ++s.flushes;
+    ++s.frameWork.flushes;
     if (wasRendering)
         BeginRendering(s.pass, true);
 }
@@ -836,6 +859,7 @@ bool StageBytes(uint32_t size, Staged *out)
 {
     State &s = S();
     BeginFrame();
+    s.frameWork.stagedBytes += size;
     FrameSlot &f = s.frames[s.frame];
     for (; f.stagingChunk < f.staging.size(); ++f.stagingChunk)
     {
@@ -1241,9 +1265,17 @@ VkPipeline BuildPipeline(Pipeline *p, const Shader *vertex, const Shader *pixel)
     info.pDynamicState = &dynamic;
     info.layout = s.layout;
     VkPipeline pipeline = VK_NULL_HANDLE;
-    if (!Ok(vkCreateGraphicsPipelines(s.device, s.cache, 1, &info, nullptr, &pipeline), "vkCreateGraphicsPipelines"))
+    const auto start = std::chrono::steady_clock::now();
+    const bool made = Ok(vkCreateGraphicsPipelines(s.device, s.cache, 1, &info, nullptr, &pipeline),
+                         "vkCreateGraphicsPipelines");
+    const double ms = MsSince(start);
+    s.pipelineMs += ms;
+    s.frameWork.pipelineMs += ms;
+    ++s.frameWork.pipelines;
+    if (!made)
         return VK_NULL_HANDLE;
     ++s.newPipelines;
+    s.cacheDirty = true;
     return pipeline;
 }
 
@@ -1465,6 +1497,84 @@ void ImageBarrier(VkCommandBuffer cmd, VkImage image, VkImageLayout from, VkImag
     vkCmdPipelineBarrier(cmd, srcStage, dstStage, 0, 0, nullptr, 0, nullptr, 1, &barrier);
 }
 
+// The pipeline cache file: Vulkan's header (VkPipelineCacheHeaderVersionOne) must name this device and driver, or the
+// data is left unread (a cache from another GPU or driver version only wastes the driver's time).
+std::vector<uint8_t> ReadPipelineCache(const std::string &path)
+{
+    std::vector<uint8_t> data;
+    FILE *file = std::fopen(path.c_str(), "rb");
+    if (!file)
+        return data;
+    std::fseek(file, 0, SEEK_END);
+    const long size = std::ftell(file);
+    std::fseek(file, 0, SEEK_SET);
+    if (size > long(sizeof(VkPipelineCacheHeaderVersionOne)) && size < (256l << 20))
+    {
+        data.resize(size_t(size));
+        if (std::fread(data.data(), 1, data.size(), file) != data.size())
+            data.clear();
+    }
+    std::fclose(file);
+    if (data.empty())
+        return data;
+    const State &s = S();
+    VkPipelineCacheHeaderVersionOne header;
+    std::memcpy(&header, data.data(), sizeof(header));
+    if (header.headerSize < sizeof(header) || header.headerVersion != VK_PIPELINE_CACHE_HEADER_VERSION_ONE ||
+        header.vendorID != s.properties.vendorID || header.deviceID != s.properties.deviceID ||
+        std::memcmp(header.pipelineCacheUUID, s.properties.pipelineCacheUUID, VK_UUID_SIZE))
+    {
+        Log("vk: %s is another device's or driver's pipeline cache: not read", path.c_str());
+        data.clear();
+        return data;
+    }
+    Log("vk: pipeline cache %s, %.1f MB", path.c_str(), double(data.size()) / double(1 << 20));
+    return data;
+}
+
+// Written beside the old file, then moved over it: an interrupted write never leaves half a cache.
+void WritePipelineCache()
+{
+    State &s = S();
+    s.cacheDirty = false;
+    if (s.cachePath.empty() || !s.cache)
+        return;
+    size_t size = 0;
+    if (vkGetPipelineCacheData(s.device, s.cache, &size, nullptr) != VK_SUCCESS || !size)
+        return;
+    std::vector<uint8_t> data(size);
+    if (vkGetPipelineCacheData(s.device, s.cache, &size, data.data()) != VK_SUCCESS)
+        return;
+    const std::string temporary = s.cachePath + ".tmp";
+    FILE *file = std::fopen(temporary.c_str(), "wb");
+    if (!file)
+        return;
+    const bool written = std::fwrite(data.data(), 1, size, file) == size;
+    if (std::fclose(file) != 0 || !written)
+    {
+        std::remove(temporary.c_str());
+        return;
+    }
+    std::remove(s.cachePath.c_str()); // Windows' rename does not replace an existing file
+    if (std::rename(temporary.c_str(), s.cachePath.c_str()) != 0)
+        std::remove(temporary.c_str());
+}
+
+void LogHitch()
+{
+    State &s = S();
+    const auto now = std::chrono::steady_clock::now();
+    const State::FrameWork &w = s.frameWork;
+    const double frameMs = std::chrono::duration<double, std::milli>(now - s.lastPresent).count();
+    if (s.lastPresent.time_since_epoch().count() && frameMs > kHitchMs && ++s.hitches <= kMaxHitchLines)
+        Log("vk hitch: %.0f ms frame: GPU waits %.1f ms, acquire %.1f ms, present %.1f ms, %u pipelines (%.1f ms), "
+            "%u textures, %.1f MB staged, %u flushes; the rest in the engine",
+            frameMs, w.waitMs, w.acquireMs, w.presentMs, w.pipelines, w.pipelineMs, w.textures,
+            double(w.stagedBytes) / double(1 << 20), w.flushes);
+    s.frameWork = State::FrameWork();
+    s.lastPresent = now;
+}
+
 void LogPerf()
 {
     State &s = S();
@@ -1475,14 +1585,20 @@ void LogPerf()
     VmaTotalStatistics stats = {};
     vmaCalculateStatistics(s.allocator, &stats);
     Log("vk perf: %.1f fps, %.0f draws a frame, %.1f flushes and %.1f suspended passes a frame, %llu renames, "
-        "%llu new pipelines, %.1f MB in %u blocks",
+        "%llu new pipelines (%.0f ms), %.1f MB in %u blocks",
         s.presented / seconds, s.presented ? double(s.draws) / double(s.presented) : 0.0,
         s.presented ? double(s.flushes) / double(s.presented) : 0.0,
         s.presented ? double(s.suspends) / double(s.presented) : 0.0,
-        static_cast<unsigned long long>(s.renames), static_cast<unsigned long long>(s.newPipelines),
+        static_cast<unsigned long long>(s.renames), static_cast<unsigned long long>(s.newPipelines), s.pipelineMs,
         double(stats.total.statistics.blockBytes) / double(1 << 20), stats.total.statistics.blockCount);
     s.perfStart = now;
+    // Written as it grows, not only at exit, so a game that crashes or is killed keeps what it compiled; but only once
+    // ten seconds went by without a new pipeline, so that the write does not add to the hitches compiling made.
+    const bool settled = s.newPipelines == 0;
     s.presented = s.draws = s.flushes = s.suspends = s.renames = s.newPipelines = 0;
+    s.pipelineMs = 0.0;
+    if (s.cacheDirty && settled)
+        WritePipelineCache();
 }
 
 VKAPI_ATTR VkBool32 VKAPI_CALL DebugMessage(VkDebugUtilsMessageSeverityFlagBitsEXT severity, VkDebugUtilsMessageTypeFlagsEXT,
@@ -1747,7 +1863,18 @@ bool Init()
     layoutInfo.pSetLayouts = &s.setLayout;
     vkCreatePipelineLayout(s.device, &layoutInfo, nullptr, &s.layout);
     VkPipelineCacheCreateInfo cacheInfo = {VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO};
-    vkCreatePipelineCache(s.device, &cacheInfo, nullptr, &s.cache);
+    std::vector<uint8_t> cacheData;
+    if (host::PipelineCachePath(&s.cachePath))
+        cacheData = ReadPipelineCache(s.cachePath);
+    cacheInfo.initialDataSize = cacheData.size();
+    cacheInfo.pInitialData = cacheData.empty() ? nullptr : cacheData.data();
+    if (vkCreatePipelineCache(s.device, &cacheInfo, nullptr, &s.cache) != VK_SUCCESS && !cacheData.empty())
+    {
+        Log("vk: the pipeline cache in %s is refused: starting an empty one", s.cachePath.c_str());
+        cacheInfo.initialDataSize = 0;
+        cacheInfo.pInitialData = nullptr;
+        vkCreatePipelineCache(s.device, &cacheInfo, nullptr, &s.cache);
+    }
 
     for (FrameSlot &f : s.frames)
     {
@@ -1920,7 +2047,10 @@ void Shutdown()
         if (s.presentPixel)
             vkDestroyShaderModule(s.device, s.presentPixel, nullptr);
         if (s.cache)
+        {
+            WritePipelineCache();
             vkDestroyPipelineCache(s.device, s.cache, nullptr);
+        }
         if (s.layout)
             vkDestroyPipelineLayout(s.device, s.layout, nullptr);
         if (s.setLayout)
@@ -1974,6 +2104,7 @@ gb::Buffer *CreateBuffer(const BufferDesc &desc)
 gb::Texture *CreateTexture(const TextureDesc &desc)
 {
     std::lock_guard<std::recursive_mutex> guard(S().lock);
+    ++S().frameWork.textures;
     return MakeTexture(desc);
 }
 
@@ -2785,9 +2916,11 @@ void Present(gb::Swapchain *handle, gb::Texture *imageHandle)
         if (sc->stale || !sc->swapchain)
             MakeSwapchainImages(sc);
         uint32_t index = 0;
+        const auto acquireStart = std::chrono::steady_clock::now();
         VkResult acquired = sc->swapchain ? vkAcquireNextImageKHR(s.device, sc->swapchain, UINT64_MAX, f.acquire,
                                                                   VK_NULL_HANDLE, &index)
                                           : VK_ERROR_OUT_OF_DATE_KHR;
+        s.frameWork.acquireMs += MsSince(acquireStart);
         if (acquired == VK_ERROR_OUT_OF_DATE_KHR)
             sc->stale = true;
         else if (acquired == VK_SUCCESS || acquired == VK_SUBOPTIMAL_KHR)
@@ -2843,7 +2976,9 @@ void Present(gb::Swapchain *handle, gb::Texture *imageHandle)
             present.swapchainCount = 1;
             present.pSwapchains = &sc->swapchain;
             present.pImageIndices = &index;
+            const auto presentStart = std::chrono::steady_clock::now();
             const VkResult presented = vkQueuePresentKHR(s.queue, &present);
+            s.frameWork.presentMs += MsSince(presentStart);
             if (presented == VK_ERROR_OUT_OF_DATE_KHR || presented == VK_SUBOPTIMAL_KHR)
                 sc->stale = true;
             else
@@ -2862,6 +2997,7 @@ void Present(gb::Swapchain *handle, gb::Texture *imageHandle)
         Submit();
     s.frameOpen = false;
     ++s.presented;
+    LogHitch();
     LogPerf();
 }
 

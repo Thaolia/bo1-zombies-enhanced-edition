@@ -242,8 +242,13 @@ run has no surface; it renders into its textures and `Present` only submits.
 - **Caps** come from the device's format features: a colour target must also blit both ways; BC1-3 need
   `textureCompressionBC`.
 - `BO1_VK_DEBUG=1` loads the Khronos validation layer when it is installed and logs its first 64 messages. Every 10 s a
-  `vk perf:` line gives frames, draws a frame, submissions and suspended passes a frame, renames, new pipelines and
-  the memory VMA holds.
+  `vk perf:` line gives frames, draws a frame, submissions and suspended passes a frame, renames, new pipelines (and the
+  milliseconds the driver spent compiling them) and the memory VMA holds. A frame longer than 50 ms logs a `vk hitch:`
+  line (the first 500): the backend's share of it (GPU waits, acquire, present, pipelines, new textures, staged bytes,
+  submissions); the rest of the frame was the engine's.
+- The pipeline cache is kept between runs in `vk_pipelines.bin` beside the program (`host::PipelineCachePath`). Its
+  Vulkan header must name this device, vendor and driver (`pipelineCacheUUID`) or it is not read. It is written once
+  ten seconds go by without a new pipeline, and at shutdown, through a temporary file.
 
 `gb_vk_test` is `gb_backend_test.cpp` built for this backend (`GB_TEST_VULKAN`): the same 46 checks with no window,
 on any Vulkan 1.3 device (lavapipe included).
