@@ -1,10 +1,10 @@
 # Vulkan backend and upscalers — plan
 
-Status (2026-11-22): step 1 (FSR1) done, checked on the host, on Ryujinx and on the user's console; steps 2-7
-planned. Each step updates this file, `docs/RENDERER.md` and `docs/PORTING.md` (phase 9) in the session that does it.
+Status (2026-11-22): step 1 (FSR1) done, checked on the host, on Ryujinx and on the user's console; steps 2 (SPIR-V
+pack) and 3 (Vulkan backend on Linux) done on branch `vulkan`; step 4 in progress; steps 5-7 planned. Each step updates this file, `docs/RENDERER.md` and `docs/PORTING.md` (phase 9) in the session that does it.
 
 ## Goals and constraints
-- A Vulkan backend behind `src/gfx_backend/gfx_backend.h`, opt-in on **win64**, **Linux** and **OpenBSD**.
+- A Vulkan backend behind `src/gfx_backend/gfx_backend.h`, opt-in on **Linux**, **win64** and, after the Windows port, **OpenBSD**.
 - **OpenGL stays the default** backend on Linux and OpenBSD. On win64, native Direct3D 9 stays the default.
 - **`win32-msvc` changes as little as possible**: it compiles none of the new files, and every engine edit it does see
   is guarded so its code stays identical (`tools/codediff.py`).
@@ -59,48 +59,41 @@ What was built is described in `docs/RENDERER.md`, "Upscaling". In short, and wh
   - Not measured: FSR's own cost. That needs a run with the same settings and FSR off; the old 480p multiplayer
     logs, 15.7 ms, were not the same scene.
 
-## Step 2 — SPIR-V pack, offline
-- `tools/ffconv/gen/make_spirv_pack.py`, modelled on `make_dksh_pack.py`: glslang `-V --target-env vulkan1.1`.
-  Bindings are remapped by glslang's options (`--shift-*-binding`, `--resource-set-binding`), never by editing the
-  GLSL. In Vulkan, UBOs and samplers share one binding space per set.
-- The output must be deterministic: two builds of the same `shaders.pack` give the same bytes.
-- Checks: all 13 704 shaders plus the FSR1 ones compile, `spirv-val` accepts each module, two packs are identical.
-- Estimate: 1 session.
+## Step 2 — SPIR-V pack, offline — done (2026-11-22)
+- `tools/ffconv/gen/make_spirv_pack.py OUT/shaders.pack OUT/shaders.spv`, modelled on `make_dksh_pack.py`: glslang
+  `-V --target-env vulkan1.1 --shift-UBO-binding 16`, the GLSL never edited. Vulkan has one binding space per
+  descriptor set, so set 0 holds the samplers at their `s#` (0-15), the vertex constants at 16 and the pixel
+  constants at 17. Each module goes through `spirv-val`, then a check of its own bindings (decoded from the SPIR-V),
+  and lands in a `BO1SPRV1` pack laid out as `shader_pack.h`.
+- Results on the zombies zones' pack (13 704 shaders): 0 rejected, two runs byte-identical (md5 `9414a2c5…`), 6 min 42
+  s on 8 threads.
+- Open: the pack is **477.6 MB** against 132.8 MB of GLSL. SPIR-V is that verbose; stripping debug names saves only
+  1.5 %, zlib about 70 %. Compressing each payload (the entry's reserved field holding the inflated size) is planned
+  before the packages carry it (step 5).
+- `#version 430` and `GL_ARB_shader_texture_lod`: the pack's `#if GL_ARB_shader_texture_lod` block keeps
+  `textureLod` only when that macro is defined. glslang (GL and Vulkan) and uam both define it, so nothing changes.
+- The FSR 1.0 vertex shader reads `gl_VertexIndex` when glslang targets Vulkan (`#ifdef VULKAN`); its GL and DKSH
+  builds are unchanged (the DKSH byte-identical).
 
-## Step 3 — Vulkan backend on Linux (opt-in)
-- `src/gfx_backend/vulkan/`, table `gb::vulkan::Table()`. Only the dispatcher (`gb_backend.cpp`) sees `BO1_GB_VULKAN`,
-  as with `BO1_GB_DEKO3D`. `BO1_GFX_BACKEND=vulkan` picks it; without the variable the choice stays GL, then null.
-- Vendored in `third_party/`:
-  - Vulkan-Headers;
-  - volk, which loads the loader at run time, so the game still starts on a machine without Vulkan;
-  - Vulkan Memory Allocator.
-
-  CMake option `BO1_VULKAN` (ON for posix x86-64).
-- Host interface `gb_vk_host.h`, like `gb_gl_host.h`: instance extensions and surface creation for a window.
-  Implemented on posix with SDL2 (`SDL_Vulkan_GetInstanceExtensions`, `SDL_Vulkan_CreateSurface`) in
-  `src/platform/posix/`.
-- D3D9 conventions:
-  - row 0 on top through a negative-height viewport (Vulkan 1.1), with the front face set to match;
-  - clip depth 0..1 is native;
-  - `bo1_pos_fixup` is unchanged;
-  - depth bias × 2^24 (2^16 on D16).
-- Carried over from deko3d:
-  - render targets in B5G6R5 / B5G5R5A1 fall back to RGBA8 where the format cannot be rendered to;
-  - INTZ and the RESZ resolve;
-  - hardware shadow compare;
-  - the scissor is always on (set it to the whole target when the pipeline's scissor test is off);
-  - DISCARD renames;
-  - two frames in flight;
-  - uploads recorded into the frame;
-  - occlusion queries and timestamps;
-  - `ReadTexture`.
-- A `vk perf:` line every 10 s like `gl perf:`. `BO1_VK_DEBUG=1` turns on the validation layers, with their
-  messages in the log.
+## Step 3 — Vulkan backend on Linux (opt-in) — done (2026-11-22)
+Described in `docs/RENDERER.md`, "The Vulkan backend". In short:
+- `src/gfx_backend/vulkan/` (`gb_vk.cpp`), opt-in with `BO1_GFX_BACKEND=vulkan` (the dispatcher never falls back from
+  it). CMake option `BO1_VULKAN` (ON on posix; needs `glslangValidator` at build time).
+- Vulkan-Headers (SDK 1.3.296), volk and VMA 3.1.0 are vendored in `third_party/`: no Vulkan SDK to build, and the
+  game starts without Vulkan.
+- Host `gb_vk_host.h`; on posix SDL2 (`posix_vkhost.cpp`), whose windows become Vulkan windows once the backend runs.
+  A headless run has no surface and renders into its textures.
+- Requires Vulkan 1.3 (dynamic rendering, timeline semaphores, host query reset) and `VK_KHR_push_descriptor`.
+- Differences from the first plan:
+  - images stay in `GENERAL`, with full barriers at pass boundaries (simple and correct; to measure in step 4);
+  - a render-target format the device cannot render is reported as such in `Caps` instead of being swapped for
+    RGBA8.
 - Checks:
-  - `gb_vk_test`: `gb_gl_test`'s cases on lavapipe, without a surface (render to textures, read back);
-  - `d3d9emu_test`;
-  - no validation message on the main menu and on a map.
-- Estimate: 4-6 sessions.
+  - `tests/gfx_backend/gb_backend_test.cpp` is now built twice: `gb_gl_test` 46/46 and `gb_vk_test` 46/46 on
+    lavapipe;
+  - with `BO1_VK_DEBUG=1`, the Khronos validation layer and its synchronisation validation report nothing (a
+    deliberate misuse in a separate program proved the messages reach the log);
+  - `d3d9emu_test`, `upscale_gl_test`, `launcher_config_test`.
 
 ## Step 4 — Parity on Linux
 - GL against Vulkan screenshots: main menu, Kino, Five, one imported BSP map. Explain every difference.
@@ -108,14 +101,7 @@ What was built is described in `docs/RENDERER.md`, "Upscaling". In short, and wh
 - The usual posix gate: a headless run against win64, paths and numbers masked.
 - Estimate: 1-2 sessions.
 
-## Step 5 — OpenBSD
-- Cross-build with `BO1_VULKAN` (`~/cross-pkg-openbsd`, mirror `/home/james/build/bo1-openbsd`). volk loads
-  `libvulkan.so` at run time and the headers are vendored: no new build dependency.
-- Packaging is unchanged apart from a README line.
-- Never run on real OpenBSD by us: Vulkan there is "for a player to try", and GL stays the default.
-- Estimate: 0.5-1 session.
-
-## Step 6 — win64: the emulated frontend and Vulkan, native D3D9 by default
+## Step 5 — win64: the emulated frontend and Vulkan, native D3D9 by default
 - CMake: only under `if(BO1_ARCH_64)` on win32 platforms, build `GFX_D3D9EMU_FILES`, the null and the Vulkan backends
   into `win64-msvc`. `win32-msvc` builds none of them.
 - A Win32 host for the frontend (`d3d9emu_host.h`, 10 functions) and a Vulkan host (`VK_KHR_win32_surface` on the
@@ -137,6 +123,13 @@ What was built is described in `docs/RENDERER.md`, "Upscaling". In short, and wh
   - **NVIDIA, AMD and Intel on the user's machines**;
   - `win32-msvc` builds once before the merge.
 - Estimate: 3-4 sessions.
+
+## Step 6 — OpenBSD (after the Windows port)
+- Cross-build with `BO1_VULKAN` (`~/cross-pkg-openbsd`, mirror `/home/james/build/bo1-openbsd`). volk loads
+  `libvulkan.so` at run time and the headers are vendored: no new build dependency.
+- Packaging is unchanged apart from a README line.
+- Never run on real OpenBSD by us: Vulkan there is "for a player to try", and GL stays the default.
+- Estimate: 0.5-1 session.
 
 ## Step 7 — Arm ASR (end of the Vulkan port)
 Arm Accuracy Super Resolution (`github.com/arm/accuracy-super-resolution`, generic library, MIT) is FSR 2.2.2
@@ -172,7 +165,7 @@ would mean changing every skinned material's generated shaders, which is out of 
 | Part | Sessions |
 |---|---|
 | FSR1 (step 1) | 1-2 |
-| Vulkan on Linux, OpenBSD and win64 (steps 2-6) | 10-14 |
+| Vulkan on Linux, win64, then OpenBSD (steps 2-6) | 10-14 |
 | ASR on PC (step 7, items 1-3) | 6-7 |
 | ASR on the Switch (step 7, item 4) | +3-5 |
 

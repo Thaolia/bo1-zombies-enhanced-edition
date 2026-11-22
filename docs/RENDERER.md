@@ -190,6 +190,59 @@ RGBA8, BC1, an L8 swizzle), an upload after a draw that left another unit active
 `Blit` copies and scaling, a hardware shadow map compare, occlusion counts, timestamps and fences, and a shader that
 does not compile.
 
+## The Vulkan backend (`src/gfx_backend/vulkan`)
+Vulkan 1.3 with dynamic rendering, timeline semaphores, host query reset and `VK_KHR_push_descriptor`. Opt-in:
+`BO1_GFX_BACKEND=vulkan` (docs/VULKAN.md; the dispatcher never falls back from it, so a failure is seen). The loader is
+opened at run time by volk and memory comes from the Vulkan Memory Allocator (`third_party/volk`, `third_party/vma`,
+headers in `third_party/vulkan-headers`). Its host (`gb_vk_host.h`) gives the instance extensions and a surface per
+window: on posix SDL2 (`posix_vkhost.cpp`), which makes the game windows Vulkan ones once the backend runs. A headless
+run has no surface; it renders into its textures and `Present` only submits.
+
+- **Recording**, as deko3d's:
+  - the frame is recorded into command buffers and submitted at `Present`, two frames in flight, each slot with its
+    command pool, uniform blocks (4 MB, host-visible), staging chunks and query pools;
+  - every submission signals one timeline semaphore, whose values order frames, fences, queries and the destruction
+    of objects the GPU may still use;
+  - a readback, or a fence or query polled before its work was submitted, submits the frame so far (an open pass is
+    ended and begun again with load ops `Load`); a poll while an occlusion query is open returns "not ready" instead,
+    since a query cannot span two command buffers.
+- **Images** stay in `VK_IMAGE_LAYOUT_GENERAL` from their creation (the transition goes into the setup commands), and
+  a full memory barrier at each pass boundary, copy and readback resolves the contract's hazards. Colour targets are
+  always created sampled, since `Present` reads its image through a shader.
+- **Uploads** go into a "setup" command buffer submitted before the frame's, unless work recorded in the frame's open
+  commands already uses the resource: then they go in order into the frame, the pass suspended around the copy.
+  Dynamic and shared buffers are host-visible: `NoOverwrite`, or a store the GPU is done with, is written in place;
+  `Discard` on a store in use renames it (up to 8 spare stores per buffer); `Ordered` on a store in use is a staged
+  copy in order.
+- **Draws**: one pipeline layout for all, one descriptor set pushed per draw: samplers at 0-15, the vertex and pixel
+  constant blocks at 16 and 17, as `make_spirv_pack.py` moves them. Pipelines are built at `GetPipeline` with dynamic
+  viewport, scissor, stencil reference, blend constants, topology (within the pipeline's class) and vertex strides.
+  - A sampler the shader reads (reflected from its SPIR-V: binding, dimension, depth comparison) that the draw leaves
+    unbound reads a 1x1 dummy of its kind: opaque black, or depth 1 for a shadow map.
+  - A vertex input the declaration does not give reads (0, 0, 0, 1) from a dummy stream at binding 8, as D3D9 does;
+    Vulkan would leave it undefined.
+- **Conventions**:
+  - the viewport goes in with a negative height (y + height, -height), so clip-space +y is row 0 and the winding on
+    screen is D3D9's: `VK_FRONT_FACE_CLOCKWISE`;
+  - depth bias × 2^24 (2^16 on D16);
+  - D24S8 is `D24_UNORM_S8_UINT`, or `D32_SFLOAT_S8_UINT` where the device cannot render the former (AMD);
+  - BGRX8 is `B8G8R8A8_UNORM` whose alpha stays 1: cleared to 1, never written by a pipeline, sampled through an
+    alpha-one swizzle and read back as 0xFF;
+  - `ReadTexture` of D24S8 packs depth in the top 24 bits and stencil in the low byte, as GL reads it;
+  - `MipFilter::None` clamps the level of detail to 0.25.
+- **Present** draws the image into the swapchain's through D3D9's gamma ramp (a 256x1 RGBA16 texture), filtered to
+  the window's size, with the backend's own SPIR-V shaders (`vulkan/shaders`, embedded by `tools/embed_shaders.py`).
+  The swapchain is UNORM (as the GL window), FIFO with vsync, else mailbox or immediate; it is made again when the
+  window changes size or the surface says it is out of date.
+- **Caps** come from the device's format features: a colour target must also blit both ways; BC1-3 need
+  `textureCompressionBC`.
+- `BO1_VK_DEBUG=1` loads the Khronos validation layer when it is installed and logs its first 64 messages. Every 10 s a
+  `vk perf:` line gives frames, draws a frame, submissions and suspended passes a frame, renames, new pipelines and
+  the memory VMA holds.
+
+`gb_vk_test` is `gb_backend_test.cpp` built for this backend (`GB_TEST_VULKAN`): the same 46 checks with no window,
+on any Vulkan 1.3 device (lavapipe included).
+
 ## Shaders
 `ffconv` translates D3D9 SM3 bytecode with MojoShader (`third_party/mojoshader`, GLSL profile) and normalises the
 result to GLSL 4.60 core without extensions (`tools/ffconv/src/ff_glsl.cpp`). Every shader of the zombies zones is
