@@ -2410,7 +2410,7 @@ char __thiscall Scr_ScriptWatch::PostEvaluateWatchElement(
         {
             element->valueDefined = 1;
             type = value->type;
-            element->value.u.intValue = value->u.intValue;
+            element->value.u = value->u; // 64-bit: the whole union (a vector or a code position is a pointer)
             element->value.type = type;
         }
         else
@@ -5007,7 +5007,7 @@ char __cdecl Scr_WatchElementHasSameValue(scriptInstance_t inst, Scr_WatchElemen
         return 0;
     }
     type = element->value.type;
-    oldValue.u.intValue = element->value.u.intValue;
+    oldValue.u = element->value.u; // 64-bit: the whole union
     oldValue.type = type;
     AddRefToValue(inst, type, oldValue.u);
     Scr_EvalEquality(inst, &oldValue, newValue);

@@ -1191,7 +1191,9 @@ char __cdecl EvalBinaryOperatorExpression(
     }
     else
     {
-        constValue->value.u.intValue = constValue1.value.u.intValue;
+        // 64-bit: the whole union; through intValue a folded vector (`(0, 0, 10) + offset`) lost the top half of its
+        // pointer (zombie_temple_elevators.gsc: a crash in EmitGetVector's RemoveRefToVector with r_mod_gfxApi vulkan)
+        constValue->value.u = constValue1.value.u;
         constValue->value.type = constValue1.value.type;
         constValue->sourcePos = sourcePos;
         return 1;
@@ -3610,7 +3612,9 @@ char __cdecl EmitOrEvalBinaryOperatorExpression(
     }
     else
     {
-        constValue->value.u.intValue = constValue1.value.u.intValue;
+        // 64-bit: the whole union; through intValue a folded vector (`(0, 0, 10) + offset`) lost the top half of its
+        // pointer (zombie_temple_elevators.gsc: a crash in EmitGetVector's RemoveRefToVector with r_mod_gfxApi vulkan)
+        constValue->value.u = constValue1.value.u;
         constValue->value.type = constValue1.value.type;
         constValue->sourcePos = sourcePos;
         return 1;
