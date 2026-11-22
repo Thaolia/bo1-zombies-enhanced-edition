@@ -270,12 +270,45 @@ void Receive(const unsigned char *p, int len, const sockaddr_in &from, long long
     s.next = seq + 1;
     AddText(s, (const char *)p + netlog::kHeaderSize + nameLen, (size_t)(len - netlog::kHeaderSize - nameLen));
 }
+
+
+// zm_clientlogs 0: the port is closed (the clients' packets are refused by the system) and the open files end; 1 opens
+// it again at the next frame
+void CloseLogs()
+{
+    if ( s_socket != INVALID_SOCKET )
+    {
+        closesocket(s_socket);
+        s_socket = INVALID_SOCKET;
+        Com_Printf(0, "netlog: client logs off (zm_clientlogs 0)\n");
+    }
+    s_opened = false;
+    const std::lock_guard<std::mutex> guard(s_lock);
+    for ( Session &s : s_sessions )
+    {
+        if ( s.f )
+        {
+            fclose(s.f);
+            s.f = nullptr;
+        }
+        s.used = false;
+    }
+}
 } // namespace
 
 void SV_NetLog_Frame()
 {
     if ( !Sys_IsDedicatedZombiesServer() )
         return;
+    static const dvar_t *enabled;
+    if ( !enabled )
+        enabled = Dvar_FindVar("zm_clientlogs");
+    if ( enabled && !enabled->current.integer )
+    {
+        if ( s_opened )
+            CloseLogs();
+        return;
+    }
     if ( !s_opened )
         OpenSocket();
     if ( s_socket == INVALID_SOCKET )

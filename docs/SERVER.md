@@ -376,6 +376,8 @@ without anyone copying files:
   `[netlog: N bytes dropped, the buffer was full]`. The server accepts 2 MB/s per address (4 MB in a burst).
 - In the curses console, **Tab** shows the selected player's log instead of the server's (PgUp / PgDn / End scroll
   it, Tab again goes back); its title gives the file and the packets lost.
+- On the server: `zm_clientlogs 0` closes that port and ends the open files (ZmAdmin's Settings view has it), `1`
+  opens it again.
 - On the client: `bo1_netlog 0` stops it; `bo1_logserver <host[:port]>` sends to another server than the
   `cl_autoConnect` one (the game port: the log goes to port + 1).
 

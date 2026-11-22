@@ -439,6 +439,9 @@ void SV_ZmAdmin_AddCommands()
     _Dvar_RegisterInt("zm_clientcheats", 0, 0, 1, 0,
                       "zm_admin: 1 = players may use the retail cheat commands (give, god, noclip, ufo, setviewpos...); "
                       "0 refuses them, as an online game does");
+    _Dvar_RegisterInt("zm_clientlogs", 1, 0, 1, 0,
+                      "zm_admin: 1 = the clients' console logs are received on the game port + 1 and written to "
+                      "<fs_h>/logs; 0 closes that port");
     // as the operator commands (SV_AddOperatorCommands): typed on the main thread, run on the server thread
     for ( ZmCommandDef &c : s_commands )
     {

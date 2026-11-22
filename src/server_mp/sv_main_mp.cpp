@@ -1203,6 +1203,14 @@ int __cdecl SV_CheckPaused()
 // wakes and completed frames so SV_WaitServer returns only after the frame of the latest wake has run.
 static volatile LONG s_svFramesWoken;
 static volatile LONG s_svFramesRun;
+// phase 8: the server thread's loop iterations and the wakes it took, logged when SV_WaitServer's bounded wait for a
+// frame runs out (the user's servers froze 2-70 s with the main thread in SV_WaitServer and the server thread waiting
+// for a wake, bo1_threads.log 2026-11-22)
+static volatile LONG s_svLoops;
+static volatile LONG s_svStarts;
+extern void *wakeServerEvent;
+extern void *serverCompletedEvent;
+extern int g_databaseStopServer;
 
 void    SV_RunFrame()
 {
@@ -1372,6 +1380,9 @@ void     SV_ServerThread(unsigned int threadContext)
             }
             CurrentThreadId = GetCurrentThreadId();
             v9 = 0;
+            InterlockedIncrement(&s_svLoops);
+            if ( start )
+                InterlockedIncrement(&s_svStarts);
         }
 
         G_ClearVehicleInputs();
@@ -1494,11 +1505,27 @@ void __cdecl SV_WaitServer()
             if (G_SP_IsSPLevel())
             {
                 const int waitStart = Sys_Milliseconds();
+                const LONG loops = s_svLoops;
+                const LONG starts = s_svStarts;
+                const int dbStop = g_databaseStopServer;
                 while (s_svFramesRun != s_svFramesWoken && (int)(Sys_Milliseconds() - waitStart) < 2000)
                 {
                     Com_CheckSyncFrame();
                     Sys_AssistSingle();
                     Sleep(0);
+                }
+                if (s_svFramesRun != s_svFramesWoken)
+                {
+                    Com_PrintWarning(16,
+                                     "bo1_svwait: wake %ld not run after %d ms: last run %ld, server loops +%ld, "
+                                     "wakes taken +%ld, database stop %d -> %d, wake event %d, completed event %d, "
+                                     "residual %d\n",
+                                     (long)s_svFramesWoken, (int)(Sys_Milliseconds() - waitStart),
+                                     (long)s_svFramesRun, (long)(s_svLoops - loops), (long)(s_svStarts - starts),
+                                     dbStop, g_databaseStopServer,
+                                     Sys_WaitForSingleObjectTimeout(&wakeServerEvent, 0) ? 1 : 0,
+                                     Sys_WaitForSingleObjectTimeout(&serverCompletedEvent, 0) ? 1 : 0,
+                                     sv.timeResidual);
                 }
             }
         }

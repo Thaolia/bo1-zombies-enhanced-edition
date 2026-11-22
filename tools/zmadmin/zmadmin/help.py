@@ -132,6 +132,13 @@ SETTINGS_HELP = {
         "ligne. Les commandes d'admin zm_* marchent dans les deux cas. Défaut : non.",
         "Effet : tout de suite.",
     ),
+    "zm_clientlogs": (
+        "Journaux des clients",
+        "Oui : chaque client envoie le journal de sa console au serveur (port du jeu + 1), écrit dans",
+        "server/logs. Non : le serveur ferme ce port et n'écrit plus rien ; un client peut aussi couper l'envoi",
+        "de son côté avec bo1_netlog 0. Défaut : oui.",
+        "Effet : tout de suite.",
+    ),
     "g_inactivity": (
         "Expulsion des joueurs inactifs",
         "Secondes sans aucune action avant qu'un joueur soit expulsé. 0 : jamais (le défaut du serveur zombies ;",
