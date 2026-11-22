@@ -1,7 +1,7 @@
 # Vulkan backend and upscalers — plan
 
-Status: planned (2026-11-22). Nothing here is implemented yet. Each step updates this file, `docs/RENDERER.md` and
-`docs/PORTING.md` (phase 9) in the session that does it.
+Status (2026-11-22): step 1 (FSR1) built and tested on the host (branch `fsr1`), console untested; steps 2-7
+planned. Each step updates this file, `docs/RENDERER.md` and `docs/PORTING.md` (phase 9) in the session that does it.
 
 ## Goals and constraints
 - A Vulkan backend behind `src/gfx_backend/gfx_backend.h`, opt-in on **win64**, **Linux** and **OpenBSD**.
@@ -31,28 +31,30 @@ Status: planned (2026-11-22). Nothing here is implemented yet. Each step updates
 - The engine has no sub-pixel jitter and no per-pixel motion vectors. Its motion blur (`r_motionblur_*`) is
   camera-based.
 
-## Step 1 — FSR1 in the frontend (every emulated backend at once)
-- EASU (edge-adaptive upscale) and RCAS (sharpening) from AMD's `ffx_fsr1.h` (MIT), vendored in
-  `third_party/fidelityfx_fsr1/`. Two hand-written GLSL 4.60 pixel shaders and one full-screen vertex shader follow
-  the pack's interface (UBO bindings 0/1, explicit sampler bindings). They are sources, not generated output: the pack
-  builder adds them under reserved hashes, so GL compiles them at run time, `make_dksh_pack.py` compiles them with uam
-  (and `UseMesaSchedule` rewrites them like every DKSH), and the SPIR-V pack later gets them too. No backend code.
-- Mechanism (variant A, whole frame): the D3D9 back buffer keeps the render resolution (960x540), the backend swapchain
-  takes the output resolution (1280x720). At `Present` the frontend draws EASU into an intermediate target, then RCAS
-  into the image it presents, as ordinary contract draws. **No change to `gfx_backend.h`.** The HUD goes through the
-  upscale too (EASU keeps its edges; slightly softer than native).
-- Settings:
-  - `r_mod_upscale`: 0 = stretch as today, 1 = FSR1;
-  - `r_mod_upscaleSharpness`: RCAS strength;
-  - an output resolution separate from the render resolution;
-  - a "540p FSR1" choice in the Switch start menu.
-- Checks:
-  - `d3d9emu_test`: the EASU and RCAS draws appear in the null backend's trace;
-  - `gb_gl_test`;
-  - Linux GL screenshot, 540p→720p FSR1 against the plain stretch;
-  - Ryujinx: deko3d boots and shows the upscaled frame;
-  - **the user's console run**: `perf:` GPU time at 720p, at 540p, and at 540p + FSR1.
-- Estimate: 1-2 sessions.
+## Step 1 — FSR1 in the frontend (every emulated backend at once) — built, console untested
+What was built is described in `docs/RENDERER.md`, "Upscaling". In short, and where it departs from the first plan:
+- EASU and RCAS are GLSL **4.30** ports (`src/gfx_d3d9emu/shaders/`) of `ffx_fsr1.h` (MIT,
+  `third_party/fidelityfx_fsr1`). They are **embedded in the program**, not added to `shaders.pack`: the packs come from the player's own zones, and a
+  program shader must not depend on regenerating them. `tools/upscale_shaders.py` writes them into a generated header,
+  as GLSL and, in the Switch build, as DKSH from uam. The frontend hands the backend the form of its pack.
+- Variant A as planned: the swapchain takes the output size, `Present` copies the back buffer, then draws EASU, then
+  RCAS. `gfx_backend.h` is unchanged; the HUD goes through the upscale.
+- The settings are **host settings, not dvars**: the frontend sits below the engine and reads none.
+  - posix and the Switch read `BO1_UPSCALE=fsr1`, `BO1_UPSCALE_OUTPUT=WxH` and `BO1_UPSCALE_SHARPNESS`.
+  - The Switch start menu has "FSR 1.0" (Oui/Non) and "Nettete FSR" (Maximale, Forte (AMD's 0.2, default), Moyenne,
+    Douce, Faible) under "Resolution". Both only apply below 720p; menu.cfg keys `fsr1` and `fsr_sharpness`.
+  - `switch_main.cpp` turns them into the variables in every boot (`skip_menu` too). The output is always 1280x720.
+- Checks run (host):
+  - `d3d9emu_test`;
+  - `upscale_gl_test`: flat image, row order, halo, edge width;
+  - a 960x540 game capture → 1280x720: PSNR against native 720p 37.6 dB with FSR 1.0 against 36.1 with the stretch;
+  - `launcher_config_test`;
+  - Linux and Switch builds.
+- Still to do on the console:
+  - Ryujinx: deko3d boots and shows the frame, and `d3d9emu: upscale: FSR 1.0 from 960x540 to 1280x720` is in
+    `boot.log`;
+  - **the user's run**: GPU time per frame at 720p, at 540p and at 540p + FSR 1.0 (the `Present #` lines' `gpu ...
+    ms avg`), and how it looks.
 
 ## Step 2 — SPIR-V pack, offline
 - `tools/ffconv/gen/make_spirv_pack.py`, modelled on `make_dksh_pack.py`: glslang `-V --target-env vulkan1.1`.

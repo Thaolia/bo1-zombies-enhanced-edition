@@ -5,6 +5,7 @@
 #include "d3d9emu.h"
 
 #include "d3d9emu_host.h"
+#include "d3d9emu_upscale.h"
 #include "shader_pack.h"
 
 #include <algorithm>
@@ -188,6 +189,7 @@ Device::~Device()
     m_backBuffer.reset();
     m_autoDepthStencil.reset();
     m_presentImage.reset();
+    m_upscaler.reset();
     gb::DestroySwapchain(m_swapchain);
 }
 
@@ -228,8 +230,9 @@ HRESULT Device::Create(Direct3D9 *d3d, bool ex, HWND focusWindow, D3DPRESENT_PAR
         return hr;
     Device *device = new Device(d3d, ex);
     device->m_window = window;
-    const gb::SwapchainDesc swapchain = {host::NativeWindow(window), uint16_t(p.BackBufferWidth),
-                                         uint16_t(p.BackBufferHeight),
+    device->ChooseOutput(p);
+    const gb::SwapchainDesc swapchain = {host::NativeWindow(window), uint16_t(device->m_outputWidth),
+                                         uint16_t(device->m_outputHeight),
                                          p.PresentationInterval != D3DPRESENT_INTERVAL_IMMEDIATE};
     device->m_swapchain = gb::CreateSwapchain(swapchain);
     const gb::BufferDesc up = {gb::BufferType::Vertex, gb::Usage::Dynamic, gb::Memory::Shared, kUpBufferSize};
@@ -245,6 +248,33 @@ HRESULT Device::Create(Direct3D9 *d3d, bool ex, HWND focusWindow, D3DPRESENT_PAR
     device->ResetState();
     *out = device;
     return D3D_OK;
+}
+
+void Device::ChooseOutput(const D3DPRESENT_PARAMETERS &p)
+{
+    m_upscale = false;
+    m_outputWidth = p.BackBufferWidth;
+    m_outputHeight = p.BackBufferHeight;
+    host::UpscaleSettings settings;
+    if (!host::Upscale(&settings))
+        return;
+    if (settings.outputWidth < p.BackBufferWidth || settings.outputHeight < p.BackBufferHeight ||
+        (settings.outputWidth == p.BackBufferWidth && settings.outputHeight == p.BackBufferHeight))
+    {
+        Logf("d3d9emu: upscale: the output %ux%u is not larger than the %ux%u back buffer: none",
+             settings.outputWidth, settings.outputHeight, p.BackBufferWidth, p.BackBufferHeight);
+        return;
+    }
+    const FormatInfo *format = FindFormat(p.BackBufferFormat);
+    if (!format || !Upscaler::Supports(format->format))
+    {
+        Logf("d3d9emu: upscale: the backend cannot render and filter the back buffer's format: none");
+        return;
+    }
+    m_upscale = true;
+    m_outputWidth = settings.outputWidth;
+    m_outputHeight = settings.outputHeight;
+    m_upscaleSharpness = settings.sharpness;
 }
 
 HRESULT Device::CreateBackBuffer(const D3DPRESENT_PARAMETERS &p)
@@ -367,7 +397,10 @@ HRESULT Device::Reset(D3DPRESENT_PARAMETERS *parameters)
     m_autoDepthStencil.reset();
     m_presentImage.reset();
     m_window = window;
-    gb::ResizeSwapchain(m_swapchain, uint16_t(p.BackBufferWidth), uint16_t(p.BackBufferHeight));
+    if (m_upscaler)
+        m_upscaler->ReleaseTargets();
+    ChooseOutput(p);
+    gb::ResizeSwapchain(m_swapchain, uint16_t(m_outputWidth), uint16_t(m_outputHeight));
     hr = CreateBackBuffer(p);
     if (FAILED(hr))
         return hr;
@@ -1534,6 +1567,13 @@ HRESULT Device::PresentFrame(DWORD)
         const gb::Rect all = {0, 0, back.width, back.height};
         gb::Blit(back.gpu, 0, 0, all, m_presentImage->gpu, 0, 0, all, gb::Filter::Nearest);
         image = m_presentImage->gpu;
+    }
+    if (m_upscale)
+    {
+        if (!m_upscaler)
+            m_upscaler.reset(new Upscaler());
+        image = m_upscaler->Run(image, back.format->format, back.width, back.height, m_outputWidth, m_outputHeight,
+                                m_upscaleSharpness);
     }
     gb::Present(m_swapchain, image);
     // Uniform memory starts over with each frame.

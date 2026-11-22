@@ -49,6 +49,11 @@ public:
         return true;
     }
 
+    bool Dksh() const
+    {
+        return m_dksh;
+    }
+
     const ShaderPackEntry *Find(uint64_t hash) const
     {
         size_t low = 0, high = m_entries.size();
@@ -86,6 +91,7 @@ private:
         if (std::memcmp(header.magic, SHADER_PACK_MAGIC, sizeof(header.magic)) &&
             std::memcmp(header.magic, SHADER_PACK_MAGIC_DKSH, sizeof(header.magic)))
             return "bad magic";
+        m_dksh = !std::memcmp(header.magic, SHADER_PACK_MAGIC_DKSH, sizeof(header.magic));
         if (header.version != SHADER_PACK_VERSION)
             return "unknown version";
         if (uint64_t(header.count) * sizeof(ShaderPackEntry) > uint64_t(size) - sizeof(header))
@@ -105,6 +111,7 @@ private:
     }
 
     bool m_tried = false;
+    bool m_dksh = false;
     FILE *m_file = nullptr;
     std::vector<ShaderPackEntry> m_entries;
 };
@@ -121,6 +128,15 @@ bool VersionOk(DWORD version)
     return type == 0xFFFE || type == 0xFFFF;
 }
 } // namespace
+
+ShaderForm ShaderPackForm()
+{
+    Guard guard(DeviceLock());
+    ShaderPack &pack = Pack();
+    if (!pack.Open())
+        return ShaderForm::None;
+    return pack.Dksh() ? ShaderForm::Dksh : ShaderForm::Glsl;
+}
 
 size_t ShaderBytecodeSize(const DWORD *function, size_t maxBytes)
 {

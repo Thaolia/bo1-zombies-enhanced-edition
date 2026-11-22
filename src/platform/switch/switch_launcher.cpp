@@ -128,6 +128,8 @@ enum Item
     ITEM_KIT,
     ITEM_BACKEND,
     ITEM_RESOLUTION,
+    ITEM_FSR,
+    ITEM_FSR_SHARPNESS,
     ITEM_MAXFPS,
     ITEM_SHADOWS,
     ITEM_PROPDIST,
@@ -203,14 +205,16 @@ const ItemInfo kItems[ITEM_COUNT] = {
     {VIEW_MAIN, 17, "Depart", "A: points, atouts et mods de la partie solo (hit marker, PaP illimite...)."},
     {VIEW_MAIN, 19, "Rendu", "deko3d: le plus rapide. OpenGL: l'ancien chemin, plus lent."},
     {VIEW_MAIN, 20, "Resolution", "720p: celle de l'ecran. 540p, 480p: image moins nette, plus de FPS (en ligne)."},
-    {VIEW_MAIN, 21, "Limite de FPS", "30: plus stable et plus econome en batterie. 60: plus fluide."},
-    {VIEW_MAIN, 22, "Ombres", "Ombres dynamiques. Les couper fait gagner des FPS."},
-    {VIEW_MAIN, 23, "Distance des props", "Objets du decor dessines moins loin et plus simples: plus de FPS (TranZit)."},
-    {VIEW_MAIN, 24, "Filtre de texture", "Nettete des textures au loin. 16x: le plus net. Bilineaire: le plus leger."},
-    {VIEW_MAIN, 25, "Compteur FPS", "Compteur de FPS et de batterie en haut a droite."},
-    {VIEW_MAIN, 26, "Touches manette", "A: choisir le bouton de chaque action du jeu (tirer, viser, sauter...)."},
-    {VIEW_MAIN, 27, "Manettes", "A: ecran de la Switch pour connecter ou changer de manette."},
-    {VIEW_MAIN, 36, "DEMARRER", "Lance la partie avec ces reglages (aussi: bouton +)."},
+    {VIEW_MAIN, 21, "  FSR 1.0", "Oui: en 540p/480p, AMD FSR 1.0 agrandit l'image en 720p, plus nette qu'etiree."},
+    {VIEW_MAIN, 22, "  Nettete FSR", "Accentuation de l'image agrandie par FSR. Maximale: la plus nette."},
+    {VIEW_MAIN, 23, "Limite de FPS", "30: plus stable et plus econome en batterie. 60: plus fluide."},
+    {VIEW_MAIN, 24, "Ombres", "Ombres dynamiques. Les couper fait gagner des FPS."},
+    {VIEW_MAIN, 25, "Distance des props", "Objets du decor dessines moins loin et plus simples: plus de FPS (TranZit)."},
+    {VIEW_MAIN, 26, "Filtre de texture", "Nettete des textures au loin. 16x: le plus net. Bilineaire: le plus leger."},
+    {VIEW_MAIN, 27, "Compteur FPS", "Compteur de FPS et de batterie en haut a droite."},
+    {VIEW_MAIN, 28, "Touches manette", "A: choisir le bouton de chaque action du jeu (tirer, viser, sauter...)."},
+    {VIEW_MAIN, 29, "Manettes", "A: ecran de la Switch pour connecter ou changer de manette."},
+    {VIEW_MAIN, 38, "DEMARRER", "Lance la partie avec ces reglages (aussi: bouton +)."},
     {VIEW_SERVER, 7, "Connexion", "Activee: la partie rejoint ce serveur au lieu d'une partie solo."},
     {VIEW_SERVER, 8, "Adresse IP", "A: l'adresse IP du PC qui fait tourner le serveur (Server.bat, Server.sh)."},
     {VIEW_SERVER, 9, "Port", "A: le port UDP du serveur, 3074 par defaut."},
@@ -248,14 +252,14 @@ const ItemInfo kItems[ITEM_COUNT] = {
 static_assert(ITEM_KIT_PERK_LAST - ITEM_KIT_PERK_FIRST + 1 == 8, "one kit line per kLauncherPerks entry");
 static_assert(sizeof(kItems) / sizeof(kItems[0]) == ITEM_COUNT, "one kItems line per Item");
 const int kGraphicsHeaderRow = 18;
-const int kControllerFirstRow = 28;
+const int kControllerFirstRow = 30;
 const int kControllerMaxRows = 8; // handheld + players 1-7: the rows up to DEMARRER
 const int kPadInfoRow = 28;
 const int kNetInfoRow = 26;
 const int kKitInfoRow = 25;
-const int kHelpRow = 37;
-const int kStatusRow = 38;
-const int kFooterRow = 40;
+const int kHelpRow = 39;
+const int kStatusRow = 40;
+const int kFooterRow = 42;
 
 // The last LAN search's servers (lan_browser.h), and whether one ran since the server view opened.
 std::vector<LanServer> s_found;
@@ -285,6 +289,11 @@ bool Selectable(const LauncherSettings &s, View view, int item)
         return s.unlimitedPapInstalled;
     if (item == ITEM_KIT_RUSH)
         return s.spawnRate > 0;
+    // FSR 1.0 upscales to the screen's 720p: nothing to do at 720p.
+    if (item == ITEM_FSR)
+        return s.height < 720;
+    if (item == ITEM_FSR_SHARPNESS)
+        return s.height < 720 && s.fsr1;
     return true;
 }
 
@@ -375,6 +384,10 @@ std::string ValueText(const LauncherSettings &s, int item)
         return s.farRespawn > 0 ? "Au-dela de " + std::to_string(s.farRespawn) : std::string("Non");
     case ITEM_RESOLUTION:
         return s.height == 480 ? "480p" : s.height == 540 ? "540p" : "720p";
+    case ITEM_FSR:
+        return s.height < 720 ? YesNo(s.fsr1) : "Inutile en 720p";
+    case ITEM_FSR_SHARPNESS:
+        return kLauncherFsrSharpness[s.fsrSharpness].label;
     case ITEM_MAXFPS:
         return std::to_string(s.maxFps);
     case ITEM_SHADOWS:
@@ -516,6 +529,12 @@ void Change(LauncherSettings *s, int item, int dir)
         s->height = kHeights[(at + dir + 3) % 3];
         break;
     }
+    case ITEM_FSR:
+        s->fsr1 = !s->fsr1;
+        break;
+    case ITEM_FSR_SHARPNESS:
+        s->fsrSharpness = (s->fsrSharpness + dir + kLauncherFsrSharpnessCount) % kLauncherFsrSharpnessCount;
+        break;
     case ITEM_MAXFPS:
         s->maxFps = s->maxFps == 60 ? 30 : 60;
         break;

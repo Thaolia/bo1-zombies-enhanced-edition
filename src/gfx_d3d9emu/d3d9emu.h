@@ -133,6 +133,7 @@ void Rebind(T *&slot, T *next)
 
 class Device;
 class Surface;
+class Upscaler;
 
 // ---- texture storage (d3d9emu_resources.cpp)
 
@@ -467,6 +468,16 @@ protected:
 
 // The length in bytes of a D3D9 shader, up to and including its end token; 0 if it has none within `maxBytes`.
 size_t ShaderBytecodeSize(const DWORD *function, size_t maxBytes);
+
+// What shaders.pack carries, which is what the backend's CreateShader takes (shader_pack.h): None when it is missing
+// or unusable. Opens the pack on the first call.
+enum class ShaderForm
+{
+    None,
+    Glsl,
+    Dksh,
+};
+ShaderForm ShaderPackForm();
 
 class VertexShader final : public IDirect3DVertexShader9, public Counted
 {
@@ -859,6 +870,7 @@ private:
     Device(Direct3D9 *d3d, bool ex);
     static HRESULT CheckParameters(D3DPRESENT_PARAMETERS &parameters, HWND window);
     HRESULT CreateBackBuffer(const D3DPRESENT_PARAMETERS &parameters);
+    void ChooseOutput(const D3DPRESENT_PARAMETERS &parameters);
     HRESULT CreateSurface(UINT width, UINT height, D3DFORMAT format, D3DPOOL pool, DWORD usage,
                           D3DMULTISAMPLE_TYPE multiSample, IDirect3DSurface9 **surface);
     void ResetState();
@@ -884,6 +896,11 @@ private:
     std::unique_ptr<Surface> m_backBuffer;
     std::unique_ptr<Surface> m_autoDepthStencil;
     std::shared_ptr<Storage> m_presentImage; // the resolved back buffer when that is multisampled
+    // The swapchain's size: the back buffer's, or the upscaler's output (d3d9emu_upscale.h) when m_upscale.
+    bool m_upscale = false;
+    uint32_t m_outputWidth = 0, m_outputHeight = 0;
+    float m_upscaleSharpness = 0.0f;
+    std::unique_ptr<Upscaler> m_upscaler;
     std::vector<uint8_t> m_readScratch;      // GetFrontBufferData's copy of the last frame
 
     // D3D9 state

@@ -49,6 +49,16 @@ struct LauncherPropDistance
 };
 extern const LauncherPropDistance kLauncherPropDistances[];
 extern const int kLauncherPropDistanceCount;
+// "Nettete FSR": RCAS's strength after FSR 1.0's upscale (docs/RENDERER.md, "Upscaling"), in AMD's stops below the
+// strongest (0).
+struct LauncherFsrSharpness
+{
+    const char *key;   // menu.cfg value
+    const char *label; // menu text
+    const char *stops; // BO1_UPSCALE_SHARPNESS
+};
+extern const LauncherFsrSharpness kLauncherFsrSharpness[];
+extern const int kLauncherFsrSharpnessCount;
 extern const int kLauncherFarRespawns[];
 extern const int kLauncherFarRespawnCount;
 // mods/spawnrate's spawnrate_mult choices (0 = off), as ZmClient's SPAWN_RATE_CHOICES.
@@ -128,6 +138,9 @@ struct LauncherSettings
     bool spawnRush = true;         // mods/spawnrate's spawnrate_rush: zombies sprint to their barrier
     LauncherBackend backend = LAUNCHER_BACKEND_DEKO3D;
     int height = 720; // 720, 540 or 480: the game's frame (r_customMode), which the console scales to the screen
+    // Below 720p, the frame upscaled to 1280x720 by AMD FSR 1.0 in the renderer instead of the console's stretch.
+    bool fsr1 = false;
+    int fsrSharpness = 1; // index in kLauncherFsrSharpness
     int maxFps = 60;  // 30 or 60
     bool shadows = true;
     int propDistance = 0; // index in kLauncherPropDistances: how far static models (props) are drawn
@@ -167,6 +180,10 @@ std::vector<std::string> Launcher_ServerModFiles(const std::string &fsMods, cons
 
 // The start perks as mods/admin's zm_startperks takes them: "jugg,revive" ("" for none).
 std::string Launcher_StartPerkList(const LauncherSettings &s);
+
+// The variables the renderer's upscaler reads (src/platform/posix/posix_d3d9host.cpp), as name=value, which
+// switch_main.cpp sets before the engine starts: none without FSR 1.0 or at 720p.
+std::vector<std::string> Launcher_UpscaleEnvironment(const LauncherSettings &s);
 
 // "host:port", the address cl_autoConnect gets.
 std::string Launcher_ServerAddress(const LauncherSettings &s);

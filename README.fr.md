@@ -177,9 +177,10 @@ Au lancement, un menu texte s'ouvre avant le jeu. On y choisit :
   script est sur la carte SD) et l'apparition plus rapide des zombies (mod spawnrate : de 2 à 10 fois, avec ou sans
   le sprint jusqu'aux barricades) ;
 - le rendu (deko3d ou OpenGL), la résolution (720p, ou 540p / 480p pour plus de FPS, 540p conseillé en ligne : la console agrandit l'image à
-  l'écran), la limite de FPS (30 ou 60), les ombres, la distance des props (normale, réduite ou courte :
-  `r_lodScaleRigid` 1, 1,5 ou 2, les objets du décor dessinés plus simples et moins loin, pour plus de FPS sur les maps
-  BO2 natives), le filtre de texture et le compteur FPS/batterie ;
+  l'écran ; sous 720p, **FSR 1.0** peut l'agrandir en 720p à la place, plus net que l'étirement de la console, avec
+  cinq niveaux de netteté), la limite de FPS (30 ou 60), les ombres, la distance des props (normale, réduite ou
+  courte : `r_lodScaleRigid` 1, 1,5 ou 2, les objets du décor dessinés plus simples et moins loin, pour plus de FPS
+  sur les maps BO2 natives), le filtre de texture et le compteur FPS/batterie ;
 - les infos speedrun (`bo1_runinfo`, aussi dans la vue Lancement de ZmClient) : les réglages qui changent une partie
   (mods, god mode, aim assist, kit de départ, timescale...) et un SHA-512 du programme et des zones chargées, en bas de
   l'écran de chargement (par défaut), ou aussi dans un coin en jeu ; le hash complet va dans le journal (lignes

@@ -36,6 +36,7 @@ bool SameSettings(const LauncherSettings &a, const LauncherSettings &b)
            a.texFilter == b.texFilter && a.startPoints == b.startPoints && a.startPerks == b.startPerks &&
            a.startPower == b.startPower && a.startPap == b.startPap && a.farRespawn == b.farRespawn && a.lanAuto == b.lanAuto && a.joinBo2Weapons == b.joinBo2Weapons && a.dualWield == b.dualWield &&
            a.joinDualWield == b.joinDualWield && a.runInfo == b.runInfo && a.height == b.height &&
+           a.fsr1 == b.fsr1 && a.fsrSharpness == b.fsrSharpness &&
            a.hitmarker == b.hitmarker && a.unlimitedPap == b.unlimitedPap && a.spawnRate == b.spawnRate &&
            a.spawnRush == b.spawnRush && a.serverPassword == b.serverPassword && a.joinDetectMods == b.joinDetectMods &&
            std::memcmp(&a.pad, &b.pad, sizeof(a.pad)) == 0;
@@ -328,6 +329,31 @@ int main()
               Launcher_ParseSettings("spawnrate=7\n").spawnRate == 0,
           "a solo game stacks hitmarker, unlimitedpap (with its script on the SD card) and spawnrate, not on Dead Ops "
           "Arcade nor on a join; menu.cfg keeps them");
+    // FSR 1.0: off by default, only below 720p, the output always the screen's 1280x720
+    LauncherSettings fsr;
+    fsr.height = 540;
+    fsr.fsr1 = true;
+    fsr.fsrSharpness = 2;
+    const std::vector<std::string> fsrEnv = Launcher_UpscaleEnvironment(fsr);
+    Check(fsrEnv.size() == 3 && fsrEnv[0] == "BO1_UPSCALE=fsr1" && fsrEnv[1] == "BO1_UPSCALE_OUTPUT=1280x720" &&
+              fsrEnv[2] == "BO1_UPSCALE_SHARPNESS=0.5",
+          "FSR 1.0 at 540p asks the renderer for 1280x720 at the chosen sharpness");
+    Check(SameSettings(Launcher_ParseSettings(Launcher_FormatSettings(fsr)), fsr) &&
+              Launcher_FormatSettings(fsr).find("fsr1=1\nfsr_sharpness=medium\n") != std::string::npos,
+          "menu.cfg keeps FSR 1.0 and its sharpness");
+    LauncherSettings fsr720 = fsr;
+    fsr720.height = 720;
+    LauncherSettings fsrOff = fsr;
+    fsrOff.fsr1 = false;
+    Check(!defaults.fsr1 && defaults.fsrSharpness == 1 && Launcher_UpscaleEnvironment(defaults).empty() &&
+              Launcher_UpscaleEnvironment(fsr720).empty() && Launcher_UpscaleEnvironment(fsrOff).empty(),
+          "no upscale by default, at 720p or with FSR 1.0 off");
+    Check(Launcher_ParseSettings("fsr1=1\nfsr_sharpness=extreme\n").fsrSharpness == 1 &&
+              Launcher_ParseSettings("fsr1=1\nfsr_sharpness=max\n").fsrSharpness == 0,
+          "an unknown FSR sharpness keeps the default");
+    Check(Launcher_BuildLaunchLine(fsr, "") == Launcher_BuildLaunchLine(fsrOff, ""),
+          "FSR 1.0 leaves the engine's launch line alone (the renderer reads it)");
+
     LauncherSettings run;
     run.runInfo = 2;
     Check(Launcher_BuildLaunchLine(run, "").find(" +set bo1_runinfo 2") != std::string::npos &&

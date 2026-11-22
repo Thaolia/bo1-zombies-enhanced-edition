@@ -143,9 +143,9 @@ void LoadBackendConfig(char *backend, size_t size)
     }
 }
 
-// The start menu's pad layout (menu.cfg, launcher_config.h) for the controller layer, in every boot: the menu wrote it
-// as it closed, and a skip_menu boot keeps the last one chosen. No file, or one without pad lines: the game's own.
-void ApplyPadLayout()
+// The start menu's settings (menu.cfg, launcher_config.h), in every boot: the menu wrote them as it closed, and a
+// skip_menu boot keeps the last ones chosen. No file: the defaults.
+LauncherSettings LoadMenuSettings()
 {
     std::string text;
     if (FILE *f = std::fopen(kMenuConfigPath, "rb"))
@@ -154,7 +154,12 @@ void ApplyPadLayout()
         text.assign(buf, std::fread(buf, 1, sizeof(buf), f));
         std::fclose(f);
     }
-    const LauncherSettings settings = Launcher_ParseSettings(text);
+    return Launcher_ParseSettings(text);
+}
+
+// The pad layout for the controller layer. A menu.cfg without pad lines: the game's own.
+void ApplyPadLayout(const LauncherSettings &settings)
+{
     if (!Bo1_SetGamepadRemap(settings.pad))
     {
         BootLog("pad layout refused (not a permutation) -> the game's own");
@@ -171,6 +176,20 @@ void ApplyPadLayout()
             changed += std::string(changed.empty() ? "" : ", ") + Launcher_PadButtonLabel(i) + " <- " +
                        Launcher_PadButtonLabel(settings.pad.source[i]);
     BootLog("pad layout: %s", changed.c_str());
+}
+
+// FSR 1.0 for the renderer's Present (posix_d3d9host.cpp reads the variables at the device's creation).
+void ApplyUpscale(const LauncherSettings &settings)
+{
+    const std::vector<std::string> environment = Launcher_UpscaleEnvironment(settings);
+    for (const std::string &assignment : environment)
+    {
+        const size_t equals = assignment.find('=');
+        setenv(assignment.substr(0, equals).c_str(), assignment.c_str() + equals + 1, 1);
+        BootLog("upscale -> %s", assignment.c_str());
+    }
+    if (environment.empty())
+        BootLog("upscale: none (%dp%s)", settings.height, settings.fsr1 ? ", FSR 1.0 only below 720p" : "");
 }
 
 // The dispatcher reads BO1_GFX_BACKEND; without it the default applies (GL when it gets a context).
@@ -388,7 +407,9 @@ int main(int, char **)
         return 0;
     }
     ApplyBackend(backend);
-    ApplyPadLayout();
+    const LauncherSettings menuSettings = LoadMenuSettings();
+    ApplyPadLayout(menuSettings);
+    ApplyUpscale(menuSettings);
     BootLog("launch args = \"%s\"", args);
     Bo1_SetCommandLine(args);
     BootLog("module base %p (ELF address 0: crash report addresses minus this go to addr2line)", (void *)_start);

@@ -10,6 +10,7 @@
 
 #include <stdio.h>
 
+#include <cstdlib>
 #include <cstring>
 #include <string>
 
@@ -118,6 +119,42 @@ const char *ShaderPackPath()
     static const std::string path =
         Bo1_PosixPath(Sys_DefaultInstallPath()) + (dksh ? "/shaders.dksh" : "/shaders.pack");
     return path.c_str();
+}
+
+// BO1_UPSCALE=fsr1 turns it on, BO1_UPSCALE_OUTPUT=<width>x<height> gives the output (required),
+// BO1_UPSCALE_SHARPNESS the RCAS stops (default 0.2, AMD's). The Switch start menu sets them (switch_main.cpp).
+bool Upscale(UpscaleSettings *settings)
+{
+    static const UpscaleSettings *chosen = []() -> const UpscaleSettings * {
+        const char *mode = getenv("BO1_UPSCALE");
+        if (!mode || !*mode || !std::strcmp(mode, "off"))
+            return nullptr;
+        static UpscaleSettings s = {0, 0, 0.2f};
+        const char *output = getenv("BO1_UPSCALE_OUTPUT");
+        unsigned width = 0, height = 0;
+        char end = 0;
+        if (std::strcmp(mode, "fsr1") || !output || sscanf(output, "%ux%u%c", &width, &height, &end) != 2 ||
+            width < 16 || height < 16 || width > 8192 || height > 8192)
+        {
+            Com_Printf(kConsoleChannelGfx, "d3d9emu: BO1_UPSCALE=%s BO1_UPSCALE_OUTPUT=%s not understood: no upscale\n",
+                       mode, output ? output : "(unset)");
+            return nullptr;
+        }
+        s.outputWidth = width;
+        s.outputHeight = height;
+        if (const char *sharpness = getenv("BO1_UPSCALE_SHARPNESS"))
+        {
+            char *after = nullptr;
+            const float value = strtof(sharpness, &after);
+            if (after != sharpness && !*after && value >= 0.0f && value <= 2.0f)
+                s.sharpness = value;
+        }
+        return &s;
+    }();
+    if (!chosen)
+        return false;
+    *settings = *chosen;
+    return true;
 }
 
 bool SaveFile(const char *path, const void *data, size_t size)

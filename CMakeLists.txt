@@ -235,6 +235,27 @@ if(BO1_PLATFORM STREQUAL "win32")
 else()
     # posix / switch: Win32 declarations come from our shim (src/platform/posix/include); the D3D9 ones are copied
     # from the user's DirectX SDK at configure time, so nothing from Microsoft is committed.
+    # The frontend's upscaler shaders (src/gfx_d3d9emu/shaders, docs/RENDERER.md "Upscaling") go into a generated
+    # header as GLSL, and on the Switch also as DKSH compiled by uam, the form its shaders.pack has.
+    find_program(BO1_PYTHON3 NAMES python3 python REQUIRED)
+    set(BO1_UPSCALE_GLSL "${SRC_DIR}/gfx_d3d9emu/shaders/fsr1_vs.glsl" "${SRC_DIR}/gfx_d3d9emu/shaders/fsr1_easu.glsl"
+        "${SRC_DIR}/gfx_d3d9emu/shaders/fsr1_rcas.glsl")
+    set(BO1_UPSCALE_HEADER "${CMAKE_BINARY_DIR}/generated/upscale_shaders.h")
+    set(BO1_UPSCALE_UAM_ARGS "")
+    if(BO1_PLATFORM STREQUAL "switch")
+        find_program(BO1_UAM uam REQUIRED HINTS "$ENV{DEVKITPRO}/tools/bin")
+        set(BO1_UPSCALE_UAM_ARGS --uam "${BO1_UAM}")
+    endif()
+    add_custom_command(
+        OUTPUT "${BO1_UPSCALE_HEADER}"
+        COMMAND "${BO1_PYTHON3}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/upscale_shaders.py"
+                "${SRC_DIR}/gfx_d3d9emu/shaders" "${BO1_UPSCALE_HEADER}" ${BO1_UPSCALE_UAM_ARGS}
+        DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/tools/upscale_shaders.py" ${BO1_UPSCALE_GLSL}
+        COMMENT "Embedding the upscaler's shaders"
+        VERBATIM)
+    list(APPEND GFX_D3D9EMU_FILES "${BO1_UPSCALE_HEADER}")
+    set_source_files_properties("${SRC_DIR}/gfx_d3d9emu/d3d9emu_upscale.cpp" PROPERTIES
+                                INCLUDE_DIRECTORIES "${CMAKE_BINARY_DIR}/generated")
     set(DXSDK_DIR "/mnt/c/SDKs/DXSDK_Jun10/DXSDK" CACHE PATH "June 2010 DirectX SDK root (its Include/d3d9*.h are used)")
     foreach(BO1_DX_HEADER d3d9.h d3d9types.h d3d9caps.h)
         if(NOT EXISTS "${DXSDK_DIR}/Include/${BO1_DX_HEADER}")
@@ -339,7 +360,6 @@ else()
         # can have the same size, and a __DATE__ only changes with its own file (switch-homebrew.md).
         find_program(BO1_ELF2NRO elf2nro REQUIRED HINTS "$ENV{DEVKITPRO}/tools/bin")
         find_program(BO1_NACPTOOL nacptool REQUIRED HINTS "$ENV{DEVKITPRO}/tools/bin")
-        find_program(BO1_PYTHON3 NAMES python3 python REQUIRED)
         # GCC 16's libgcc carries guarded GCS/SME/SVE instructions in its unwinder that never run on the Tegra X1
         # (Cortex-A57, ARMv8.0) but abort Ryujinx's ARM JIT when it translates the unwind path. Patch them to NOP on
         # the linked ELF before packaging (switch-homebrew.md); the script is idempotent and verifies every site.
@@ -399,6 +419,19 @@ else()
         target_link_libraries(gb_gl_test PRIVATE SDL2::SDL2 Threads::Threads)
         target_compile_options(gb_gl_test PRIVATE -Wall -Wextra)
         set_target_properties(gb_gl_test PROPERTIES BO1_GB_GL ON)
+        # The frontend's FSR 1.0 upscaler on the GL backend (docs/RENDERER.md, "Upscaling"): it upscales test images
+        # and reads them back. SDL_VIDEODRIVER=offscreen ./upscale_gl_test in the build folder.
+        add_executable(upscale_gl_test "${CMAKE_CURRENT_SOURCE_DIR}/tests/gfx_d3d9emu/upscale_gl_test.cpp"
+                       "${SRC_DIR}/gfx_d3d9emu/d3d9emu_upscale.cpp" "${BO1_UPSCALE_HEADER}"
+                       ${GFX_BACKEND_NULL_FILES} ${GFX_BACKEND_GL_FILES})
+        target_include_directories(upscale_gl_test PRIVATE "${SRC_DIR}" "${SRC_DIR}/platform/posix/include"
+                                   "${SRC_DIR}/platform/posix/include_cased")
+        target_include_directories(upscale_gl_test SYSTEM PRIVATE "${CMAKE_BINARY_DIR}/dxsdk" "${BO1_GLCOREARB_DIR}")
+        target_link_libraries(upscale_gl_test PRIVATE SDL2::SDL2 Threads::Threads)
+        target_compile_options(upscale_gl_test PRIVATE -include "${SRC_DIR}/platform/compat.h" -Wall -Wextra
+                               -Wno-unused-parameter -Wno-unknown-pragmas
+                               $<$<CXX_COMPILER_ID:Clang>:-Wno-nonportable-include-path>)
+        set_target_properties(upscale_gl_test PROPERTIES BO1_GB_GL ON)
         # The controller mapping test (docs/PORTING.md, phase 4b): the pure SDL->XInput map, no device. ./gamepad_test.
         add_executable(gamepad_test "${CMAKE_CURRENT_SOURCE_DIR}/tests/platform/gamepad_test.cpp")
         target_include_directories(gamepad_test PRIVATE "${SRC_DIR}" "${SRC_DIR}/platform/posix/include"

@@ -2412,6 +2412,8 @@ set(SRC_GFX_D3D9EMU
 	"${SRC_DIR}/gfx_d3d9emu/d3d9emu_queries.cpp"
 	"${SRC_DIR}/gfx_d3d9emu/d3d9emu_resources.cpp"
 	"${SRC_DIR}/gfx_d3d9emu/d3d9emu_shaders.cpp"
+	"${SRC_DIR}/gfx_d3d9emu/d3d9emu_upscale.cpp"
+	"${SRC_DIR}/gfx_d3d9emu/d3d9emu_upscale.h"
 	"${SRC_DIR}/gfx_d3d9emu/d3dx9emu.cpp"
 	"${SRC_DIR}/gfx_d3d9emu/shader_pack.h"
 )

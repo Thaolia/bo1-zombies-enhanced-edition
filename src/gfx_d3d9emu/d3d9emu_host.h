@@ -33,6 +33,16 @@ bool WindowVisible(HWND hwnd);
 
 // The path of shaders.pack (src/gfx_d3d9emu/shader_pack.h), next to the converted zones.
 const char *ShaderPackPath();
+// The upscaler (docs/RENDERER.md, "Upscaling"): FSR 1.0 from the back buffer to an output of outputWidth x
+// outputHeight, the size the swapchain then takes; RCAS `sharpness` in stops below its strongest (0 to 2). False when
+// the platform asks for none. An output no larger than the back buffer is ignored.
+struct UpscaleSettings
+{
+    uint32_t outputWidth;
+    uint32_t outputHeight;
+    float sharpness;
+};
+bool Upscale(UpscaleSettings *settings);
 // Writes a whole file at a path the engine built (D3DXSaveSurfaceToFile's screenshots); false when it cannot.
 bool SaveFile(const char *path, const void *data, size_t size);
 

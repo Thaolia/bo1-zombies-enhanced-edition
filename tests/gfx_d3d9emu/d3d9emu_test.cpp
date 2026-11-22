@@ -23,6 +23,7 @@ int g_failures = 0;
 std::vector<std::string> g_hostLog;
 std::string g_packPath = "d3d9emu_test.pack";
 bool g_visible = true;
+bool g_upscale = false; // the host asks for FSR 1.0 to 640x480
 std::string g_savedPath;
 std::vector<uint8_t> g_saved;
 const HWND kWindow = reinterpret_cast<HWND>(0x1234);
@@ -218,6 +219,12 @@ bool WindowVisible(HWND)
 const char *ShaderPackPath()
 {
     return g_packPath.c_str();
+}
+
+bool Upscale(UpscaleSettings *settings)
+{
+    *settings = {640, 480, 0.5f};
+    return g_upscale;
 }
 
 bool SaveFile(const char *path, const void *data, size_t size)
@@ -628,6 +635,31 @@ int main(int argc, char **argv)
     Mark();
     CHECK(device->Reset(&pp) == D3D_OK);
     CHECK(Has("ResizeSwapchain W") && Has("BGRA8 RenderTarget 320x240x1") && Has("DestroyTexture " + backBuffer));
+
+    // ---- upscaling (d3d9emu_upscale.cpp): the swapchain takes the host's output, Present draws EASU then RCAS
+    g_upscale = true;
+    Mark();
+    CHECK(device->Reset(&pp) == D3D_OK && pp.BackBufferWidth == 320 && pp.BackBufferHeight == 240);
+    CHECK(Has("ResizeSwapchain W") && Has(" 640x480"));
+    Mark();
+    CHECK(device->Present(nullptr, nullptr, nullptr, nullptr) == D3D_OK);
+    CHECK(Count("CreateShader") == 3 && Has("vertex b01f5a1000000001") && Has("pixel b01f5a1000000002") &&
+          Has("pixel b01f5a1000000003"));
+    CHECK(Has("BGRA8 RenderTarget sampled 320x240x1") && Count("BGRA8 RenderTarget sampled 640x480x1") == 2);
+    const std::string upscaled = LastId("CreateTexture");
+    CHECK(Find("Blit") >= 0 && Find("Blit") < Find("BeginPass") && Count("BeginPass") == 2 && Count("EndPass") == 2);
+    CHECK(Count("Draw P") == 2 && Count("TriangleList count=3") == 2 && Count("viewport=0,0,640x480") == 2);
+    CHECK(Find("Present W") > Find("EndPass") && Has("Present W") && Has(" " + upscaled));
+    Mark();
+    CHECK(device->Present(nullptr, nullptr, nullptr, nullptr) == D3D_OK);
+    CHECK(!Has("CreateShader") && !Has("CreateTexture") && !Has("GetPipeline P") && Count("Draw P") == 2);
+    g_upscale = false;
+    Mark();
+    CHECK(device->Reset(&pp) == D3D_OK);
+    CHECK(Has("ResizeSwapchain W") && Has(" 320x240") && Count("DestroyTexture") >= 3);
+    Mark();
+    CHECK(device->Present(nullptr, nullptr, nullptr, nullptr) == D3D_OK);
+    CHECK(!Has("BeginPass") && Has("Present W"));
 
     // ---- teardown: the device goes with its last reference, the backend with the last IDirect3D9
     for (IUnknown *object : std::initializer_list<IUnknown *>{dynamic, dxt, volume, vb, ib, vs, ps, missing, decl, depth,

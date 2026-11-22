@@ -158,9 +158,10 @@ On the console the game starts in a text menu, where you choose:
   Pack-a-Punch (mods/unlimitedpap, when its script is on the SD card) and the faster spawns (mods/spawnrate: 2 to 10
   times, with or without the sprint to the barriers);
 - the renderer (deko3d or OpenGL), the resolution (720p, or 540p / 480p for more frames, 540p advised online: the console scales the image to the
-  screen), the frame-rate cap, shadows, the props' distance (normal, reduced or short: `r_lodScaleRigid` 1, 1.5 or 2,
-  scenery objects drawn simpler and less far for more frames on the native BO2 maps), texture filtering and the
-  FPS/battery counter;
+  screen; below 720p, **FSR 1.0** can upscale it to 720p instead, sharper than the console's stretch, with five
+  sharpness levels), the frame-rate cap, shadows, the props' distance (normal, reduced or short: `r_lodScaleRigid`
+  1, 1.5 or 2, scenery objects drawn simpler and less far for more frames on the native BO2 maps), texture filtering
+  and the FPS/battery counter;
 - the speedrun info (`bo1_runinfo`, also a ZmClient launch setting): the settings that change a run (mods, god mode,
   aim assist, start kit, timescale...) and a SHA-512 over the program and the zones it loaded, at the bottom of the
   loading screen (default), or also in a corner in game; the full hash goes to the log (`runinfo:` lines), with the program's own SHA-512 (`sha512sum`'s). It tells

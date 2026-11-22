@@ -68,6 +68,15 @@ const LauncherPropDistance kLauncherPropDistances[] = {
 };
 const int kLauncherPropDistanceCount = int(sizeof(kLauncherPropDistances) / sizeof(kLauncherPropDistances[0]));
 
+const LauncherFsrSharpness kLauncherFsrSharpness[] = {
+    {"max", "Maximale", "0"},
+    {"strong", "Forte", "0.2"}, // AMD's default
+    {"medium", "Moyenne", "0.5"},
+    {"soft", "Douce", "1"},
+    {"low", "Faible", "2"},
+};
+const int kLauncherFsrSharpnessCount = int(sizeof(kLauncherFsrSharpness) / sizeof(kLauncherFsrSharpness[0]));
+
 const int kLauncherFarRespawns[] = {0, 1500, 2500, 4000};
 const int kLauncherFarRespawnCount = int(sizeof(kLauncherFarRespawns) / sizeof(kLauncherFarRespawns[0]));
 const int kLauncherSpawnRates[] = {0, 2, 3, 5, 10};
@@ -267,6 +276,14 @@ void Apply(LauncherSettings *s, const std::string &key, const std::string &value
         if (value == "480" || value == "540" || value == "720")
             s->height = std::atoi(value.c_str());
     }
+    else if (key == "fsr1")
+        ParseBool(value, &s->fsr1);
+    else if (key == "fsr_sharpness")
+    {
+        for (int i = 0; i < kLauncherFsrSharpnessCount; ++i)
+            if (value == kLauncherFsrSharpness[i].key)
+                s->fsrSharpness = i;
+    }
     else if (key == "maxfps")
     {
         if (value == "30" || value == "60")
@@ -356,6 +373,8 @@ std::string Launcher_FormatSettings(const LauncherSettings &s)
     out += "spawnrate=" + std::to_string(s.spawnRate) + "\n";
     out += std::string("spawnrate_rush=") + (s.spawnRush ? "1" : "0") + "\n";
     out += "resolution=" + std::to_string(s.height) + "\n";
+    out += std::string("fsr1=") + (s.fsr1 ? "1" : "0") + "\n";
+    out += std::string("fsr_sharpness=") + kLauncherFsrSharpness[s.fsrSharpness].key + "\n";
     out += "maxfps=" + std::to_string(s.maxFps) + "\n";
     out += std::string("shadows=") + (s.shadows ? "1" : "0") + "\n";
     out += std::string("prop_distance=") + kLauncherPropDistances[s.propDistance].key + "\n";
@@ -459,6 +478,14 @@ std::string Launcher_BuildLaunchLine(const LauncherSettings &s, const std::strin
     }
     line += " +devmap " + std::string(kLauncherMaps[s.map].bsp);
     return line;
+}
+
+std::vector<std::string> Launcher_UpscaleEnvironment(const LauncherSettings &s)
+{
+    if (!s.fsr1 || s.height >= 720)
+        return {};
+    return {"BO1_UPSCALE=fsr1", "BO1_UPSCALE_OUTPUT=1280x720",
+            std::string("BO1_UPSCALE_SHARPNESS=") + kLauncherFsrSharpness[s.fsrSharpness].stops};
 }
 
 bool Launcher_ValidServerHost(const std::string &host)
