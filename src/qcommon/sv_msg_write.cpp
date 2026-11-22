@@ -61,6 +61,8 @@ static bool MSG_BO1NeverChangesFirst(const NetField *field, int packetEntityType
     return true;
 }
 
+long long g_bo1EntDeltas[2]; // phase 8: entity deltas this server frame: client snapshots, archive (BO1_SVDELTAS)
+
 bool offsetsTested;
 const NetFieldList *__cdecl MSG_GetStateFieldListForEntityType(int eType, bool isDemoSnapshot)
 {
@@ -1985,6 +1987,7 @@ int __cdecl MSG_WriteEntityDeltaForEType(
         __debugbreak();
     }
     fieldList = MSG_GetStateFieldListForEntityType(eType, snapInfo->demoSnapshot);
+    ++g_bo1EntDeltas[snapInfo->archived ? 1 : 0]; // phase 8: counted per server frame by bo1_mod_svprof
     s_bo1WriteEnt = to; // mod (L51): named by the far-origin Com_Errors
     s_bo1WriteSnap = snapInfo;
     bits = MSG_WriteEntityDelta(snapInfo, msg, time, from, to, flags, fieldList->count, g_entNumBits, fieldList->array); // mod (L25): networked entity numbers 1537+

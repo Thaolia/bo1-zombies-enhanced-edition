@@ -4036,6 +4036,7 @@ gclient_s::gclient_s()
 // exclusive ms per frame of each SvProfCat (profile.h), calls per frame of path / trace, actors in use, the process's
 // used address space and the renderer overflow counters. Measurement only: nothing here changes the game.
 extern int g_bo1SnapEntsMax, g_bo1SnapBytesMax; // mod (L55): sv_snapshot_mp.cpp
+extern long long g_bo1EntDeltas[2]; // phase 8: sv_msg_write.cpp, this server frame's entity deltas (client, archive)
 static const char *const s_svProfNames[SVPROF_COUNT] = { "other", "ents", "actor", "path", "anim", "trace", "script", "builtin", "snap", "client", "teammove", "physics" };
 // script sampler: every ~1 ms, while the server thread is in SVPROF_SCRIPT, count the server VM's current frame position
 // (function_frame->fs.pos, set at calls and builtin calls) in a small open-addressing table; names resolved at report
@@ -4206,6 +4207,26 @@ static void G_ModSvAbFrame()
 
 static int g_svPcoreFrames[3]; // mod (L64): server frames started on unknown / slower / P-core logical processors
 int __cdecl Sys_ModOnPCore();
+// phase 8: this thread's CPU time in ms (user + kernel), to tell a slow server frame that computes from one whose thread
+// did not run (the user's 2-5 s frames as a client joined on the same PC)
+static double G_ModThreadCpuMs()
+{
+#if defined(_WIN32)
+    FILETIME created, exited, kernel, user;
+    if (!GetThreadTimes(GetCurrentThread(), &created, &exited, &kernel, &user))
+        return 0.0;
+    const unsigned long long k = ((unsigned long long)kernel.dwHighDateTime << 32) | kernel.dwLowDateTime;
+    const unsigned long long u = ((unsigned long long)user.dwHighDateTime << 32) | user.dwLowDateTime;
+    return (double)(k + u) / 10000.0;
+#else
+    timespec ts;
+    if (clock_gettime(CLOCK_THREAD_CPUTIME_ID, &ts))
+        return 0.0;
+    return (double)ts.tv_sec * 1000.0 + (double)ts.tv_nsec / 1e6;
+#endif
+}
+static double g_svFrameCpuStart;
+
 void G_ModSvProfBegin()
 {
     G_ModSvAbFrame();
@@ -4233,6 +4254,7 @@ void G_ModSvProfBegin()
         samplerStarted = true;
         CreateThread(0, 0, G_ModSvProfSampler, 0, 0, 0);
     }
+    g_svFrameCpuStart = G_ModThreadCpuMs();
     g_svProfThread = GetCurrentThreadId();
     g_svProfDepth = 0;
     g_svProfStack[0] = SVPROF_OTHER;
@@ -4298,6 +4320,25 @@ void G_ModSvProfEnd(long long frameQpcTicks)
     }
     ++frames;
     sumMs += ms;
+    // phase 8: entity deltas written this frame for client snapshots / for the archive (MSG_WriteEntityDeltaForEType):
+    // the user's server spent seconds a frame in their field compares as a client joined
+    static double cpuSum, slowWall, slowCpu;
+    const double cpu = G_ModThreadCpuMs() - g_svFrameCpuStart;
+    cpuSum += cpu;
+    if (ms > slowWall)
+    {
+        slowWall = ms;
+        slowCpu = cpu;
+    }
+    static long long edSum[2];
+    static long long edMax[2];
+    for (int k = 0; k < 2; ++k)
+    {
+        edSum[k] += g_bo1EntDeltas[k];
+        if (g_bo1EntDeltas[k] > edMax[k])
+            edMax[k] = g_bo1EntDeltas[k];
+        g_bo1EntDeltas[k] = 0;
+    }
     const double winMs = (double)(qpc.QuadPart - winQpc0) * 1000.0 / (double)freq.QuadPart;
     if (winMs < 5000.0)
         return;
@@ -4321,6 +4362,14 @@ void G_ModSvProfEnd(long long frameQpcTicks)
         (int)((mem.ullTotalVirtual - mem.ullAvailVirtual) >> 20), (long)g_modRendWarn[0], (long)g_modRendWarn[1],
         (long)g_modRendWarn[2], (long)_InterlockedExchange(&g_modRendWarn[3], 0), (long)g_modRendWarn[5], g_bo1SnapEntsMax, g_bo1SnapBytesMax,
         g_svPcoreFrames[1] + g_svPcoreFrames[2] ? 100 * g_svPcoreFrames[2] / (g_svPcoreFrames[1] + g_svPcoreFrames[2]) : -1);
+    Com_Printf(15, "BO1_SVDELTAS {\"level_time\":%d,\"frames\":%d,\"client_mean\":%.0f,\"client_max\":%lld,"
+                   "\"archive_mean\":%.0f,\"archive_max\":%lld,\"cpu_ms_mean\":%.2f,\"slowest_ms\":%.1f,"
+                   "\"slowest_cpu_ms\":%.1f}\n",
+               level.time, frames, (double)edSum[0] / frames, edMax[0], (double)edSum[1] / frames, edMax[1],
+               cpuSum / frames, slowWall, slowCpu);
+    cpuSum = slowWall = slowCpu = 0.0;
+    memset(edSum, 0, sizeof(edSum));
+    memset(edMax, 0, sizeof(edMax));
     memset(g_svPcoreFrames, 0, sizeof(g_svPcoreFrames));
     g_bo1SnapEntsMax = 0; // mod (L55): per window: snapshot entities wanted, compressed bytes
     g_bo1SnapBytesMax = 0; // mod (L43): ge_peak = this window's, ge_over256 since start
