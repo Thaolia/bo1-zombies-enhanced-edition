@@ -139,6 +139,14 @@ SETTINGS_HELP = {
         "de son côté avec bo1_netlog 0. Défaut : oui.",
         "Effet : tout de suite.",
     ),
+    "bo1_mod_priority": (
+        "Priorité du serveur",
+        "Priorité que Windows donne au serveur. 2 (défaut) : haute. Un client qui charge ou prépare ses shaders",
+        "sur le même PC ne l'arrête plus (sinon : gels de 0,3 à 24 s). 1 : au-dessus de la normale ; 0 : normale.",
+        "Le serveur n'utilise qu'environ 1 ms de processeur par frame. Sous Linux, monter la priorité demande",
+        "des droits que le serveur n'a pas : seul 0 s'applique.",
+        "Effet : tout de suite.",
+    ),
     "g_inactivity": (
         "Expulsion des joueurs inactifs",
         "Secondes sans aucune action avant qu'un joueur soit expulsé. 0 : jamais (le défaut du serveur zombies ;",

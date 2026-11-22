@@ -30,6 +30,7 @@ SETTINGS = [
     Setting("zm_debug_revive", "bool"),
     Setting("zm_clientcheats", "bool"),
     Setting("zm_clientlogs", "bool"),
+    Setting("bo1_mod_priority", "choice", choices=["0", "1", "2"]),
     Setting("g_inactivity", "int", minimum=0),
     Setting("sv_maxclients", "int", minimum=1, maximum=32, reload=True),
     Setting("fs_mods", "mods"),

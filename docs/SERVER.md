@@ -413,6 +413,14 @@ Windows is busy. `bo1_mod_svprof 1` counts the server thread's major page faults
 `slowest_major_faults`). An ext4 folder that holds the program and the server folder (`fs_h`), with `zone`, `main`,
 `mods` and `usermaps` linked to the package, avoids both.
 
+A server that shares its PC with a client starts in the high priority class (`bo1_mod_priority`, default 2 on the
+dedicated server, ZmAdmin "Priorité du serveur"). On 2026-11-22, at normal priority on Windows, its threads went
+unscheduled while the user's client loaded and compiled its shaders on the same 8-thread laptop. Server frames took
+0.3-0.76 s for 0 ms of CPU, and the main thread waited up to 24 s for a server thread that was itself waiting, with a
+10 ms timeout, to be woken. Running from WSL did the same: the whole Linux VM competed with the client. In the high class
+the same game had no server frame above 43 ms. The server needs about 1 ms of CPU a frame. On Linux an unprivileged
+process cannot raise its priority: the setting has no effect there.
+
 ## More than 4 players
 
 The server takes 4 players by default. For more, set `sv_maxclients` in `server.cfg` or on the command line, before

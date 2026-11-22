@@ -2413,7 +2413,9 @@ void Com_InitDvars()
     // mod (L64): listen-server thread on the P-cores of a hybrid CPU (Sys_ModApplyPCore, threads.cpp); no-op elsewhere
     bo1_mod_pcore = _Dvar_RegisterInt("bo1_mod_pcore", 0, 0, 2, 0,
         "mod: hybrid CPUs: 1 = server thread on P-cores + above-normal priority, 2 = also the client threads; no-op on non-hybrid CPUs");
-    bo1_mod_priority = _Dvar_RegisterInt("bo1_mod_priority", 0, 0, 2, 0,
+    // phase 8: the dedicated server starts in the high class: on the user's PC its threads went unscheduled for 0.3-24 s
+    // while a client on the same PC loaded or compiled shaders; it needs ~1 ms of CPU a frame
+    bo1_mod_priority = _Dvar_RegisterInt("bo1_mod_priority", Sys_IsDedicatedZombiesServer() ? 2 : 0, 0, 2, 0,
         "mod: 1 = process priority class above normal + main thread above normal, 2 = high class; 0 = as started");
     CpuCount = Sys_GetCpuCount();
     sys_smp_allowed = _Dvar_RegisterBool("sys_smp_allowed", CpuCount > 1, 0x10u, "Allow multi-threading");
