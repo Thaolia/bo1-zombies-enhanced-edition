@@ -81,6 +81,11 @@ void DrawableSize(void *window, int *width, int *height)
 }
 
 // Beside shaders.spv in the install folder (posix_d3d9host.cpp's ShaderPackPath).
+bool AsyncPipelines()
+{
+    return true;
+}
+
 bool PipelineCachePath(std::string *path)
 {
     *path = Bo1_PosixPath(Sys_DefaultInstallPath()) + "/vk_pipelines.bin";

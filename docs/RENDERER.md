@@ -246,6 +246,11 @@ run has no surface; it renders into its textures and `Present` only submits.
   milliseconds the driver spent compiling them) and the memory VMA holds. A frame longer than 50 ms logs a `vk hitch:`
   line (the first 500): the backend's share of it (GPU waits, acquire, present, pipelines, new textures, staged bytes,
   submissions); the rest of the frame was the engine's.
+- In the game, pipelines compile on background threads (1 to 3, `host::AsyncPipelines`; the tests keep them
+  synchronous): `GetPipeline` returns at once and a draw whose pipeline is not ready is skipped (`vk perf:` counts
+  them). The user's Intel Iris Xe spends 100-500 ms on one pipeline, so every new combination of shaders and states
+  (the first shots, effects, zombies) stopped the game that long; now an object misses a few frames instead. A shader
+  is freed only once the queue is empty, and the threads stop before the pipelines are freed.
 - The pipeline cache is kept between runs in `vk_pipelines.bin` beside the program (`host::PipelineCachePath`). Its
   Vulkan header must name this device, vendor and driver (`pipelineCacheUUID`) or it is not read. It is written once
   ten seconds go by without a new pipeline, and at shutdown, through a temporary file.

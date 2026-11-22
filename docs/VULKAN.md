@@ -132,6 +132,12 @@ Done on branch `vulkan` (2026-11-22):
   `VK_KHR_maintenance5`, and `gb_backend_test` checks the depth resolve (47 checks, GL and Vulkan, no validation
   message). Headless runs force `r_aaSamples 1`: an MSAA run needs `headless.ps1 -ClientAA 4` (or
   `+set bo1_headless_aa 4`), without back-buffer screenshots.
+- Hitches on the user's Iris Xe (lags at the start and when shooting): `vk hitch:` lines showed them all spent in
+  `vkCreateGraphicsPipelines`, 100-500 ms for a single pipeline, 124 frames over 50 ms in the user's first game and
+  92 in the second with the new on-disk cache (`vk_pipelines.bin`). Pipelines now compile on background threads,
+  their draws skipped until ready: the same headless Kino run went from a 388 ms freeze after spawning to no frame
+  over 50 ms (1 327 draws skipped in the first 10 s, then a handful). Still possible: fewer pipelines by moving the
+  depth, stencil and cull state to Vulkan 1.3's dynamic state.
 - Checked on the user's Intel Iris Xe: Kino on the headless client's private desktop renders on Vulkan at the 30 fps
   cap, quits cleanly; native D3D9 with the same exe unchanged; the fallback without `shaders.spv` renders on D3D9;
   with 4x MSAA, shadows and depth of field, 30 fps at ~3 400 draws a frame.

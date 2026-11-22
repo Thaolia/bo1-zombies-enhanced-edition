@@ -22,8 +22,12 @@
 #include <vk_mem_alloc.h>
 
 #include <algorithm>
+#include <atomic>
 #include <bit>
 #include <chrono>
+#include <condition_variable>
+#include <deque>
+#include <thread>
 #include <cstdarg>
 #include <cstdio>
 #include <cstdlib>
@@ -391,7 +395,10 @@ struct Pipeline : gb::Pipeline
 {
     PipelineDesc desc;
     std::string key;
-    VkPipeline pipeline = VK_NULL_HANDLE;
+    // Published by whichever thread compiled it (release), read by the draws (acquire): until then, or for good when
+    // `failed`, the pipeline's draws are skipped. streams and dummyStream are written before it.
+    std::atomic<VkPipeline> pipeline{VK_NULL_HANDLE};
+    std::atomic<bool> failed{false};
     uint32_t streams = 0;     // bit s: a vertex buffer binding s
     bool dummyStream = false; // inputs the layout does not feed read kDummyStream
     uint32_t samplers = 0;
@@ -498,7 +505,24 @@ struct State
     VkPipelineLayout layout = VK_NULL_HANDLE;
     VkPipelineCache cache = VK_NULL_HANDLE;
     std::string cachePath;   // empty: the cache is not kept between runs
-    bool cacheDirty = false; // pipelines made since it was last written
+    std::atomic<bool> cacheDirty{false}; // pipelines made since it was last written
+    // Pipelines compiled on worker threads (host::AsyncPipelines): a new combination of shaders and states no longer
+    // stops the frame while the driver compiles it (100-500 ms each on an Intel Iris Xe); its draws are skipped
+    // until it is ready.
+    struct PipelineJob
+    {
+        Pipeline *pipeline;
+        const Shader *vertex, *pixel;
+    };
+    bool asyncPipelines = false;
+    std::vector<std::thread> compilers;
+    std::mutex jobLock;
+    std::condition_variable jobReady, jobDone;
+    std::deque<PipelineJob> jobs;
+    uint32_t jobsRunning = 0;
+    bool stopCompilers = false;
+    std::atomic<uint64_t> compiledUs{0}; // time spent in vkCreateGraphicsPipelines, any thread
+    uint64_t skippedDraws = 0;           // draws whose pipeline was still compiling
     VkShaderModule presentVertex = VK_NULL_HANDLE, presentPixel = VK_NULL_HANDLE;
 
     FrameSlot frames[kFramesInFlight];
@@ -530,7 +554,6 @@ struct State
 
     // perf
     uint64_t draws = 0, presented = 0, flushes = 0, renames = 0, suspends = 0, newPipelines = 0;
-    double pipelineMs = 0.0; // spent in vkCreateGraphicsPipelines since the last perf line: the driver compiles there
     // This frame's share of a long frame (a `vk hitch:` line past kHitchMs, from Present to Present): what the backend
     // did in it; whatever the line does not account for was spent in the engine.
     struct FrameWork
@@ -1124,14 +1147,68 @@ VkShaderModule MakeModule(const void *code, size_t size)
     return module;
 }
 
+VkPipeline BuildPipeline(Pipeline *p, const Shader *vertex, const Shader *pixel, double *ms);
+
 void FreePipeline(Pipeline *p)
 {
-    if (p->pipeline)
-        vkDestroyPipeline(S().device, p->pipeline, nullptr);
+    if (const VkPipeline pipeline = p->pipeline.load(std::memory_order_acquire))
+        vkDestroyPipeline(S().device, pipeline, nullptr);
     delete p;
 }
 
-VkPipeline BuildPipeline(Pipeline *p, const Shader *vertex, const Shader *pixel)
+void CompilePipelines()
+{
+    State &s = S();
+    for (;;)
+    {
+        State::PipelineJob job;
+        {
+            std::unique_lock<std::mutex> lock(s.jobLock);
+            s.jobReady.wait(lock, [&] { return s.stopCompilers || !s.jobs.empty(); });
+            if (s.jobs.empty())
+                return;
+            job = s.jobs.front();
+            s.jobs.pop_front();
+            ++s.jobsRunning;
+        }
+        double ms = 0.0;
+        const VkPipeline pipeline = BuildPipeline(job.pipeline, job.vertex, job.pixel, &ms);
+        if (!pipeline)
+            job.pipeline->failed.store(true, std::memory_order_release);
+        job.pipeline->pipeline.store(pipeline, std::memory_order_release);
+        {
+            std::lock_guard<std::mutex> lock(s.jobLock);
+            --s.jobsRunning;
+        }
+        s.jobDone.notify_all();
+    }
+}
+
+// Before a shader or pipeline a job may use is freed: every queued compilation finished.
+void WaitForCompilers()
+{
+    State &s = S();
+    std::unique_lock<std::mutex> lock(s.jobLock);
+    s.jobDone.wait(lock, [&] { return s.jobs.empty() && !s.jobsRunning; });
+}
+
+void StopCompilers()
+{
+    State &s = S();
+    {
+        std::lock_guard<std::mutex> lock(s.jobLock);
+        s.stopCompilers = true;
+        s.jobs.clear(); // their pipelines are freed with the rest, never drawn
+    }
+    s.jobReady.notify_all();
+    for (std::thread &t : s.compilers)
+        t.join();
+    s.compilers.clear();
+    s.stopCompilers = false;
+}
+
+// Any thread: it reads only what Init set up and the pipeline's own description, and counts into atomics.
+VkPipeline BuildPipeline(Pipeline *p, const Shader *vertex, const Shader *pixel, double *ms)
 {
     State &s = S();
     const PipelineDesc &d = p->desc;
@@ -1268,13 +1345,10 @@ VkPipeline BuildPipeline(Pipeline *p, const Shader *vertex, const Shader *pixel)
     const auto start = std::chrono::steady_clock::now();
     const bool made = Ok(vkCreateGraphicsPipelines(s.device, s.cache, 1, &info, nullptr, &pipeline),
                          "vkCreateGraphicsPipelines");
-    const double ms = MsSince(start);
-    s.pipelineMs += ms;
-    s.frameWork.pipelineMs += ms;
-    ++s.frameWork.pipelines;
+    *ms = MsSince(start);
+    s.compiledUs += uint64_t(*ms * 1000.0);
     if (!made)
         return VK_NULL_HANDLE;
-    ++s.newPipelines;
     s.cacheDirty = true;
     return pipeline;
 }
@@ -1585,18 +1659,20 @@ void LogPerf()
     VmaTotalStatistics stats = {};
     vmaCalculateStatistics(s.allocator, &stats);
     Log("vk perf: %.1f fps, %.0f draws a frame, %.1f flushes and %.1f suspended passes a frame, %llu renames, "
-        "%llu new pipelines (%.0f ms), %.1f MB in %u blocks",
+        "%llu new pipelines (%.0f ms compiling%s), %llu draws skipped for them, %.1f MB in %u blocks",
         s.presented / seconds, s.presented ? double(s.draws) / double(s.presented) : 0.0,
         s.presented ? double(s.flushes) / double(s.presented) : 0.0,
         s.presented ? double(s.suspends) / double(s.presented) : 0.0,
-        static_cast<unsigned long long>(s.renames), static_cast<unsigned long long>(s.newPipelines), s.pipelineMs,
+        static_cast<unsigned long long>(s.renames), static_cast<unsigned long long>(s.newPipelines),
+        double(s.compiledUs.exchange(0)) / 1000.0, s.asyncPipelines ? " in the background" : "",
+        static_cast<unsigned long long>(s.skippedDraws),
         double(stats.total.statistics.blockBytes) / double(1 << 20), stats.total.statistics.blockCount);
     s.perfStart = now;
     // Written as it grows, not only at exit, so a game that crashes or is killed keeps what it compiled; but only once
     // ten seconds went by without a new pipeline, so that the write does not add to the hitches compiling made.
     const bool settled = s.newPipelines == 0;
     s.presented = s.draws = s.flushes = s.suspends = s.renames = s.newPipelines = 0;
-    s.pipelineMs = 0.0;
+    s.skippedDraws = 0;
     if (s.cacheDirty && settled)
         WritePipelineCache();
 }
@@ -1875,6 +1951,14 @@ bool Init()
         cacheInfo.pInitialData = nullptr;
         vkCreatePipelineCache(s.device, &cacheInfo, nullptr, &s.cache);
     }
+    s.asyncPipelines = host::AsyncPipelines();
+    if (s.asyncPipelines)
+    {
+        const unsigned threads = std::clamp(std::thread::hardware_concurrency() / 4, 1u, 3u);
+        for (unsigned i = 0; i < threads; ++i)
+            s.compilers.emplace_back(CompilePipelines);
+        Log("vk: pipelines compile on %u background threads", threads);
+    }
 
     for (FrameSlot &f : s.frames)
     {
@@ -2012,6 +2096,7 @@ void Shutdown()
         }
         FreeStore(s.readback.store);
         s.readbackSize = 0;
+        StopCompilers();
         for (auto &[key, p] : s.pipelines)
             FreePipeline(p);
         s.pipelines.clear();
@@ -2229,6 +2314,9 @@ void DestroyShader(gb::Shader *handle)
     Shader *shader = static_cast<Shader *>(handle);
     if (!shader)
         return;
+    // A queued compilation reads the shader and fills its pipeline.
+    if (!shader->pipelines.empty())
+        WaitForCompilers();
     for (Pipeline *p : shader->pipelines)
     {
         s.pipelines.erase(p->key);
@@ -2254,7 +2342,7 @@ const gb::Pipeline *GetPipeline(const PipelineDesc &desc)
     std::string key = PipelineKey(desc);
     const auto found = s.pipelines.find(key);
     if (found != s.pipelines.end())
-        return found->second->pipeline ? found->second : nullptr;
+        return found->second->failed.load(std::memory_order_acquire) ? nullptr : found->second;
     Shader *vertex = static_cast<Shader *>(const_cast<gb::Shader *>(desc.vertex));
     Shader *pixel = static_cast<Shader *>(const_cast<gb::Shader *>(desc.pixel));
     if (!vertex || !pixel)
@@ -2265,13 +2353,31 @@ const gb::Pipeline *GetPipeline(const PipelineDesc &desc)
     p->samplers = vertex->reflection.samplers | pixel->reflection.samplers;
     for (uint32_t b = 0; b < kSamplerBindings; ++b)
         p->kinds[b] = (pixel->reflection.samplers & (1u << b)) ? pixel->reflection.kinds[b] : vertex->reflection.kinds[b];
-    if (vertex->module && pixel->module)
-        p->pipeline = BuildPipeline(p, vertex, pixel);
     s.pipelines[key] = p;
     vertex->pipelines.push_back(p);
     if (pixel != vertex)
         pixel->pipelines.push_back(p);
-    return p->pipeline ? p : nullptr;
+    ++s.newPipelines;
+    ++s.frameWork.pipelines;
+    if (!vertex->module || !pixel->module)
+        p->failed = true;
+    else if (s.asyncPipelines)
+    {
+        {
+            std::lock_guard<std::mutex> lock(s.jobLock);
+            s.jobs.push_back({p, vertex, pixel});
+        }
+        s.jobReady.notify_one();
+    }
+    else
+    {
+        double ms = 0.0;
+        const VkPipeline pipeline = BuildPipeline(p, vertex, pixel, &ms);
+        s.frameWork.pipelineMs += ms;
+        p->failed = !pipeline;
+        p->pipeline.store(pipeline, std::memory_order_release);
+    }
+    return p->failed ? nullptr : p;
 }
 
 void BeginPass(const PassDesc &desc)
@@ -2394,14 +2500,20 @@ void DoDraw(const DrawState &state, Primitive primitive, uint32_t count, uint32_
 {
     State &s = S();
     const Pipeline *p = static_cast<const Pipeline *>(state.pipeline);
-    if (!s.rendering || !p || !p->pipeline || !count)
+    if (!s.rendering || !p || !count)
         return;
+    const VkPipeline pipeline = p->pipeline.load(std::memory_order_acquire);
+    if (!pipeline)
+    {
+        ++s.skippedDraws;
+        return;
+    }
     if (primitive == Primitive::PointList && !s.maintenance5)
         return;
     VkCommandBuffer cmd = s.cmd;
     if (s.bound != p)
     {
-        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, p->pipeline);
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
         s.bound = p;
     }
     const Viewport &v = state.viewport;

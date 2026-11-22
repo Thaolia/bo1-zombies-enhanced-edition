@@ -50,6 +50,11 @@ void DrawableSize(void *window, int *width, int *height)
 }
 
 // Beside the exe, as shaders.spv: the package folder is the player's own.
+bool AsyncPipelines()
+{
+    return true;
+}
+
 bool PipelineCachePath(std::string *path)
 {
     *path = std::string(Sys_DefaultInstallPath()) + "\\vk_pipelines.bin";

@@ -23,6 +23,9 @@ void DrawableSize(void *window, int *width, int *height);
 // Where the pipeline cache is kept between runs (a file the backend reads at Init and writes as pipelines are made);
 // false keeps it in memory only.
 bool PipelineCachePath(std::string *path);
+// Whether pipelines compile on background threads, their draws skipped until ready (a game: no frame stops while the
+// driver compiles), or when they are asked for (a test that draws with a pipeline at once).
+bool AsyncPipelines();
 // On the thread that calls gb::Shutdown, once the instance is destroyed.
 void Close();
 // One line, without the newline, for the engine's log.
