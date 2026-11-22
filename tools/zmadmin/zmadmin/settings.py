@@ -28,6 +28,7 @@ SETTINGS = [
     Setting("zm_farrespawn", "int", minimum=0, maximum=100000),
     Setting("zm_jip_mode", "choice", choices=["immediate", "nextround"]),
     Setting("zm_debug_revive", "bool"),
+    Setting("zm_clientcheats", "bool"),
     Setting("g_inactivity", "int", minimum=0),
     Setting("sv_maxclients", "int", minimum=1, maximum=32, reload=True),
     Setting("fs_mods", "mods"),

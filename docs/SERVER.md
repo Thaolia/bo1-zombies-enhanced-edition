@@ -318,6 +318,11 @@ closer; 0 is off),
 revive for every other player: distance, alive, down, touching the revive trigger, facing, sight and bullet traces,
 use button, the result).
 
+Players' cheat commands: a zombies map off line always runs with `sv_cheats 1` (as retail), so the server refuses its
+players' `give`, `take`, `god`, `demigod`, `notarget`, `noclip`, `ufo`, `setviewpos`, `ai` and `kill` itself
+("cheats not enabled"), unless `zm_clientcheats 1`. The `zm_*` commands above are not affected. A player's own
+client-side cheat dvars (`cg_thirdperson`, `r_fullbright`, ...) stay unlocked: they change only what that player sees.
+
 The engine checks the arguments and prints `zm_admin: ...` at once; the script side (mods/admin, which the server
 always adds to `fs_mods`) replies with `admin: ...` lines once it has acted, also written to `games_mp.log`. Output
 of a command sent with rcon goes back to the rcon client, not to the console log. The server also always stacks
@@ -389,6 +394,13 @@ stack to read. The offsets (`+0x...`) are resolved with the `BO1Zombies.pdb` of 
 `%%%BO1Zombies.pdb%%%`). `+set bo1_server_hitchwatch <ms>` changes the threshold, `0` turns it off. Only the
 dedicated server (`bo1_server 1`) does this; a map load started from the command line comes before the first frame
 and is not dumped, a `map` / `devmap` / `map_restart` during the game is.
+
+The server writes each console line to `console_mp.log` and flushes it (`logfile 2`). From WSL's `/mnt/c` a flushed
+line costs ~0.5 ms (against ~0.001 ms on ext4), so a burst of lines holds the server frame. The engine's diagnostic
+`Field <name> changed for <archived|unarchived> eType <type> when we thought it never would` (a network field the
+entity's table marks `NEVER_CHANGES` did change; the value is sent anyway) came in bursts of up to 292 lines in a
+fight. The dedicated server prints it once per field and entity type, with the entity's number, the old and new
+values, its classname and model.
 
 ## More than 4 players
 

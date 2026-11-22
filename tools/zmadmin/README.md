@@ -19,7 +19,7 @@ shows are in French, the players' language.
 | F1 | Servers | saved servers (`servers.json`), and the local server when ZmAdmin sits in a `make_dist.sh` folder: start it (map, port, rcon password), connect, stop |
 | F2 | Players | each slot: state, health, points, ping, god/demigod/notarget/noclip/frozen; one key per `zm_*` action on the selected player, `a` for all |
 | F3 | Game | map, mods, start settings; go to a round, power on, reset, change map, change mods |
-| F4 | Settings | a form of the live settings (`sv_hostname`, `g_password`, `rcon_password`, `zm_startpoints`, `zm_startperks`, `zm_jip_mode`, `zm_debug_revive`, `g_inactivity`, `sv_maxclients`, `fs_mods`, `bo2weapons_box`) |
+| F4 | Settings | a form of the live settings (`sv_hostname`, `g_password`, `rcon_password`, `zm_startpoints`, `zm_startperks`, `zm_jip_mode`, `zm_debug_revive`, `zm_clientcheats`, `g_inactivity`, `sv_maxclients`, `fs_mods`, `bo2weapons_box`) |
 | F5 | Console | any command over rcon, with its reply and a saved history |
 | F6 | Log | the local server's `console_mp.log`, live, with a filter |
 

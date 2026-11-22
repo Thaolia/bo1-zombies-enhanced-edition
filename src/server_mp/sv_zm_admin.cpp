@@ -436,6 +436,9 @@ void SV_ZmAdmin_AddCommands()
     _Dvar_RegisterString("zm_jip_mode", "immediate", 0,
                          "zm_admin: a player who joins a game in progress (mods/admin): \"immediate\" plays at once, "
                          "\"nextround\" spectates until the round ends");
+    _Dvar_RegisterInt("zm_clientcheats", 0, 0, 1, 0,
+                      "zm_admin: 1 = players may use the retail cheat commands (give, god, noclip, ufo, setviewpos...); "
+                      "0 refuses them, as an online game does");
     // as the operator commands (SV_AddOperatorCommands): typed on the main thread, run on the server thread
     for ( ZmCommandDef &c : s_commands )
     {

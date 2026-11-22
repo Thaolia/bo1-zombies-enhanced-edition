@@ -7,6 +7,8 @@
 #include <cgame/cg_draw_debug.h>
 #include <flame/flame_system.h>
 #include <qcommon/common.h>
+#include <win32/win_main.h>
+#include <mutex>
 
 // mod (L51): the entity (and snapshot) MSG_WriteEntityDeltaForEType is writing, so the "too far outside the playable
 // area" Com_Errors name it (retail printed only the coordinate). Diagnostic text only, behind no dvar.
@@ -34,6 +36,29 @@ static const char *MSG_BO1FarEntText(int clientNum)
         clientNum,
         s_bo1WriteSnap && s_bo1WriteSnap->fromBaseline ? " from baseline" : "");
     return text;
+}
+
+// phase 8: retail prints "... when we thought it never would" for every client and snapshot while a NEVER_CHANGES field
+// differs: bursts of up to 292 lines in a fight on the user's server, each written and flushed to console_mp.log
+// (logfile 2), ~0.5 ms a line on WSL's /mnt/c. The dedicated server prints each field and entity type once.
+static bool MSG_BO1NeverChangesFirst(const NetField *field, int packetEntityType, bool archived)
+{
+    static std::mutex lock;
+    static const NetField *seenField[256];
+    static int seenType[256];
+    static int seenCount;
+    const int type = packetEntityType * 2 + (archived ? 1 : 0);
+    std::lock_guard<std::mutex> guard(lock);
+    for ( int i = 0; i < seenCount; ++i )
+    {
+        if ( seenField[i] == field && seenType[i] == type )
+            return false;
+    }
+    if ( seenCount == 256 )
+        return false;
+    seenField[seenCount] = field;
+    seenType[seenCount++] = type;
+    return true;
 }
 
 bool offsetsTested;
@@ -1721,12 +1746,30 @@ char __cdecl MSG_WriteDeltaField(
             else
                 v14 = "unarchived";
             EntityTypeString = SV_GetEntityTypeString(snapInfo->packetEntityType);
-            Com_PrintError(
-                15,
-                "Field %s changed for %s eType %s when we thought it never would\n",
-                field->name,
-                v14,
-                EntityTypeString);
+            if ( !Sys_IsDedicatedZombiesServer() )
+            {
+                Com_PrintError(
+                    15,
+                    "Field %s changed for %s eType %s when we thought it never would\n",
+                    field->name,
+                    v14,
+                    EntityTypeString);
+            }
+            else if ( MSG_BO1NeverChangesFirst(field, snapInfo->packetEntityType, snapInfo->packetEntityTypeArchived) )
+            {
+                char desc[768];
+                Com_PrintError(
+                    15,
+                    "Field %s changed for %s eType %s when we thought it never would (ent %i, %i -> %i, %s; once per "
+                    "field and type)\n",
+                    field->name,
+                    v14,
+                    EntityTypeString,
+                    s_bo1WriteEnt ? s_bo1WriteEnt->number : -1,
+                    *realFromF,
+                    *toF,
+                    s_bo1WriteEnt ? SV_BO1DescribeEnt(s_bo1WriteEnt->number, desc, sizeof(desc)) : "not an entity");
+            }
         }
         MSG_EncodeSkippedFields(snapInfo, msg, fieldNum - lastChangedField, skippedFieldBits);
     }

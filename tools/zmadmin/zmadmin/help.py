@@ -125,6 +125,13 @@ SETTINGS_HELP = {
         "en local. Non : rien de plus dans le log. Défaut : non.",
         "Effet : tout de suite.",
     ),
+    "zm_clientcheats": (
+        "Triches des joueurs",
+        "Oui : les joueurs peuvent taper les triches du jeu dans leur console (give, take, god, demigod, notarget,",
+        "noclip, ufo, setviewpos, kill). Non : le serveur les refuse (« cheats not enabled »), comme une partie en",
+        "ligne. Les commandes d'admin zm_* marchent dans les deux cas. Défaut : non.",
+        "Effet : tout de suite.",
+    ),
     "g_inactivity": (
         "Expulsion des joueurs inactifs",
         "Secondes sans aucune action avant qu'un joueur soit expulsé. 0 : jamais (le défaut du serveur zombies ;",

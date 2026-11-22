@@ -22,6 +22,22 @@
 #include <game/actor_fields.h>
 #include <game_sp/g_sp_levelstart.h>
 #include <game_sp/g_sp_ext.h>
+#include <win32/win_main.h>
+
+// phase 8: a dedicated zombies server runs with sv_cheats 1 (SV_Map_f: a zombies map off line always does), so every
+// player could give themselves weapons, god mode or noclip; its players' cheat commands need zm_clientcheats 1. The
+// admin's zm_* commands do not go through here.
+static bool G_ClientCheatsEnabled()
+{
+    if ( !g_cheats->current.enabled )
+        return false;
+    if ( !Sys_IsDedicatedZombiesServer() )
+        return true;
+    static const dvar_t *allow;
+    if ( !allow )
+        allow = Dvar_FindVar("zm_clientcheats");
+    return allow && allow->current.integer;
+}
 
 int __cdecl CheatsOk(gentity_s *ent)
 {
@@ -29,7 +45,7 @@ int __cdecl CheatsOk(gentity_s *ent)
     const char *v3; // eax
     bool bCreateFX; // [esp+3h] [ebp-1h]
 
-    if ( g_cheats->current.enabled )
+    if ( G_ClientCheatsEnabled() )
     {
         bCreateFX = Dvar_FindVar("createfx") != 0;
         if ( ent->health > 0 || bCreateFX )
@@ -1165,7 +1181,7 @@ void __cdecl Cmd_SetViewpos_f(gentity_s *ent)
     {
         __debugbreak();
     }
-    if ( !g_cheats->current.enabled )
+    if ( !G_ClientCheatsEnabled() )
     {
         v1 = va("%c \"GAME_CHEATSNOTENABLED\"", 101);
         SV_GameSendServerCommand(ent - g_entities, SV_CMD_CAN_IGNORE, v1);
