@@ -2,16 +2,17 @@
 
 Status (2026-11-22): step 1 (FSR1) done, checked on the host, on Ryujinx and on the user's console; steps 2 (SPIR-V
 pack) and 3 (Vulkan backend on Linux) done on branch `vulkan`; steps 4 (parity on Linux) and 5 (win64) in
-progress; steps 6-7 planned. Each step updates this file, `docs/RENDERER.md` and `docs/PORTING.md` (phase 9) in the session that does it.
+progress; steps 6-8 planned. Each step updates this file, `docs/RENDERER.md` and `docs/PORTING.md` (phase 9) in the session that does it.
 
 ## Goals and constraints
-- A Vulkan backend behind `src/gfx_backend/gfx_backend.h`, opt-in on **Linux**, **win64** and, last of all (after ASR), **OpenBSD**.
+- A Vulkan backend behind `src/gfx_backend/gfx_backend.h`, opt-in on **Linux**, **win64** and, last of all (after ASR and SSAA), **OpenBSD**.
 - **OpenGL stays the default** backend on Linux and OpenBSD. On win64, native Direct3D 9 stays the default.
 - **`win32-msvc` changes as little as possible**: it compiles none of the new files, and every engine edit it does see
   is guarded so its code stays identical (`tools/codediff.py`).
 - Upscaling in this order:
   1. **FSR1** first (spatial, all emulated backends, the Switch included);
-  2. **Arm ASR** last, after the win64 port (temporal); only Vulkan on OpenBSD comes after it.
+  2. **Arm ASR** after the win64 port (temporal);
+  3. **SSAA and native AA** (rendering above the window's size, or ASR at 1:1), then only Vulkan on OpenBSD.
 - The Switch keeps deko3d: Vulkan is not a Switch backend.
 
 ## Facts the plan rests on (checked 2026-11-22)
@@ -192,7 +193,28 @@ optimised for mobile GPUs:
 Known limit: with camera-only motion vectors, zombies and other animated models may ghost. Per-object motion vectors
 would mean changing every skinned material's generated shaders, which is out of scope.
 
-## Step 7 — OpenBSD (last, after ASR)
+## Step 7 — SSAA and native AA (rendering above the window's resolution)
+Asked by the user (2026-11-23): let the game render larger than the screen or the window, for image quality on GPUs
+with headroom. Two modes:
+- **SSAA** (supersampling): the inverse of FSR1's render scale. The back buffer is the window's size times a factor above
+  1 (1.5, 2; `R_ModUpscaleSize` with factors below 1 on win64, the same output/back buffer split on posix), and the
+  frontend reduces it into the window at Present with a proper downsampling filter: a box filter for a whole factor,
+  a separable Lanczos or bicubic one otherwise (a plain bilinear `Blit` aliases above 2x). It works on every emulated
+  backend (GL, Vulkan, deko3d) since it lives in the frontend, like FSR1; the cost is the fill rate (2x = 4 times the
+  pixels), so the Switch only gets it if a console measurement allows it.
+- **Native AA**: ASR (step 6) at a 1:1 ratio, its temporal accumulation used as anti-aliasing at the window's size
+  (AMD's and Arm's "native AA" mode). Needs step 6's jitter, motion vectors and reactive mask, so it follows it.
+- Points to check: the engine's render targets sized from vidConfig (post effects, shadow maps) at 2x the window;
+  the 2D HUD (rendered at the back buffer's size, so sharp at 2x, but text sizes follow vidConfig); the mouse mapped
+  into back buffer pixels (`Bo1_ClientToBackBuffer` already handles any ratio); memory (a 4K back buffer with MSAA);
+  MSAA and SSAA together (allowed, but SSAA alone may be enough).
+- Settings: `r_mod_upscale` gains `ssaa1.5` and `ssaa2` (or a separate `r_mod_renderScale`), `native` under ASR;
+  ZmClient and the Switch start menu offer them.
+- Checks: `upscale_gl_test`-style host test of the downsampling filter (a 2x checkerboard reduces to flat grey, an edge
+  keeps its position); screenshots on win64 and Linux; frame times at 1.5x and 2x on the user's Iris Xe.
+- Estimate: 1-2 sessions for SSAA, 1 for native AA once ASR works.
+
+## Step 8 — OpenBSD (last, after ASR and SSAA)
 - Cross-build with `BO1_VULKAN` (`~/cross-pkg-openbsd`, mirror `/home/james/build/bo1-openbsd`). volk loads
   `libvulkan.so` at run time and the headers are vendored: no new build dependency.
 - Packaging is unchanged apart from a README line.
@@ -206,7 +228,8 @@ would mean changing every skinned material's generated shaders, which is out of 
 | Vulkan on Linux and win64 (steps 2-5) | 9-12 |
 | ASR on PC (step 6, items 1-3) | 6-7 |
 | ASR on the Switch (step 6, item 4) | +3-5 |
-| Vulkan on OpenBSD (step 7, last) | 0.5-1 |
+| SSAA and native AA (step 7) | 2-3 |
+| Vulkan on OpenBSD (step 8, last) | 0.5-1 |
 
 ## Working rules for this plan
 - Work in a sibling worktree `../BO-Zombies_switch_vulkan` (every step touches 5+ files); merge into `switch` step by
