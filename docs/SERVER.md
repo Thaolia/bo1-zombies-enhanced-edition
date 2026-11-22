@@ -404,6 +404,15 @@ entity's table marks `NEVER_CHANGES` did change; the value is sent anyway) came 
 fight. The dedicated server prints it once per field and entity type, with the entity's number, the old and new
 values, its classname and model.
 
+Under WSL, run the Linux server from the Linux file system too, not from a package unpacked on `/mnt/c`. On 2026-11-22
+a server run from `/mnt/c` while its player's Windows client loaded had frames of 0.4-12 s whose thread barely ran (an
+11.9 s frame for 174 ms of CPU). The time sat in builtins that do no I/O (`setflaggedanimknoballrestart`,
+`istouching`, `setdvar`) and in `logprint` (`games_mp.log`, where the `zinfo` and `spawnrate` mods write each
+second). The suspects are reads of the program's own code pages and log writes through `/mnt/c`, which wait while
+Windows is busy. `bo1_mod_svprof 1` counts the server thread's major page faults (`BO1_SVDELTAS`, `major_faults` and
+`slowest_major_faults`). An ext4 folder that holds the program and the server folder (`fs_h`), with `zone`, `main`,
+`mods` and `usermaps` linked to the package, avoids both.
+
 ## More than 4 players
 
 The server takes 4 players by default. For more, set `sv_maxclients` in `server.cfg` or on the command line, before

@@ -5,6 +5,7 @@
 #include <dbghelp.h>
 #if !defined(_WIN32) && !defined(__SWITCH__)
 #include <dlfcn.h>
+#include <sys/resource.h>
 #endif
 #include <clientscript/cscr_compiler.h>
 #include <clientscript/cscr_parser.h>
@@ -4228,6 +4229,18 @@ static double G_ModThreadCpuMs()
 #endif
 }
 static double g_svFrameCpuStart;
+// phase 8: this thread's major page faults (pages read from disk: code of an executable on /mnt/c, mapped files), 0
+// where the system does not count them per thread; a frame that waits on them computes nothing
+static long G_ModThreadMajorFaults()
+{
+#if defined(RUSAGE_THREAD)
+    rusage ru;
+    return getrusage(RUSAGE_THREAD, &ru) ? 0 : (long)ru.ru_majflt;
+#else
+    return 0;
+#endif
+}
+static long g_svFrameFaultStart;
 
 void G_ModSvProfBegin()
 {
@@ -4257,6 +4270,7 @@ void G_ModSvProfBegin()
         CreateThread(0, 0, G_ModSvProfSampler, 0, 0, 0);
     }
     g_svFrameCpuStart = G_ModThreadCpuMs();
+    g_svFrameFaultStart = G_ModThreadMajorFaults();
     g_svProfThread = GetCurrentThreadId();
     g_svProfDepth = 0;
     g_svProfStack[0] = SVPROF_OTHER;
@@ -4325,12 +4339,16 @@ void G_ModSvProfEnd(long long frameQpcTicks)
     // phase 8: entity deltas written this frame for client snapshots / for the archive (MSG_WriteEntityDeltaForEType):
     // the user's server spent seconds a frame in their field compares as a client joined
     static double cpuSum, slowWall, slowCpu;
+    static long faultSum, slowFaults;
     const double cpu = G_ModThreadCpuMs() - g_svFrameCpuStart;
+    const long faults = G_ModThreadMajorFaults() - g_svFrameFaultStart;
     cpuSum += cpu;
+    faultSum += faults;
     if (ms > slowWall)
     {
         slowWall = ms;
         slowCpu = cpu;
+        slowFaults = faults;
     }
     static long long edSum[2];
     static long long edMax[2];
@@ -4366,10 +4384,11 @@ void G_ModSvProfEnd(long long frameQpcTicks)
         g_svPcoreFrames[1] + g_svPcoreFrames[2] ? 100 * g_svPcoreFrames[2] / (g_svPcoreFrames[1] + g_svPcoreFrames[2]) : -1);
     Com_Printf(15, "BO1_SVDELTAS {\"level_time\":%d,\"frames\":%d,\"client_mean\":%.0f,\"client_max\":%lld,"
                    "\"archive_mean\":%.0f,\"archive_max\":%lld,\"cpu_ms_mean\":%.2f,\"slowest_ms\":%.1f,"
-                   "\"slowest_cpu_ms\":%.1f}\n",
+                   "\"slowest_cpu_ms\":%.1f,\"major_faults\":%ld,\"slowest_major_faults\":%ld}\n",
                level.time, frames, (double)edSum[0] / frames, edMax[0], (double)edSum[1] / frames, edMax[1],
-               cpuSum / frames, slowWall, slowCpu);
+               cpuSum / frames, slowWall, slowCpu, faultSum, slowFaults);
     cpuSum = slowWall = slowCpu = 0.0;
+    faultSum = slowFaults = 0;
     memset(edSum, 0, sizeof(edSum));
     memset(edMax, 0, sizeof(edMax));
     memset(g_svPcoreFrames, 0, sizeof(g_svPcoreFrames));
@@ -4485,6 +4504,11 @@ void G_ModSvProfEnd(long long frameQpcTicks)
             DWORD64 disp = 0;
             if (fn && symFromAddr && symFromAddr(GetCurrentProcess(), (DWORD64)(size_t)fn, &disp, &sym.info))
                 _snprintf(name, sizeof(name), "%s", sym.info.Name);
+#if !defined(_WIN32) && !defined(__SWITCH__)
+            // phase 8: no dbghelp on posix: the offset in the module, for addr2line -f -e <module>
+            else if (Dl_info dl; fn && dladdr(fn, &dl) && dl.dli_fbase)
+                _snprintf(name, sizeof(name), "b%d@0x%llx", best, (unsigned long long)((uintptr_t)fn - (uintptr_t)dl.dli_fbase));
+#endif
             name[sizeof(name) - 1] = 0;
             topLen += _snprintf(top + topLen, sizeof(top) - topLen, "%s\"%s\":[%.3f,%.1f]", k ? "," : "", name,
                 (double)g_svProfBuiltinTicks[best] * msPerTick / frames, (double)g_svProfBuiltinCalls[best] / frames);
