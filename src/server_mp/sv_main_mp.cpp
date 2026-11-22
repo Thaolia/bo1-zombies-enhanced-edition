@@ -1426,6 +1426,11 @@ void     SV_ServerThread(unsigned int threadContext)
 
             SV_RunEventLoop();
             Sys_SleepServer();
+            // phase 8: a wake sent while this frame ran (SV_WaitServer gave up after 2 s) was just cleared with the one
+            // this frame served: set it again, or the server thread idles until the next 2 s timeout (bo1_svwait
+            // "wakes taken +0, wake event 0" on the user's server, 2026-11-22)
+            if ( G_SP_IsSPLevel() && s_svFramesWoken != serving )
+                Sys_WakeServer();
             SV_DecServerThreadOwnsGame();
             // zombies: after Sys_SleepServer's reset of wakeServerEvent, so a wake the main thread sends once it
             // sees this frame done is not cleared by that reset.
