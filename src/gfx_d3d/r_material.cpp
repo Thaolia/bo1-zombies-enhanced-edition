@@ -1193,6 +1193,17 @@ Material *__cdecl Material_RegisterHandle(char *name, int imageTrack)
         return rgp.defaultMaterial;
 }
 
+// gfx_world's list, for the same reason as gfx_model's (r_model.cpp): the count and the array were two stack
+// variables, and the callback wrote 32-bit offsets from the count.
+namespace
+{
+struct MaterialList
+{
+    unsigned int count;
+    MaterialMemory sorted[4096];
+};
+} // namespace
+
 void __cdecl R_MaterialList_f()
 {
     const char *fmt; // [esp+8h] [ebp-8150h]
@@ -1200,27 +1211,19 @@ void __cdecl R_MaterialList_f()
     const char **p_name; // [esp+13Ch] [ebp-801Ch]
     int v3; // [esp+140h] [ebp-8018h]
     MaterialMemory *v4; // [esp+144h] [ebp-8014h]
-    unsigned int inData; // [esp+148h] [ebp-8010h] BYREF
-    MaterialMemory v6[4097]; // [esp+14Ch] [ebp-800Ch] BYREF
+    MaterialList list;
     float v7; // [esp+8154h] [ebp-4h]
 
     v3 = 0;
     Com_Printf(8, "-----------------------\n");
-    inData = 0;
-    DB_EnumXAssets(ASSET_TYPE_MATERIAL, (void (__cdecl *)(XAssetHeader, void *))R_GetMaterialList, &inData, 0);
-
-    //std::_Sort<RagdollSortStruct *,int,bool (__cdecl *)(RagdollSortStruct const &,RagdollSortStruct const &)>(
-    //    v6,
-    //    &v6[inData],
-    //    (int)(8 * inData) >> 3,
-    //    (bool (__cdecl *)(const MaterialMemory *, const MaterialMemory *))R_MaterialCompare);
-
-    std::sort(v6, v6 + inData, R_MaterialCompare);
+    list.count = 0;
+    DB_EnumXAssets(ASSET_TYPE_MATERIAL, (void (__cdecl *)(XAssetHeader, void *))R_GetMaterialList, &list, 0);
+    std::sort(list.sorted, list.sorted + list.count, R_MaterialCompare);
 
     Com_Printf(8, "geo KB     name\n");
-    for ( i = 0; i < inData; ++i )
+    for ( i = 0; i < list.count; ++i )
     {
-        v4 = &v6[i];
+        v4 = &list.sorted[i];
         p_name = &v4->material->info.name;
         if ( !v4->material
             && !Assert_MyHandler("C:\\projects_pc\\cod\\codsrc\\src\\gfx_d3d\\r_material.cpp", 1733, 0, "%s", "material") )
@@ -1238,19 +1241,19 @@ void __cdecl R_MaterialList_f()
     }
     Com_Printf(8, "-----------------------\n");
     Com_Printf(8, "current total    %5.1f MB\n", (float)((float)v3 / 1048576.0));
-    Com_Printf(8, "%i total geometry materials\n", inData);
+    Com_Printf(8, "%i total geometry materials\n", list.count);
     Com_Printf(8, "Related commands: meminfo, imagelist, gfx_world, gfx_model, cg_drawfps, com_statmon, tempmeminfo\n");
 }
 
 void __cdecl R_GetMaterialList(XAssetHeader header, char *data)
 {
     int memory; // [esp+0h] [ebp-Ch]
-    XAssetHeader *materialMemory; // [esp+4h] [ebp-8h]
+    MaterialList *list = (MaterialList *)data;
 
     memory = R_GetMaterialMemory(header.material);
     if ( memory )
     {
-        if ( *(unsigned int *)data >= 0x1000u
+        if ( list->count >= ARRAY_COUNT(list->sorted)
             && !Assert_MyHandler(
                         "C:\\projects_pc\\cod\\codsrc\\src\\gfx_d3d\\r_material.cpp",
                         1697,
@@ -1260,10 +1263,12 @@ void __cdecl R_GetMaterialList(XAssetHeader header, char *data)
         {
             __debugbreak();
         }
-        materialMemory = (XAssetHeader *)&data[8 * *(unsigned int *)data + 4];
-        materialMemory->xmodelPieces = header.xmodelPieces;
-        materialMemory[1].xmodelPieces = (XModelPieces *)(intptr_t)memory;
-        ++*(unsigned int *)data;
+        if ( list->count < ARRAY_COUNT(list->sorted) )
+        {
+            list->sorted[list->count].material = header.material;
+            list->sorted[list->count].memory = memory;
+            ++list->count;
+        }
     }
 }
 
