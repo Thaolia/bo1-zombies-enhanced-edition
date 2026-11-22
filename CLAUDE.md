@@ -9,6 +9,7 @@ Fork of `MisaDev4/bo1-zombies-decompiled` (remote `upstream`, branch `main`). Al
 | Phase plan, status, decisions log | `docs/PORTING.md` |
 | Port layers (platform, ffconv, renderer split) | `docs/ARCHITECTURE.md` |
 | Renderer backend contract and its review checklist | `docs/RENDERER.md` |
+| Vulkan backend and upscalers plan (FSR1, Arm ASR) | `docs/VULKAN.md` |
 | Upstream mod system | `mods/*/README.md`, `mods/mapkit/MAPKIT.md` |
 | libnx, devkitPro, Ryujinx and deko3d pitfalls | `.claude/rules/switch-homebrew.md` (always loaded) |
 | Dedicated server and headless client tests | `.claude/rules/server-test-processes.md` (always loaded) |
