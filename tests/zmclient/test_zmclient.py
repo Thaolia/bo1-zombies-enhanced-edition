@@ -460,6 +460,24 @@ class CommandLine(unittest.TestCase):
         p["mode"], p["join_host"] = "join", "10.0.0.1"
         self.assertIn("+set r_mod_gfxApi vulkan", " ".join(P.build_command(p, "x", "/g")))
 
+    def test_mod_pools(self):
+        def pools(argv):
+            return " ".join(argv).count("+set bo1_mod_pools 1")
+        p = P.Profile()
+        self.assertEqual(pools(P.build_command(p, "x", "/g")), 0)            # no weapon mod: the retail pools
+        argv = ["x", "+set", "fs_mods", "zinfo", "bo2weapons"]
+        P.add_mod_pools(argv)
+        self.assertEqual(pools(argv), 1)
+        argv = ["x", "+set", "fs_mods", "zinfo hitmarker dualwield", "+devmap", "zombie_temple"]
+        P.add_mod_pools(argv)
+        self.assertEqual(pools(argv), 1)
+        argv = ["x", "+set", "fs_mods", "dualwield", "+set", "bo1_mod_zones", "zombie_bo2nuked"]
+        P.add_mod_pools(argv)
+        self.assertEqual(pools(argv), 0)                                       # bo1_mod_zones raises them already
+        argv = ["x", "+set", "fs_mods", "zinfo", "hitmarker"]
+        P.add_mod_pools(argv)
+        self.assertEqual(pools(argv), 0)
+
     def test_fsr(self):
         p = P.Profile()
         p["fsr"] = "quality"

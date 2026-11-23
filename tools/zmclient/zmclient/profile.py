@@ -248,6 +248,26 @@ def add_scene_models(argv, count):
     argv += ["+set", "r_mod_sceneModels", str(count)]
 
 
+# Mods whose zones add weapons and their effects: stacked on a big map (Shangri-La) they overflow the retail asset
+# pools ("Exceeded limit of 500 'fx' assets"), which the engine raises with bo1_mod_pools (or bo1_mod_zones).
+POOL_HUNGRY_MODS = ("bo2weapons", "dualwield")
+
+
+def add_mod_pools(argv):
+    """+set bo1_mod_pools 1 when the line stacks a POOL_HUNGRY_MODS mod and does not already raise the pools."""
+    if any(a in ("bo1_mod_zones", "bo1_mod_pools") for a in argv):
+        return
+    for i in range(1, len(argv)):
+        if argv[i] == "fs_mods" and argv[i - 1] == "+set":
+            j = i + 1
+            while j < len(argv) and not argv[j].startswith("+"):
+                j += 1
+            mods = " ".join(argv[i + 1:j]).split()
+            if any(m in POOL_HUNGRY_MODS for m in mods):
+                argv += ["+set", "bo1_mod_pools", "1"]
+            return
+
+
 def launch_env(p):
     """The environment the client starts with: None keeps ZmClient's own; Vulkan on Linux is BO1_GFX_BACKEND."""
     if p["gfx_api"] != "vulkan":
@@ -406,6 +426,7 @@ def build_command(p, exe, dist_root, launch_cfg="", player=1, server_mods=None):
             argv += ["+set", dvar, p[key]]
     if p["mode"] == "join" and p["join_password"]:
         argv += ["+set", "password", p["join_password"]]
+    add_mod_pools(argv)
     for e in p["extra"]:
         if e.get("on"):
             argv += ("+" + e["text"].strip()).split()

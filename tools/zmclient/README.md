@@ -58,7 +58,9 @@ set god mode: the server decides. They load what the server's clients must load 
 `getmodinfo` answer in Join mode. Without an answer (an older server) or on a refused password, Join loads the manual
 choices "Armes de Black Ops II" and "Armes doublées": a client without a server's `mod.ff` goes back to the menu on
 entering, with a message naming the missing weapon. A launch is refused when the package lacks a file the server
-loads.
+loads. When `fs_mods` stacks `bo2weapons` or `dualwield` and the line sets no `bo1_mod_zones`, ZmClient adds
+`bo1_mod_pools 1`: the engine then takes its larger asset pools, as with `bo1_mod_zones` (Shangri-La with both mods
+overflowed the retail 500 `fx`).
 
 Two engine limits are checked before a launch: `Com_ParseCommandLine` cuts the line at **every** `+` (so no value
 may contain one, the folder's path included) and keeps 64 pieces, the text before the first `+` being one: ZmClient

@@ -3726,6 +3726,14 @@ void(__cdecl *DB_InitPoolHeaderHandler[43])(void *, int) =
 
 
 
+// mod: the *_MOD pools are in use with bo1_mod_zones (extra zones) or bo1_mod_pools (only the larger pools: ZmClient
+// adds it for stacked weapon mods, whose effects overflow Shangri-La's 500 `fx`) on the command line.
+static bool DB_ModPoolsWanted()
+{
+    const char *commandLine = GetCommandLineA();
+    return I_stristr(commandLine, "bo1_mod_zones") || I_stristr(commandLine, "bo1_mod_pools");
+}
+
 void DB_Init()
 {
     XAssetType type; // [esp+0h] [ebp-8h]
@@ -3740,10 +3748,10 @@ void DB_Init()
         0,
         "debug assets loading type: -1 all; indexes start at 0");
 
-    // mod: the *_MOD pool capacities are used only when bo1_mod_zones is on the command line (as the +256 MB in
-    // physicalmemory.cpp; the pools are set up before the dvars exist). Without it every pool keeps its retail size and
-    // free-list order, so the vanilla game is unchanged.
-    if ( I_stristr(GetCommandLineA(), "bo1_mod_zones") )
+    // mod: the *_MOD pool capacities are used only when bo1_mod_zones or bo1_mod_pools is on the command line
+    // (DB_ModPoolsWanted; the pools are set up before the dvars exist). Without them every pool keeps its retail size
+    // and free-list order, so the vanilla game is unchanged.
+    if ( DB_ModPoolsWanted() )
     {
         g_poolSize[ASSET_TYPE_PHYSPRESET] = POOLSIZE_PHYSPRESET_MOD;
         g_poolSize[ASSET_TYPE_PHYSCONSTRAINTS] = POOLSIZE_PHYSCONSTRAINTS_MOD;
@@ -3773,7 +3781,7 @@ void DB_Init()
     // mod: three or four bo1_mod_zones (mods/nightmare: temple + coast + moon, L60 f3) overflow the retail 32768 entries
     // ("increase XASSET_ENTRY_POOL_SIZE"); with bo1_mod_zones on the command line the free list runs to 0xFFFF, the
     // largest index the 16-bit nextHash / nextOverride / db_hashTable links hold. Without it the list is retail's.
-    unsigned int lastEntry = I_stristr(GetCommandLineA(), "bo1_mod_zones") ? 0xFFFF : 0x7FFF;
+    unsigned int lastEntry = DB_ModPoolsWanted() ? 0xFFFF : 0x7FFF;
     for (i = 1; i < lastEntry; ++i)
     {
         g_assetEntryPool[i].next = &g_assetEntryPool[i + 1];
