@@ -509,6 +509,7 @@ struct State
     VkPipelineCache cache = VK_NULL_HANDLE;
     std::string cachePath;   // empty: the cache is not kept between runs
     std::atomic<bool> cacheDirty{false}; // pipelines made since it was last written
+    std::chrono::steady_clock::time_point cacheWritten = std::chrono::steady_clock::now();
     // Pipelines compiled on worker threads (host::AsyncPipelines): a new combination of shaders and states no longer
     // stops the frame while the driver compiles it (100-500 ms each on an Intel Iris Xe); its draws are skipped
     // until it is ready.
@@ -522,6 +523,7 @@ struct State
     std::mutex jobLock;
     std::condition_variable jobReady, jobDone;
     std::deque<PipelineJob> jobs;
+    std::vector<PipelineJob> running; // the jobs the workers are compiling now
     uint32_t jobsRunning = 0;
     bool stopCompilers = false;
     std::atomic<uint64_t> compiledUs{0}; // time spent in vkCreateGraphicsPipelines, any thread
@@ -1182,6 +1184,7 @@ void CompilePipelines()
                 return;
             job = s.jobs.front();
             s.jobs.pop_front();
+            s.running.push_back(job);
             ++s.jobsRunning;
         }
         double ms = 0.0;
@@ -1191,18 +1194,28 @@ void CompilePipelines()
         job.pipeline->pipeline.store(pipeline, std::memory_order_release);
         {
             std::lock_guard<std::mutex> lock(s.jobLock);
+            for (auto it = s.running.begin(); it != s.running.end(); ++it)
+                if (it->pipeline == job.pipeline)
+                {
+                    s.running.erase(it);
+                    break;
+                }
             --s.jobsRunning;
         }
         s.jobDone.notify_all();
     }
 }
 
-// Before a shader or pipeline a job may use is freed: every queued compilation finished.
-void WaitForCompilers()
+// Before a shader is freed: the queued compilations that read it are dropped (their pipelines go with the shader,
+// never drawn) and the running ones finished. Waiting for the whole queue instead froze a map's unload for minutes
+// on an Intel Iris Xe without a pipeline cache (thousands of jobs at 100-500 ms each).
+void ForgetCompilations(const Shader *shader)
 {
     State &s = S();
     std::unique_lock<std::mutex> lock(s.jobLock);
-    s.jobDone.wait(lock, [&] { return s.jobs.empty() && !s.jobsRunning; });
+    const auto uses = [shader](const State::PipelineJob &job) { return job.vertex == shader || job.pixel == shader; };
+    s.jobs.erase(std::remove_if(s.jobs.begin(), s.jobs.end(), uses), s.jobs.end());
+    s.jobDone.wait(lock, [&] { return std::none_of(s.running.begin(), s.running.end(), uses); });
 }
 
 void StopCompilers()
@@ -1624,6 +1637,7 @@ void WritePipelineCache()
 {
     State &s = S();
     s.cacheDirty = false;
+    s.cacheWritten = std::chrono::steady_clock::now();
     if (s.cachePath.empty() || !s.cache)
         return;
     size_t size = 0;
@@ -1671,22 +1685,28 @@ void LogPerf()
         return;
     VmaTotalStatistics stats = {};
     vmaCalculateStatistics(s.allocator, &stats);
+    size_t waiting = 0;
+    {
+        std::lock_guard<std::mutex> lock(s.jobLock);
+        waiting = s.jobs.size() + s.jobsRunning;
+    }
     Log("vk perf: %.1f fps, %.0f draws a frame, %.1f flushes and %.1f suspended passes a frame, %llu renames, "
-        "%llu new pipelines (%.0f ms compiling%s), %llu draws skipped for them, %.1f MB in %u blocks",
+        "%llu new pipelines (%.0f ms compiling%s, %zu waiting), %llu draws skipped for them, %.1f MB in %u blocks",
         s.presented / seconds, s.presented ? double(s.draws) / double(s.presented) : 0.0,
         s.presented ? double(s.flushes) / double(s.presented) : 0.0,
         s.presented ? double(s.suspends) / double(s.presented) : 0.0,
         static_cast<unsigned long long>(s.renames), static_cast<unsigned long long>(s.newPipelines),
-        double(s.compiledUs.exchange(0)) / 1000.0, s.asyncPipelines ? " in the background" : "",
+        double(s.compiledUs.exchange(0)) / 1000.0, s.asyncPipelines ? " in the background" : "", waiting,
         static_cast<unsigned long long>(s.skippedDraws),
         double(stats.total.statistics.blockBytes) / double(1 << 20), stats.total.statistics.blockCount);
     s.perfStart = now;
-    // Written as it grows, not only at exit, so a game that crashes or is killed keeps what it compiled; but only once
-    // ten seconds went by without a new pipeline, so that the write does not add to the hitches compiling made.
-    const bool settled = s.newPipelines == 0;
+    // Written as it grows, not only at exit, so a game that crashes or is killed keeps what it compiled: once ten
+    // seconds went by without a new pipeline, so that the write does not add to the hitches compiling made, and at
+    // least every minute while the workers still compile (a first run on a slow compiler never settles for minutes).
+    const bool settled = s.newPipelines == 0 && !waiting;
     s.presented = s.draws = s.flushes = s.suspends = s.renames = s.newPipelines = 0;
     s.skippedDraws = 0;
-    if (s.cacheDirty && settled)
+    if (s.cacheDirty && (settled || now - s.cacheWritten >= std::chrono::seconds(60)))
         WritePipelineCache();
 }
 
@@ -1983,7 +2003,10 @@ bool Init()
     s.asyncPipelines = host::AsyncPipelines();
     if (s.asyncPipelines)
     {
-        const unsigned threads = std::clamp(std::thread::hardware_concurrency() / 4, 1u, 3u);
+        // Half the logical cores, at most 4: a first run with 2x MSAA on the user's i7-11370H (8 threads) queued
+        // 3 400 pipelines at the map's load (r_shaderWarming), 2 000 of them new to the driver at ~200 ms each, and
+        // 2 threads left objects and the HUD undrawn for minutes.
+        const unsigned threads = std::clamp(std::thread::hardware_concurrency() / 2, 1u, 4u);
         for (unsigned i = 0; i < threads; ++i)
             s.compilers.emplace_back(CompilePipelines);
         Log("vk: pipelines compile on %u background threads", threads);
@@ -2353,7 +2376,7 @@ void DestroyShader(gb::Shader *handle)
         return;
     // A queued compilation reads the shader and fills its pipeline.
     if (!shader->pipelines.empty())
-        WaitForCompilers();
+        ForgetCompilations(shader);
     for (Pipeline *p : shader->pipelines)
     {
         s.pipelines.erase(p->key);

@@ -15,6 +15,9 @@
 #include "r_state.h"
 #include "rb_backend.h"
 #include <win32/win_main.h>
+#if defined(BO1_WIN_VULKAN)
+#include <platform/windows/win_gfxapi.h>
+#endif
 
 const float cubemapShotAxis[7][3][3] =
 {
@@ -239,6 +242,33 @@ void __cdecl R_UpsamplePixelData(
     }
 }
 
+#if !defined(_WIN32) || defined(BO1_WIN_VULKAN)
+// mod: the emulated front buffer (d3d9emu's ReadFrontBuffer) is the last presented frame at the back buffer's size,
+// placed at the window's client origin. r_mod_upscale ssaa_* makes the back buffer larger than the window, so the
+// retail check ("partially off-screen": the back buffer's size from the window's corner past the monitor's edge)
+// refused every screenshot: the surface grows to hold it instead. False (retail's path) on the system's Direct3D 9
+// or with the window's corner off the monitor.
+static bool R_ModEmulatedFrontBufferRect(const tagMONITORINFO *monitorInfo, tagPOINT *pt, int width, int height,
+                                         int *surfWidth, int *surfHeight)
+{
+#if defined(BO1_WIN_VULKAN)
+    if ( !Bo1_EmulatedDirect3DActive() )
+        return false;
+#endif
+    if ( pt->x < monitorInfo->rcMonitor.left || pt->y < monitorInfo->rcMonitor.top )
+        return false;
+    pt->x -= monitorInfo->rcMonitor.left;
+    pt->y -= monitorInfo->rcMonitor.top;
+    *surfWidth = monitorInfo->rcMonitor.right - monitorInfo->rcMonitor.left;
+    *surfHeight = monitorInfo->rcMonitor.bottom - monitorInfo->rcMonitor.top;
+    if ( *surfWidth < pt->x + width )
+        *surfWidth = pt->x + width;
+    if ( *surfHeight < pt->y + height )
+        *surfHeight = pt->y + height;
+    return true;
+}
+#endif
+
 char __cdecl R_GetFrontBufferData(int x, int y, int width, int height, int bytesPerPixel, unsigned __int8 *buffer)
 {
     const char *v7; // eax
@@ -286,6 +316,10 @@ char __cdecl R_GetFrontBufferData(int x, int y, int width, int height, int bytes
             return 0;
         }
         ClientToScreen(dx.windows[0].hwnd, &pt);
+#if !defined(_WIN32) || defined(BO1_WIN_VULKAN)
+        if ( !R_ModEmulatedFrontBufferRect(&monitorInfo, &pt, width, height, &surfWidth, &surfHeight) )
+#endif
+        {
         if ( pt.x < monitorInfo.rcMonitor.left
             || pt.y < monitorInfo.rcMonitor.top
             || width + pt.x > monitorInfo.rcMonitor.right
@@ -298,6 +332,7 @@ char __cdecl R_GetFrontBufferData(int x, int y, int width, int height, int bytes
         surfHeight = monitorInfo.rcMonitor.bottom - monitorInfo.rcMonitor.top;
         pt.x -= monitorInfo.rcMonitor.left;
         pt.y -= monitorInfo.rcMonitor.top;
+        }
     }
     //hr = ((int (__thiscall *)(IDirect3DDevice9 *, IDirect3DDevice9 *, int, int, int, int, IDirect3DSurface9 **, unsigned int))dx.device->CreateOffscreenPlainSurface)(
     //             dx.device,
@@ -508,6 +543,10 @@ char __cdecl R_TakeScreenshot(char *filename, int format)
             return 0;
         }
         ClientToScreen(dx.windows[0].hwnd, &pt);
+#if !defined(_WIN32) || defined(BO1_WIN_VULKAN)
+        if ( !R_ModEmulatedFrontBufferRect(&monitorInfo, &pt, width, height, &surfWidth, &surfHeight) )
+#endif
+        {
         if ( pt.x < monitorInfo.rcMonitor.left
             || pt.y < monitorInfo.rcMonitor.top
             || width + pt.x > monitorInfo.rcMonitor.right
@@ -520,6 +559,7 @@ char __cdecl R_TakeScreenshot(char *filename, int format)
         surfHeight = monitorInfo.rcMonitor.bottom - monitorInfo.rcMonitor.top;
         pt.x -= monitorInfo.rcMonitor.left;
         pt.y -= monitorInfo.rcMonitor.top;
+        }
     }
     //hr = ((int (__thiscall *)(IDirect3DDevice9 *, IDirect3DDevice9 *, int, int, int, int, IDirect3DSurface9 **, unsigned int))dx.device->CreateOffscreenPlainSurface)(
     //             dx.device,

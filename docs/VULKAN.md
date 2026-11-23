@@ -295,7 +295,11 @@ with headroom. Two modes:
   the method and sharpness rows greyed. Checked: `d3d9emu_test` (1280x960 to 640x480 in one draw, no jitter, an
   output larger on one axis only refused), Kino headless on the Iris Xe at `ssaa_2x`: 3840x2160 to 1920x1080, clean
   edges, crosshair in place, ~30 fps (the run's cap). The Switch start menu does not offer it (the console is
-  fill-rate bound already).
+  fill-rate bound already). The user's first run from a fresh package (no `vk_pipelines.bin`, 2x MSAA, 1280x720
+  window) showed missing objects and no HUD while the background threads compiled (~300 000 draws skipped every
+  10 s), froze on quit and lost its cache; and screenshots failed ("partially off-screen"). Fixed in 99aa458: a freed
+  shader's queued compilations are dropped, the cache is written every minute while compiling, the screenshot's
+  surface holds the larger back buffer.
 - Points to check: the engine's render targets sized from vidConfig (post effects, shadow maps) at 2x the window;
   the 2D HUD (rendered at the back buffer's size, so sharp at 2x, but text sizes follow vidConfig); the mouse mapped
   into back buffer pixels (`Bo1_ClientToBackBuffer` already handles any ratio); memory (a 4K back buffer with MSAA);
