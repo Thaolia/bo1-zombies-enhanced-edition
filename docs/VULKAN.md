@@ -191,7 +191,24 @@ optimised for mobile GPUs:
    Still to see on the player's screen: the HUD's sharpness itself (a headless screenshot reads the frame brought
    back to the back buffer's size), and the Switch on the console. The upscaler ASR will replace sits at this same
    call, so its inputs (scene colour and depth at the render resolution) are ready there.
-2. Jitter (`ffxmFsr2GetJitterOffset`) in the projection while the temporal upscaler is on. Motion vectors for the
+2. **Done (2026-11-23)**, with point 3 wired end to end: `r_mod_upscaler` (`fsr1`, `asr_quality`, `asr_balanced`,
+   `asr_performance`; `BO1_UPSCALE=asr|asr_balanced|asr_performance` on posix) picks Arm ASR for `r_mod_upscale`'s
+   factor. `R_RenderScene` adds `Bo1Emu_TemporalJitter`'s offset (FSR 2's Halton 2/3 sequence and phase count, in
+   the frontend so that GL and Switch builds need no ASR) to the main view's projection `[2][0]`/`[2][1]`, which an
+   ordinary projection leaves at 0. `RB_Draw3D` hands `Bo1Emu_SceneComplete` that camera (jittered view-projection,
+   its inverse, the projection, near plane, vertical field of view) when the frame is one plain view. The frontend
+   (`d3d9emu_temporal.cpp`) then copies the scene to RGBA8 and the depth buffer last drawn with a back-buffer-sized
+   target, runs one full-screen pass that writes the camera's motion (this frame's clip space to the previous
+   frame's, homogeneous so the sky moves with rotation only, jitter included: ASR's jitter cancellation is on) into
+   RG16F and the depth into R32F, calls `gb::TemporalUpscale`, and copies the result into the output-size target the
+   2D then goes to. Without a camera, the caps or after a failure, FSR 1.0 as before. `tools/codediff.py`:
+   `r_scene.cpp`, `rb_backend.cpp`, `r_init.cpp`, `r_dvars.cpp` identical. Checked: `d3d9emu_test` (jitter, copies,
+   motion pass, the upscale's inputs and reset flag, the history on the next frame), and Kino headless on the user's
+   Iris Xe, 1280x720 to 1920x1080, `asr_quality`: "Arm ASR (quality shaders)" in the log, a clean frame with the
+   HUD, 28-43 fps over 110 s against 27-41 with FSR 1.0 in the same test. Not yet: the viewmodel and zombies get
+   the camera's motion (ghosting possible on them), no reactive mask, a split screen falls back to FSR 1.0 on a
+   jittered frame, the mip bias is not lowered; the image in motion is the player's to judge.
+   Original plan of this point: jitter (`ffxmFsr2GetJitterOffset`) in the projection while the temporal upscaler is on. Motion vectors for the
    **camera only**, from the depth and the previous frame's view-projection, in a full-screen pass. A reactive mask
    (`ffxmFsr2ContextGenerateReactiveMask`, or the particles' alpha). Leave the view model out. 2 sessions.
 3. **Backend side done (2026-11-23)**: `gb::TemporalUpscale(const TemporalUpscaleDesc &)` and

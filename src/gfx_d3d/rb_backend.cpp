@@ -5625,7 +5625,22 @@ void __cdecl RB_Draw3D()
 #if defined(BO1_WIN_VULKAN)
         if ( Bo1_EmulatedDirect3DActive() )
 #endif
-            Bo1Emu_SceneComplete(dx.device);
+        {
+            // the camera, for the temporal upscaler: one plain view only
+            Bo1EmuSceneView view;
+            const bool oneView = data->viewInfoCount == 1 && !viewInfo->isMissileCamera;
+            if ( oneView )
+            {
+                const GfxViewParms *parms = &viewInfo->cullViewInfo.viewParms;
+                memcpy(view.viewProjection, parms->viewProjectionMatrix.m, sizeof(view.viewProjection));
+                memcpy(view.inverseViewProjection, parms->inverseViewProjectionMatrix.m,
+                       sizeof(view.inverseViewProjection));
+                memcpy(view.projection, parms->projectionMatrix.m, sizeof(view.projection));
+                view.zNear = parms->zNear;
+                view.tanHalfFovY = MAX_11BIT_FLT / parms->projectionMatrix.m[1][1];
+            }
+            Bo1Emu_SceneComplete(dx.device, oneView ? &view : NULL);
+        }
 #endif
     }
 }

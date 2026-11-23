@@ -130,11 +130,18 @@ bool Upscale(UpscaleSettings *settings)
         const char *mode = getenv("BO1_UPSCALE");
         if (!mode || !*mode || !std::strcmp(mode, "off"))
             return nullptr;
-        static UpscaleSettings s = {0, 0, 0.2f};
+        static UpscaleSettings s = {0, 0, 0.2f, 0};
         const char *output = getenv("BO1_UPSCALE_OUTPUT");
         unsigned width = 0, height = 0;
         char end = 0;
-        if (std::strcmp(mode, "fsr1") || !output || sscanf(output, "%ux%u%c", &width, &height, &end) != 2 ||
+        // fsr1, or the temporal upscaler where the backend has it (Vulkan): asr (its quality shaders), asr_balanced,
+        // asr_performance
+        s.temporal = !std::strcmp(mode, "asr")             ? 1
+                     : !std::strcmp(mode, "asr_balanced")    ? 2
+                     : !std::strcmp(mode, "asr_performance") ? 3
+                                                             : 0;
+        if ((std::strcmp(mode, "fsr1") && !s.temporal) || !output ||
+            sscanf(output, "%ux%u%c", &width, &height, &end) != 2 ||
             width < 16 || height < 16 || width > 8192 || height > 8192)
         {
             Com_Printf(kConsoleChannelGfx, "d3d9emu: BO1_UPSCALE=%s BO1_UPSCALE_OUTPUT=%s not understood: no upscale\n",

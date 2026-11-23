@@ -70,11 +70,11 @@ bool Bo1_EmulatedDirect3DActive()
 }
 
 void Bo1_SetUpscale(unsigned int backWidth, unsigned int backHeight, unsigned int outputWidth,
-                    unsigned int outputHeight, float sharpness)
+                    unsigned int outputHeight, float sharpness, unsigned int temporal)
 {
     s_backWidth = backWidth;
     s_backHeight = backHeight;
-    s_upscale = {outputWidth, outputHeight, sharpness};
+    s_upscale = {outputWidth, outputHeight, sharpness, uint8_t(temporal <= 3 ? temporal : 0)};
 }
 
 void Bo1_ClientToBackBuffer(int *x, int *y)

@@ -141,12 +141,14 @@ if(NOT (BO1_PLATFORM STREQUAL "win32" AND NOT BO1_ARCH_64))
         COMMAND "${BO1_PYTHON3}" "${BO1_EMBED_SHADERS}" "${BO1_UPSCALE_HEADER}" --namespace d3d9emu::upscale_shaders
                 --macro BO1_UPSCALE ${BO1_UPSCALE_FORMS} "Vs=${BO1_UPSCALE_SHADERS}/fsr1_vs.glsl:vert"
                 "Easu=${BO1_UPSCALE_SHADERS}/fsr1_easu.glsl:frag" "Rcas=${BO1_UPSCALE_SHADERS}/fsr1_rcas.glsl:frag"
+                "Motion=${BO1_UPSCALE_SHADERS}/temporal_motion.glsl:frag"
         DEPENDS "${BO1_EMBED_SHADERS}" "${BO1_UPSCALE_SHADERS}/fsr1_vs.glsl" "${BO1_UPSCALE_SHADERS}/fsr1_easu.glsl"
-                "${BO1_UPSCALE_SHADERS}/fsr1_rcas.glsl"
+                "${BO1_UPSCALE_SHADERS}/fsr1_rcas.glsl" "${BO1_UPSCALE_SHADERS}/temporal_motion.glsl"
         COMMENT "Embedding the upscaler's shaders"
         VERBATIM)
     list(APPEND GFX_D3D9EMU_FILES "${BO1_UPSCALE_HEADER}")
-    set_source_files_properties("${SRC_DIR}/gfx_d3d9emu/d3d9emu_upscale.cpp" PROPERTIES
+    set_source_files_properties("${SRC_DIR}/gfx_d3d9emu/d3d9emu_upscale.cpp"
+                                "${SRC_DIR}/gfx_d3d9emu/d3d9emu_temporal.cpp" PROPERTIES
                                 INCLUDE_DIRECTORIES "${CMAKE_BINARY_DIR}/generated")
     if(BO1_VULKAN)
         set(BO1_VK_SHADERS "${SRC_DIR}/gfx_backend/vulkan/shaders")

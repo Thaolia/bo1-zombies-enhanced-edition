@@ -12,6 +12,7 @@
 #include <gfx_d3d9emu/d3d9emu_scene.h>
 #include <gfx_d3d9emu/shader_pack.h>
 
+#include <cmath>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
@@ -25,6 +26,7 @@ std::vector<std::string> g_hostLog;
 std::string g_packPath = "d3d9emu_test.pack";
 bool g_visible = true;
 bool g_upscale = false; // the host asks for FSR 1.0 to 640x480
+uint8_t g_temporal = 0;  // and for Arm ASR's shaders (1 to 3) instead
 std::string g_savedPath;
 std::vector<uint8_t> g_saved;
 const HWND kWindow = reinterpret_cast<HWND>(0x1234);
@@ -224,7 +226,7 @@ const char *ShaderPackPath()
 
 bool Upscale(UpscaleSettings *settings)
 {
-    *settings = {640, 480, 0.5f};
+    *settings = {640, 480, 0.5f, g_temporal};
     return g_upscale;
 }
 
@@ -670,7 +672,7 @@ int main(int argc, char **argv)
     CHECK(device->DrawIndexedPrimitive(D3DPT_TRIANGLELIST, 0, 0, 4, 0, 2) == D3D_OK);
     CHECK(Has("viewport=0,0,320x240") && !Has("BeginPass c0=" + hudTarget));
     Mark();
-    Bo1Emu_SceneComplete(device);
+    Bo1Emu_SceneComplete(device, nullptr);
     CHECK(Find("EndPass") < Find("Blit") && Count("Draw P") == 2 && Has("BeginPass c0=" + hudTarget + "/0/0"));
     const D3DVIEWPORT9 quarter = {80, 60, 160, 120, 0.0f, 1.0f};
     device->SetViewport(&quarter);
@@ -682,7 +684,7 @@ int main(int argc, char **argv)
     CHECK(device->Clear(1, &hudClear, D3DCLEAR_TARGET, 0, 1.0f, 0) == D3D_OK);
     CHECK(Has("Clear 180,140,20x20 colour"));
     Mark();
-    Bo1Emu_SceneComplete(device); // once a frame
+    Bo1Emu_SceneComplete(device, nullptr); // once a frame
     CHECK(!Has("Blit") && !Has("Draw P"));
     CHECK(device->EndScene() == D3D_OK);
     Mark();
@@ -707,6 +709,59 @@ int main(int argc, char **argv)
     Mark();
     CHECK(device->Present(nullptr, nullptr, nullptr, nullptr) == D3D_OK); // a frame without a scene: as before
     CHECK(Count("Draw P") == 2 && !Has(" " + hudTarget));
+
+    // ---- the temporal upscaler (d3d9emu_temporal.cpp): the engine's jitter, then at the end of the scene a copy of
+    // the scene and of its depth buffer, the motion pass into RG16F and R32F, TemporalUpscale, the result copied
+    g_temporal = 2;
+    CHECK(device->Reset(&pp) == D3D_OK);
+    const std::string temporalHud = LastId("CreateTexture");
+    float jitterX = 9.0f, jitterY = 9.0f;
+    CHECK(Bo1Emu_TemporalJitter(device, &jitterX, &jitterY) && std::fabs(jitterX) <= 0.5f && std::fabs(jitterY) <= 0.5f);
+    IDirect3DSurface9 *sceneDepth = nullptr;
+    CHECK(device->CreateDepthStencilSurface(320, 240, D3DFMT_D24S8, D3DMULTISAMPLE_NONE, 0, FALSE, &sceneDepth,
+                                            nullptr) == D3D_OK);
+    const std::string sceneDepthId = LastId("CreateTexture");
+    CHECK(device->BeginScene() == D3D_OK);
+    device->SetDepthStencilSurface(sceneDepth);
+    device->SetVertexShader(vs);
+    device->SetPixelShader(ps);
+    device->SetVertexDeclaration(decl);
+    device->SetStreamSource(0, vb, 0, sizeof(Vertex));
+    device->SetIndices(ib);
+    CHECK(device->DrawIndexedPrimitive(D3DPT_TRIANGLELIST, 0, 0, 4, 0, 2) == D3D_OK);
+    Bo1EmuSceneView camera = {};
+    for (int i = 0; i < 4; ++i)
+        camera.viewProjection[i][i] = camera.inverseViewProjection[i][i] = camera.projection[i][i] = 1.0f;
+    camera.projection[2][0] = 2.0f * 0.25f / 320.0f; // a quarter pixel right
+    camera.zNear = 4.0f;
+    camera.tanHalfFovY = 0.6f;
+    Mark();
+    Bo1Emu_SceneComplete(device, &camera);
+    CHECK(Has("Blit " + sceneDepthId + "/0/0 0,0,320x240 -> ") && Has("RG16F RenderTarget sampled 320x240x1") &&
+          Has("R32F RenderTarget sampled 320x240x1") && Has("RGBA8 RenderTarget sampled 640x480x1"));
+    CHECK(Has("TemporalUpscale c=T") && Has("320x240 -> 640x480 jitter=0.25,") && Has("sharpness=0.75 preset=1 reset"));
+    // the scene and its depth copied before, the result after; one draw, the motion pass (no EASU, no RCAS)
+    CHECK(Count("Blit") == 3 && Find("Blit") < Find("TemporalUpscale") && Count("Draw P") == 1 &&
+          Has("Blit T") && Has(" -> " + temporalHud + "/0/0 0,0,640x480"));
+    Mark();
+    CHECK(device->DrawIndexedPrimitive(D3DPT_TRIANGLELIST, 0, 0, 4, 0, 2) == D3D_OK); // the 2D on the output target
+    CHECK(Has("BeginPass c0=" + temporalHud));
+    CHECK(device->EndScene() == D3D_OK);
+    CHECK(device->Present(nullptr, nullptr, nullptr, nullptr) == D3D_OK);
+    CHECK(device->BeginScene() == D3D_OK);
+    CHECK(device->DrawIndexedPrimitive(D3DPT_TRIANGLELIST, 0, 0, 4, 0, 2) == D3D_OK);
+    Mark();
+    Bo1Emu_SceneComplete(device, &camera);
+    CHECK(Has("TemporalUpscale") && !Has(" reset")); // the second frame has a history
+    Mark();
+    Bo1Emu_SceneComplete(device, nullptr); // once a frame: nothing more
+    CHECK(!Has("TemporalUpscale"));
+    CHECK(device->EndScene() == D3D_OK);
+    CHECK(device->Present(nullptr, nullptr, nullptr, nullptr) == D3D_OK);
+    device->SetDepthStencilSurface(nullptr);
+    sceneDepth->Release();
+    g_temporal = 0;
+
     g_upscale = false;
     Mark();
     CHECK(device->Reset(&pp) == D3D_OK);

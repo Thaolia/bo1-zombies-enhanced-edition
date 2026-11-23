@@ -494,7 +494,8 @@ struct TemporalUpscaleDesc
 {
     Texture *color;    // the scene, in display (not linear) colours
     Texture *depth;    // R32F, 0 near to 1 far, the scene's depth
-    Texture *motion;   // RG16F: for each pixel, the render pixels from where it is to where it was the frame before
+    Texture *motion;   // RG16F: for each pixel, the render pixels from where it is to where it was the frame before,
+                       // between the two frames' jittered cameras (the jitter's change is in it)
     Texture *reactive; // optional R8: 1 where the history must not be trusted (particles, transparencies)
     Texture *output;
     uint16_t renderWidth, renderHeight, outputWidth, outputHeight;

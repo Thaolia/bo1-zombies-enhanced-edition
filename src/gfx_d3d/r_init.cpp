@@ -401,13 +401,13 @@ void __cdecl R_SetD3DPresentParameters(_D3DPRESENT_PARAMETERS_ *d3dpp, const Gfx
     if ( d3dpp->BackBufferWidth != (unsigned int)wndParms->displayWidth )
     {
         Bo1_SetUpscale(d3dpp->BackBufferWidth, d3dpp->BackBufferHeight, wndParms->displayWidth, wndParms->displayHeight,
-                       r_mod_upscaleSharpness->current.value);
-        Com_Printf(8, "r_mod_upscale: FSR 1.0 %s, %u x %u to the %i x %i window\n",
+                       r_mod_upscaleSharpness->current.value, (unsigned int)r_mod_upscaler->current.integer);
+        Com_Printf(8, "r_mod_upscale: %s %s, %u x %u to the %i x %i window\n", Dvar_EnumToString(r_mod_upscaler),
             Dvar_EnumToString(r_mod_upscale), d3dpp->BackBufferWidth, d3dpp->BackBufferHeight,
             wndParms->displayWidth, wndParms->displayHeight);
     }
     else
-        Bo1_SetUpscale(0, 0, 0, 0, 0.0f);
+        Bo1_SetUpscale(0, 0, 0, 0, 0.0f, 0);
 #endif
     d3dpp->BackBufferFormat = D3DFMT_A8R8G8B8;
     d3dpp->BackBufferCount = 1;

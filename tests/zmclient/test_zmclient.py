@@ -484,15 +484,17 @@ class CommandLine(unittest.TestCase):
         self.assertNotIn("r_mod_upscale", " ".join(P.build_command(p, "x", "/g")))   # Vulkan only
         p["gfx_api"] = "vulkan"
         line = " ".join(P.build_command(p, "x", "/g"))
-        self.assertIn("+set r_mod_upscale quality +set r_mod_upscaleSharpness 0.2", line)
+        self.assertIn("+set r_mod_upscale quality +set r_mod_upscaleSharpness 0.2 +set r_mod_upscaler fsr1", line)
+        p["upscaler"] = "asr_balanced"
+        self.assertIn("+set r_mod_upscaler asr_balanced", " ".join(P.build_command(p, "x", "/g")))
         p["fsr"], p["fsr_sharpness"] = "off", 1.0
         self.assertIn("+set r_mod_upscale off +set r_mod_upscaleSharpness 1", " ".join(P.build_command(p, "x", "/g")))
         with tempfile.TemporaryDirectory() as tmp:
             path = os.path.join(tmp, "profile.json")
             with open(path, "w") as f:
-                json.dump({"fsr": "huge", "fsr_sharpness": 3.0}, f)
+                json.dump({"fsr": "huge", "fsr_sharpness": 3.0, "upscaler": "dlss"}, f)
             q = P.Profile(path)
-            self.assertEqual((q["fsr"], q["fsr_sharpness"]), ("off", 0.2))
+            self.assertEqual((q["fsr"], q["fsr_sharpness"], q["upscaler"]), ("off", 0.2, "fsr1"))
 
     def test_scene_models(self):
         def dvar(argv, name):

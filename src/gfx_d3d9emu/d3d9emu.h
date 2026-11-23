@@ -10,6 +10,8 @@
 
 #include <gfx_backend/gfx_backend.h>
 
+#include "d3d9emu_scene.h"
+
 #include <cstdint>
 #include <memory>
 #include <mutex>
@@ -153,6 +155,7 @@ void Rebind(T *&slot, T *next)
 class Device;
 class Surface;
 class Upscaler;
+class Temporal;
 
 // ---- texture storage (d3d9emu_resources.cpp)
 
@@ -884,7 +887,9 @@ public:
     void QueryClosed(Query *query);
     // The frame's 3D scene is in the back buffer (d3d9emu_scene.h): while upscaling, it is upscaled into m_hudTarget
     // now, and the rest of the frame drawn into the back buffer goes there, at the output size.
-    void SceneComplete();
+    void SceneComplete(const Bo1EmuSceneView *view);
+    // Bo1Emu_TemporalJitter (d3d9emu_scene.h)
+    bool TemporalJitter(float *x, float *y);
 
 protected:
     IUnknown *Parent() override;
@@ -943,6 +948,13 @@ private:
     bool m_hudActive = false;
     bool m_hudPresented = false; // the last Present showed m_hudTarget, and the back buffer holds only its scene
     bool m_hudLogged = false;
+    // The temporal upscaler (d3d9emu_temporal.h): its shader preset from the host (0: none), and the depth buffer last
+    // drawn with a back-buffer-sized target, the scene's.
+    uint8_t m_temporalPreset = 0;
+    std::unique_ptr<Temporal> m_temporal;
+    Surface *m_sceneDepth = nullptr;
+    double m_lastSceneSeconds = 0.0;
+    bool m_temporalLogged = false;
     std::vector<uint8_t> m_readScratch;      // GetFrontBufferData's copy of the last frame
 
     // D3D9 state

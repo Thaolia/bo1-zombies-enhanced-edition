@@ -28,6 +28,12 @@
 #include "r_state.h"
 #include <EffectsCore/fx_beam.h>
 #include <qcommon/dobj_management.h>
+#if !defined(_WIN32) || defined(BO1_WIN_VULKAN)
+#include <gfx_d3d9emu/d3d9emu_scene.h> // mod: the temporal upscaler's jitter (docs/VULKAN.md, step 6)
+#endif
+#if defined(BO1_WIN_VULKAN)
+#include <platform/windows/win_gfxapi.h>
+#endif
 #include "rb_logfile.h"
 #include "r_globalgfxdata.h"
 #include "r_model_lighting.h"
@@ -3197,6 +3203,26 @@ void __cdecl R_UpdateLodParms(const refdef_s *refdef, GfxLodParms *lodParms)
     lodParms->valid = 1;
 }
 
+#if !defined(_WIN32) || defined(BO1_WIN_VULKAN)
+// mod: the temporal upscaler (Arm ASR in the D3D9 frontend, docs/VULKAN.md step 6) needs the main view drawn a
+// sub-pixel offset away each frame: added to the projection's [2][0] and [2][1], which an ordinary projection leaves
+// at 0, so that the frontend reads the offset back from the camera it gets at the end of the scene.
+static void R_ModJitterProjection(const refdef_s *refdef, GfxViewParms *viewParms)
+{
+    float x, y;
+#if defined(BO1_WIN_VULKAN)
+    if ( !Bo1_EmulatedDirect3DActive() )
+        return;
+#endif
+    if ( refdef->localClientNum != 0 || !dx.device || !vidConfig.displayWidth || !vidConfig.displayHeight
+        || !Bo1Emu_TemporalJitter(dx.device, &x, &y) )
+        return;
+    viewParms->projectionMatrix.m[2][0] += 2.0f * x / (float)vidConfig.displayWidth;
+    viewParms->projectionMatrix.m[2][1] -= 2.0f * y / (float)vidConfig.displayHeight;
+    R_SetupViewProjectionMatrices(viewParms, false);
+}
+#endif
+
 void __cdecl R_RenderScene(refdef_s *refdef, int frameTime)
 {
     GfxViewParms *v2; // [esp+Ch] [ebp-14F8h]
@@ -3265,6 +3291,9 @@ void __cdecl R_RenderScene(refdef_s *refdef, int frameTime)
             R_CheckShadowMapVolumes(refdef->vieworg);
         viewParms = R_AllocViewParms();
         R_SetViewParmsForScene(refdef, viewParms);
+#if !defined(_WIN32) || defined(BO1_WIN_VULKAN)
+        R_ModJitterProjection(refdef, viewParms);
+#endif
         R_SetSceneParms(refdef, &sceneParms);
         R_CorrectLodScale(refdef);
         R_WorldLod_FrameUpdate(scene.def.floatTime, viewParms->origin, refdef->localClientNum);

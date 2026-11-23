@@ -49,6 +49,9 @@ GFX_APIS = ("default", "vulkan")
 # the Switch start menu's (launcher_config.cpp).
 FSR_MODES = ("off", "ultra", "quality", "balanced", "performance")
 FSR_SHARPNESS = (0.0, 0.2, 0.5, 1.0, 2.0)
+# What upscales at that factor (r_mod_upscaler): FSR 1.0, or Arm ASR (temporal, with its quality, balanced or
+# performance shaders) where the GPU has what it needs; the game falls back to FSR 1.0 otherwise.
+UPSCALERS = ("fsr1", "asr_quality", "asr_balanced", "asr_performance")
 
 DEFAULTS = {
     "mode": "solo",
@@ -67,6 +70,7 @@ DEFAULTS = {
     "gfx_api": "default",              # one of GFX_APIS
     "fsr": "off",                      # one of FSR_MODES (Vulkan only)
     "fsr_sharpness": 0.2,              # one of FSR_SHARPNESS
+    "upscaler": "fsr1",                # one of UPSCALERS
     # aim assist (gamepad): "" leaves the game's value, "1" / "0" sets it
     "aim_assist": "",
     "aim_slowdown": "",
@@ -169,6 +173,8 @@ class Profile:
             self.data["fsr"] = DEFAULTS["fsr"]
         if self.data["fsr_sharpness"] not in FSR_SHARPNESS:
             self.data["fsr_sharpness"] = DEFAULTS["fsr_sharpness"]
+        if self.data["upscaler"] not in UPSCALERS:
+            self.data["upscaler"] = DEFAULTS["upscaler"]
         if self.data["scene_models"] not in SCENE_MODEL_CHOICES:
             self.data["scene_models"] = DEFAULTS["scene_models"]
         if self.data["bo2_weapons"] not in dict(BO2_WEAPON_CHOICES):
@@ -417,7 +423,8 @@ def build_command(p, exe, dist_root, launch_cfg="", player=1, server_mods=None):
     add_scene_models(argv, p["scene_models"])
     argv += ["+set", "r_mod_gfxApi", "vulkan" if p["gfx_api"] == "vulkan" else "d3d9"]
     if p["gfx_api"] == "vulkan":
-        argv += ["+set", "r_mod_upscale", p["fsr"], "+set", "r_mod_upscaleSharpness", f"{p['fsr_sharpness']:g}"]
+        argv += ["+set", "r_mod_upscale", p["fsr"], "+set", "r_mod_upscaleSharpness", f"{p['fsr_sharpness']:g}",
+                 "+set", "r_mod_upscaler", p["upscaler"]]
     if p["fps_counter"]:
         argv += ["+set", "bo1_fpscounter", "1"]
     argv += ["+set", "bo1_runinfo", str(p["run_info"])]

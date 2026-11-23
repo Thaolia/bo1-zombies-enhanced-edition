@@ -162,6 +162,11 @@ console's compositor stretches the frame bilinearly.
     (PSNR 37.6 against 36.1 dB, 2026-11-22).
 
 ## Temporal upscaling (`gb::TemporalUpscale`, docs/VULKAN.md step 6)
+The frontend side is `d3d9emu_temporal.cpp`: the engine jitters the main projection by `Bo1Emu_TemporalJitter`
+(`d3d9emu_scene.h`) and passes its camera to `Bo1Emu_SceneComplete`; the frontend makes the inputs below from the
+scene and its depth buffer (one motion pass, shader `shaders/temporal_motion.glsl`) and draws the 2D after it at the
+output size, as with FSR 1.0. The contract:
+
 A contract call outside passes, reported by `Caps::temporalUpscale`: one frame of Arm ASR (FSR 2's inputs). Every
 input is a sampled 2D texture of the render size: the scene colour (RGBA8, not BGRA8), its depth as R32F (0 near, 1
 far), the camera's motion as RG16F in render pixels, an optional R8 reactive mask; the output is a colour target of

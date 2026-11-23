@@ -297,6 +297,7 @@ const dvar_s *r_mod_drawStats; // mod
 const dvar_s *r_mod_gfxApi; // mod
 const dvar_s *r_mod_upscale; // mod
 const dvar_s *r_mod_upscaleSharpness; // mod
+const dvar_s *r_mod_upscaler; // mod
 #endif
 const dvar_s *r_brushLimit;
 const dvar_s *r_spotLightFovInnerFraction;
@@ -1084,6 +1085,11 @@ void __cdecl R_RegisterDvars()
                                        "mod: FSR 1.0 with r_mod_gfxApi vulkan: off, ultra (x1.3), quality (x1.5), balanced (x1.7), performance (x2)");
     r_mod_upscaleSharpness = _Dvar_RegisterFloat("r_mod_upscaleSharpness", 0.2f, 0.0f, 2.0f, 0x21u,
                                                  "mod: FSR 1.0 sharpening, in stops below the sharpest: 0 sharpest, 0.2 AMD's default, 2 softest");
+    // mod: the upscaler for r_mod_upscale (docs/VULKAN.md, step 6): FSR 1.0, or Arm ASR (temporal, the projection
+    // jittered) with its quality, balanced or performance shaders where the GPU has what they need. Latched.
+    static const char *upscalerNames[] = {"fsr1", "asr_quality", "asr_balanced", "asr_performance", NULL};
+    r_mod_upscaler = _Dvar_RegisterEnum("r_mod_upscaler", upscalerNames, 0, 0x21u,
+                                        "mod: upscaler with r_mod_upscale: fsr1, or Arm ASR (asr_quality, asr_balanced, asr_performance)");
 #endif
     r_mod_scsShare = _Dvar_RegisterBool("r_mod_scsShare", 0, 0, "mod: models with byte-identical shader constant sets share one of the frame's 128 slots (retail 0)");
     r_modelLimit = _Dvar_RegisterInt(

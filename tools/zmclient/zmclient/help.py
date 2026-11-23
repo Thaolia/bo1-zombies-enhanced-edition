@@ -114,8 +114,13 @@ ROW_HELP = {
                 "stream ou un speedrun. Le hash complet est aussi écrit dans console_mp.log (ligne runinfo:).",
     "gfx_api": "Le moteur de rendu : Direct3D 9 (Windows) ou OpenGL (Linux) par défaut, ou Vulkan "
                "(r_mod_gfxApi sous Windows, BO1_GFX_BACKEND sous Linux). Au prochain lancement.",
-    "fsr": "FSR 1.0 d'AMD, avec Vulkan seulement (r_mod_upscale) : le jeu rend plus petit que la fenêtre puis "
-           "l'agrandit en gardant les contours nets. Plus de FPS sur un GPU limité (Intel). Au prochain lancement.",
+    "fsr": "Avec Vulkan seulement (r_mod_upscale) : le jeu rend plus petit que la fenêtre puis l'agrandit en gardant "
+           "les contours nets (FSR 1.0 ou Arm ASR, voir la ligne suivante). Le HUD reste à la taille de la fenêtre. "
+           "Plus de FPS sur un GPU limité (Intel). Au prochain lancement.",
+    "upscaler": "Comment l'image est agrandie (r_mod_upscaler) : FSR 1.0 d'AMD, image par image, ou Arm ASR, qui "
+                "accumule les images successives pour retrouver les détails fins (plus net, un peu plus coûteux, de "
+                "légères traînées possibles sur ce qui bouge). Si le GPU n'a pas ce qu'il faut pour ASR, le jeu prend "
+                "FSR 1.0 (ligne « upscale » du journal). Au prochain lancement.",
     "fsr_sharpness": "Le renforcement des contours après l'agrandissement (r_mod_upscaleSharpness) : « forte » est le "
                      "réglage d'AMD ; « douce » ou « faible » si l'image paraît granuleuse.",
     "fps_counter": "Le petit compteur d'images par seconde du portage, en haut à gauche.",
@@ -242,6 +247,14 @@ FSR_HELP = {
     "performance": "Rendu à la moitié de la fenêtre : le plus rapide, le plus flou.",
 }
 FSR_SHARPNESS_LABELS = {0.0: "maximum", 0.2: "forte (défaut AMD)", 0.5: "moyenne", 1.0: "douce", 2.0: "faible"}
+UPSCALER_LABELS = {"fsr1": "FSR 1.0", "asr_quality": "Arm ASR qualité", "asr_balanced": "Arm ASR équilibré",
+                   "asr_performance": "Arm ASR performance"}
+UPSCALER_HELP = {
+    "fsr1": "FSR 1.0 d'AMD : chaque image est agrandie seule. Le plus léger.",
+    "asr_quality": "Arm ASR (temporel) avec ses shaders les plus fins : la meilleure image.",
+    "asr_balanced": "Arm ASR avec des shaders allégés : presque la même image, un peu plus rapide.",
+    "asr_performance": "Arm ASR avec ses shaders les plus rapides : un peu moins fin.",
+}
 GFX_API_HELP = {
     "default": "Le rendu habituel : le Direct3D 9 de Windows, OpenGL sous Linux.",
     "vulkan": "Le rendu par Vulkan (Windows 64 bits, Linux). Il lui faut shaders.spv à côté du programme ; sans lui, "

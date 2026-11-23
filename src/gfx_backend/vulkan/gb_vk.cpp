@@ -2826,7 +2826,8 @@ bool AsrContext(const TemporalUpscaleDesc &desc)
     cd.qualityMode = desc.preset == UpscalePreset::Performance ? arm::FFXM_FSR2_SHADER_QUALITY_MODE_PERFORMANCE
                      : desc.preset == UpscalePreset::Balanced  ? arm::FFXM_FSR2_SHADER_QUALITY_MODE_BALANCED
                                                                : arm::FFXM_FSR2_SHADER_QUALITY_MODE_QUALITY;
-    cd.flags = arm::FFXM_FSR2_ENABLE_AUTO_EXPOSURE | (infinite ? arm::FFXM_FSR2_ENABLE_DEPTH_INFINITE : 0);
+    cd.flags = arm::FFXM_FSR2_ENABLE_AUTO_EXPOSURE | arm::FFXM_FSR2_ENABLE_MOTION_VECTORS_JITTER_CANCELLATION |
+               (infinite ? arm::FFXM_FSR2_ENABLE_DEPTH_INFINITE : 0);
     cd.maxRenderSize = {desc.renderWidth, desc.renderHeight};
     cd.displaySize = {desc.outputWidth, desc.outputHeight};
     cd.backendInterface = s.asrInterface;

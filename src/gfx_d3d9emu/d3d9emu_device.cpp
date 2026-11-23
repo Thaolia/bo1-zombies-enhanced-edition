@@ -6,10 +6,12 @@
 
 #include "d3d9emu_host.h"
 #include "d3d9emu_scene.h"
+#include "d3d9emu_temporal.h"
 #include "d3d9emu_upscale.h"
 #include "shader_pack.h"
 
 #include <algorithm>
+#include <chrono>
 #include <bit>
 #include <cstring>
 
@@ -193,6 +195,7 @@ Device::~Device()
     m_presentImage.reset();
     m_hudTarget.reset();
     m_upscaler.reset();
+    m_temporal.reset();
     gb::DestroySwapchain(m_swapchain);
 }
 
@@ -256,6 +259,7 @@ HRESULT Device::Create(Direct3D9 *d3d, bool ex, HWND focusWindow, D3DPRESENT_PAR
 void Device::ChooseOutput(const D3DPRESENT_PARAMETERS &p)
 {
     m_upscale = false;
+    m_temporalPreset = 0;
     m_outputWidth = p.BackBufferWidth;
     m_outputHeight = p.BackBufferHeight;
     host::UpscaleSettings settings;
@@ -278,6 +282,7 @@ void Device::ChooseOutput(const D3DPRESENT_PARAMETERS &p)
     m_outputWidth = settings.outputWidth;
     m_outputHeight = settings.outputHeight;
     m_upscaleSharpness = settings.sharpness;
+    m_temporalPreset = settings.temporal <= 3 ? settings.temporal : 0;
 }
 
 HRESULT Device::CreateBackBuffer(const D3DPRESENT_PARAMETERS &p)
@@ -328,6 +333,7 @@ void Device::UnbindAll()
     for (Surface *&target : m_renderTargets)
         Rebind<Surface>(target, nullptr);
     Rebind<Surface>(m_depthStencil, nullptr);
+    Rebind<Surface>(m_sceneDepth, nullptr);
 }
 
 // D3D9's default state (the D3DRENDERSTATETYPE and D3DSAMPLERSTATETYPE documentation), with the back buffer as the
@@ -412,6 +418,8 @@ HRESULT Device::Reset(D3DPRESENT_PARAMETERS *parameters)
     m_window = window;
     if (m_upscaler)
         m_upscaler->ReleaseTargets();
+    if (m_temporal)
+        m_temporal->ReleaseTargets();
     ChooseOutput(p);
     gb::ResizeSwapchain(m_swapchain, uint16_t(m_outputWidth), uint16_t(m_outputHeight));
     hr = CreateBackBuffer(p);
@@ -975,6 +983,11 @@ void Device::PreparePass()
             m_hudPresented = false; // a new frame draws over the old one
     }
     Rebind(p.depth, PassDepth());
+    // The scene's depth buffer, for the temporal upscaler: the one drawn with a target of the back buffer's size.
+    if (p.depth && p.color[0] && !m_hudActive && p.color[0]->Width() == m_backBuffer->Width() &&
+        p.color[0]->Height() == m_backBuffer->Height() && p.depth->Width() == m_backBuffer->Width() &&
+        p.depth->Height() == m_backBuffer->Height())
+        Rebind(m_sceneDepth, p.depth);
     // The colour attachments are the targets from the first, up to the first that has no memory (FOURCC_NULL).
     p.width = UINT32_MAX;
     p.height = UINT32_MAX;
@@ -1721,7 +1734,20 @@ HRESULT Device::PresentFrame(DWORD)
     return D3D_OK;
 }
 
-void Device::SceneComplete()
+bool Device::TemporalJitter(float *x, float *y)
+{
+    Guard guard(DeviceLock());
+    if (!m_upscale || !m_temporalPreset || !m_hudTarget || (m_temporal && m_temporal->Failed()) ||
+        !gb::GetCaps().temporalUpscale)
+        return false;
+    if (!m_temporal)
+        m_temporal.reset(new Temporal());
+    uint32_t phase;
+    m_temporal->Jitter(m_backBuffer->Width(), m_backBuffer->Height(), m_outputWidth, &phase, x, y);
+    return true;
+}
+
+void Device::SceneComplete(const Bo1EmuSceneView *view)
 {
     Guard guard(DeviceLock());
     if (!m_upscale || !m_hudTarget || m_hudActive)
@@ -1735,10 +1761,39 @@ void Device::SceneComplete()
         gb::Blit(back.gpu, 0, 0, all, m_presentImage->gpu, 0, 0, all, gb::Filter::Nearest);
         image = m_presentImage->gpu;
     }
-    if (!m_upscaler)
-        m_upscaler.reset(new Upscaler());
-    m_upscaler->Run(image, back.format->format, back.width, back.height, m_outputWidth, m_outputHeight,
-                    m_upscaleSharpness, m_hudTarget->GetStorage().gpu);
+    const double now = std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
+    const float frameMs = m_lastSceneSeconds > 0.0 ? float((now - m_lastSceneSeconds) * 1000.0) : 16.7f;
+    m_lastSceneSeconds = now;
+    bool temporal = false;
+    if (m_temporalPreset && m_temporal && !m_temporal->Failed() && view && m_sceneDepth &&
+        m_sceneDepth->GetStorage().gpu)
+    {
+        TemporalView camera;
+        static_assert(sizeof(camera) == sizeof(*view), "Bo1EmuSceneView and TemporalView match");
+        std::memcpy(&camera, view, sizeof(camera));
+        const gb::UpscalePreset preset = m_temporalPreset == 3   ? gb::UpscalePreset::Performance
+                                         : m_temporalPreset == 2 ? gb::UpscalePreset::Balanced
+                                                                 : gb::UpscalePreset::Quality;
+        // RCAS's stops below its strongest (0 to 2, FSR 1.0's setting) as ASR's 0 to 1.
+        const float sharpness = std::min(std::max(1.0f - 0.5f * m_upscaleSharpness, 0.0f), 1.0f);
+        Storage &depth = m_sceneDepth->GetStorage();
+        temporal = m_temporal->Run(image, depth.gpu, depth.format->format, back.width, back.height, m_outputWidth,
+                                   m_outputHeight, camera, sharpness, preset, frameMs, m_hudTarget->GetStorage().gpu);
+        if (temporal && !m_temporalLogged)
+        {
+            m_temporalLogged = true;
+            Logf("d3d9emu: upscale: Arm ASR (%s shaders) from %ux%u to %ux%u", m_temporalPreset == 3 ? "performance"
+                 : m_temporalPreset == 2 ? "balanced" : "quality", back.width, back.height, m_outputWidth,
+                 m_outputHeight);
+        }
+    }
+    if (!temporal)
+    {
+        if (!m_upscaler)
+            m_upscaler.reset(new Upscaler());
+        m_upscaler->Run(image, back.format->format, back.width, back.height, m_outputWidth, m_outputHeight,
+                        m_upscaleSharpness, m_hudTarget->GetStorage().gpu);
+    }
     m_hudActive = true;
     if (!m_hudLogged)
     {
@@ -1799,8 +1854,13 @@ HRESULT SwapChain::GetDevice(IDirect3DDevice9 **device)
 }
 } // namespace d3d9emu
 
-void Bo1Emu_SceneComplete(IDirect3DDevice9 *device)
+void Bo1Emu_SceneComplete(IDirect3DDevice9 *device, const Bo1EmuSceneView *view)
 {
     if (device)
-        static_cast<d3d9emu::Device *>(static_cast<IDirect3DDevice9Ex *>(device))->SceneComplete();
+        static_cast<d3d9emu::Device *>(static_cast<IDirect3DDevice9Ex *>(device))->SceneComplete(view);
+}
+
+bool Bo1Emu_TemporalJitter(IDirect3DDevice9 *device, float *x, float *y)
+{
+    return device && static_cast<d3d9emu::Device *>(static_cast<IDirect3DDevice9Ex *>(device))->TemporalJitter(x, y);
 }
