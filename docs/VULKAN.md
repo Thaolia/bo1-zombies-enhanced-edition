@@ -194,8 +194,19 @@ optimised for mobile GPUs:
 2. Jitter (`ffxmFsr2GetJitterOffset`) in the projection while the temporal upscaler is on. Motion vectors for the
    **camera only**, from the depth and the previous frame's view-projection, in a full-screen pass. A reactive mask
    (`ffxmFsr2ContextGenerateReactiveMask`, or the particles' alpha). Leave the view model out. 2 sessions.
-3. Contract addition: `gb::Upscale(const UpscaleDesc &)` and a `Caps` flag, through the checklist in
-   `docs/RENDERER.md`:
+3. **Backend side done (2026-11-23)**: `gb::TemporalUpscale(const TemporalUpscaleDesc &)` and
+   `Caps::temporalUpscale` (`gfx_backend.h`). Null records and checks it, GL and deko3d return false. Vulkan runs Arm
+   ASR (`third_party/arm_asr`, generic library `0501f49`) with its standalone Vulkan backend and prebuilt 16-bit SPIR-V
+   on the backend's own device and command buffer: our images stay in `GENERAL`, which ASR's generic-read and
+   unordered-access states map to, and it puts them back there after each dispatch. The device enables what those
+   shaders need when it has all of it, and only then reports the caps: `shaderFloat16`, `shaderInt16`,
+   `shaderSubgroupExtendedTypes`, `shaderStorageImageExtendedFormats`, `fragmentStoresAndAtomics`, quad subgroup
+   operations in fragment and compute shaders. ASR has no BGRA format: inputs and output are RGBA8, R32F depth, RG16F
+   motion. One fix in ASR (its README): memory for a unified-memory device. `gb_vk_test` upscales a still two-colour
+   scene 64 to 128 over 8 jittered frames on lavapipe, halves in place, no validation error; ASR's own shaders give
+   format-operand warnings on its internal storage images (R32f declared, R8/R16F images), left as they are.
+   Original plan of this point: contract addition `gb::Upscale(const UpscaleDesc &)` and a `Caps` flag, through the
+   checklist in `docs/RENDERER.md`:
    - null implements it and GL reports the flag as absent;
    - Vulkan uses ASR's Vulkan backend on the backend's own `VkDevice`;
    - check `shaderFloat16` (`VK_KHR_shader_float16_int8`) and build a 32-bit permutation (`FFXM_HALF 0`) for GPUs

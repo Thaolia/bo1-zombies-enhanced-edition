@@ -21,6 +21,9 @@
 #define VMA_DYNAMIC_VULKAN_FUNCTIONS 1
 #include <vk_mem_alloc.h>
 
+#include <host/backends/vk/ffxm_vk.h> // Arm ASR (TemporalUpscale)
+#include <host/ffxm_fsr2.h>
+
 #include <algorithm>
 #include <atomic>
 #include <bit>
@@ -564,6 +567,16 @@ struct State
     } frameWork;
     std::chrono::steady_clock::time_point lastPresent{};
     uint32_t hitches = 0;
+
+    // Arm ASR (TemporalUpscale): its backend on this device, and one context for the current sizes and preset.
+    bool asrDevice = false; // the device has what ASR's prebuilt 16-bit shaders need, and has it enabled
+    std::vector<uint8_t> asrScratch;
+    arm::FfxmInterface asrInterface = {};
+    bool asrInterfaceReady = false;
+    arm::FfxmFsr2Context asrContext = {};
+    bool asrContextReady = false;
+    bool asrFailed = false; // logged once; TemporalUpscale then returns false
+    uint32_t asrKey[6] = {};
     std::chrono::steady_clock::time_point perfStart = std::chrono::steady_clock::now();
 };
 
@@ -1847,6 +1860,17 @@ bool Init()
     VkPhysicalDeviceFeatures2 have = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2};
     have.pNext = &have12;
     vkGetPhysicalDeviceFeatures2(s.physical, &have);
+    // Arm ASR's prebuilt shaders: Float16, Int16, StorageImageExtendedFormats, quad subgroup operations (on 16-bit
+    // types), and storage image writes from fragment shaders.
+    VkPhysicalDeviceVulkan11Properties props11 = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_PROPERTIES};
+    VkPhysicalDeviceProperties2 props2 = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2};
+    props2.pNext = &props11;
+    vkGetPhysicalDeviceProperties2(s.physical, &props2);
+    s.asrDevice = have12.shaderFloat16 && have12.shaderSubgroupExtendedTypes && have.features.shaderInt16 &&
+                  have.features.shaderStorageImageExtendedFormats && have.features.fragmentStoresAndAtomics &&
+                  (props11.subgroupSupportedOperations & VK_SUBGROUP_FEATURE_QUAD_BIT) &&
+                  (props11.subgroupSupportedStages & (VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT)) ==
+                      (VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT);
     if (!have12.timelineSemaphore || !have12.hostQueryReset || !have13.dynamicRendering)
     {
         Log("vk: the device lacks timeline semaphores, host query reset or dynamic rendering");
@@ -1857,6 +1881,8 @@ bool Init()
     want12.timelineSemaphore = VK_TRUE;
     want12.hostQueryReset = VK_TRUE;
     want12.samplerMirrorClampToEdge = have12.samplerMirrorClampToEdge;
+    want12.shaderFloat16 = s.asrDevice;
+    want12.shaderSubgroupExtendedTypes = s.asrDevice;
     VkPhysicalDeviceVulkan13Features want13 = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES};
     want13.dynamicRendering = VK_TRUE;
     want12.pNext = &want13;
@@ -1871,6 +1897,9 @@ bool Init()
     want.features.fillModeNonSolid = have.features.fillModeNonSolid;
     want.features.textureCompressionBC = have.features.textureCompressionBC;
     want.features.occlusionQueryPrecise = VK_FALSE;
+    want.features.shaderInt16 = s.asrDevice;
+    want.features.shaderStorageImageExtendedFormats = s.asrDevice;
+    want.features.fragmentStoresAndAtomics = s.asrDevice;
     s.anisotropy = have.features.samplerAnisotropy;
     s.wireframe = have.features.fillModeNonSolid;
     s.mirrorClamp = have12.samplerMirrorClampToEdge;
@@ -2007,6 +2036,10 @@ bool Init()
     if (!have.features.textureCompressionBC)
         for (Format f : {Format::BC1, Format::BC2, Format::BC3})
             s.caps.formatFlags[int(f)] = 0;
+    s.caps.temporalUpscale = s.asrDevice;
+    if (!s.asrDevice)
+        Log("vk: no temporal upscaler: the device lacks shaderFloat16, shaderInt16, extended storage formats, fragment "
+            "stores, quad subgroup operations or their 16-bit types (Arm ASR's shaders)");
 
     // What draws bind where the frontend binds nothing, and Present's own shaders.
     s.presentVertex = MakeModule(shaders::kSpirvPresentVs, sizeof(shaders::kSpirvPresentVs));
@@ -2080,6 +2113,10 @@ void Shutdown()
         }
         vkDeviceWaitIdle(s.device);
         s.completed = s.submitted;
+        if (s.asrContextReady)
+            arm::ffxmFsr2ContextDestroy(&s.asrContext);
+        s.asrContextReady = s.asrInterfaceReady = false;
+        s.asrScratch.clear();
         for (Deferred &d : s.deferred)
             d.destroy();
         s.deferred.clear();
@@ -2700,6 +2737,162 @@ void Blit(gb::Texture *srcHandle, uint8_t srcLevel, uint8_t srcLayer, const Rect
                        linear ? VK_FILTER_LINEAR : VK_FILTER_NEAREST);
     }
     FullBarrier(cmd);
+}
+
+namespace
+{
+arm::FfxmSurfaceFormat AsrFormat(Format format)
+{
+    switch (format)
+    {
+    case Format::RGBA8: return arm::FFXM_SURFACE_FORMAT_R8G8B8A8_UNORM;
+    case Format::RGBA16F: return arm::FFXM_SURFACE_FORMAT_R16G16B16A16_FLOAT;
+    case Format::RG16F: return arm::FFXM_SURFACE_FORMAT_R16G16_FLOAT;
+    case Format::R32F: return arm::FFXM_SURFACE_FORMAT_R32_FLOAT;
+    case Format::R8: return arm::FFXM_SURFACE_FORMAT_R8_UNORM;
+    default: return arm::FFXM_SURFACE_FORMAT_UNKNOWN; // BGRA8 among them: ASR makes RGBA views
+    }
+}
+
+// Our images live in VK_IMAGE_LAYOUT_GENERAL, which ASR gives the states it calls generic read and unordered access;
+// it puts every imported image back in the state it came with at the end of a dispatch.
+arm::FfxmResource AsrResource(gb::Texture *handle, bool output)
+{
+    Texture *t = static_cast<Texture *>(handle);
+    if (!t)
+        return {};
+    arm::FfxmResourceDescription d = {};
+    d.type = arm::FFXM_RESOURCE_TYPE_TEXTURE2D;
+    d.format = AsrFormat(t->desc.format);
+    d.width = t->desc.width;
+    d.height = t->desc.height;
+    d.depth = 1;
+    d.mipCount = 1;
+    d.flags = arm::FFXM_RESOURCE_FLAGS_NONE;
+    d.usage = output ? arm::FFXM_RESOURCE_USAGE_RENDERTARGET : arm::FFXM_RESOURCE_USAGE_READ_ONLY;
+    MarkTexture(t);
+    return arm::ffxmGetResourceVK(reinterpret_cast<void *>(t->image), d, nullptr,
+                                  output ? arm::FFXM_RESOURCE_STATE_UNORDERED_ACCESS
+                                         : arm::FFXM_RESOURCE_STATE_GENERIC_READ);
+}
+
+void AsrMessage(arm::FfxmMsgType type, const wchar_t *message)
+{
+    char text[256];
+    size_t n = 0;
+    for (; message && message[n] && n + 1 < sizeof(text); ++n)
+        text[n] = message[n] < 128 ? char(message[n]) : '?';
+    text[n] = 0;
+    Log("vk: Arm ASR %s: %s", type == arm::FFXM_MESSAGE_TYPE_ERROR ? "error" : "warning", text);
+}
+
+bool AsrFail(const char *what, arm::FfxmErrorCode code)
+{
+    State &s = S();
+    s.asrFailed = true;
+    Log("vk: Arm ASR: %s failed (0x%x): no temporal upscaling", what, unsigned(code));
+    return false;
+}
+
+// The context for these sizes and this preset, made again when one changes (the GPU idle first, as ASR asks).
+bool AsrContext(const TemporalUpscaleDesc &desc)
+{
+    State &s = S();
+    if (!s.asrInterfaceReady)
+    {
+        s.asrScratch.resize(arm::ffxmGetScratchMemorySizeVK(s.physical, 1));
+        arm::VkDeviceContext device = {s.device, s.physical, vkGetDeviceProcAddr};
+        const arm::FfxmErrorCode e = arm::ffxmGetInterfaceVK(&s.asrInterface, arm::ffxmGetDeviceVK(&device),
+                                                             s.asrScratch.data(), s.asrScratch.size(), 1);
+        if (e != arm::FFXM_OK)
+            return AsrFail("ffxmGetInterfaceVK", e);
+        s.asrInterfaceReady = true;
+    }
+    const bool infinite = !(desc.cameraFar < 1e30f);
+    const uint32_t key[6] = {desc.renderWidth, desc.renderHeight, desc.outputWidth, desc.outputHeight,
+                             uint32_t(desc.preset), infinite ? 1u : 0u};
+    if (s.asrContextReady && !std::memcmp(key, s.asrKey, sizeof(key)))
+        return true;
+    if (s.asrContextReady)
+    {
+        if (s.rendering)
+            SuspendRendering();
+        Flush();
+        vkDeviceWaitIdle(s.device);
+        arm::ffxmFsr2ContextDestroy(&s.asrContext);
+        s.asrContextReady = false;
+    }
+    arm::FfxmFsr2ContextDescription cd = {};
+    cd.qualityMode = desc.preset == UpscalePreset::Performance ? arm::FFXM_FSR2_SHADER_QUALITY_MODE_PERFORMANCE
+                     : desc.preset == UpscalePreset::Balanced  ? arm::FFXM_FSR2_SHADER_QUALITY_MODE_BALANCED
+                                                               : arm::FFXM_FSR2_SHADER_QUALITY_MODE_QUALITY;
+    cd.flags = arm::FFXM_FSR2_ENABLE_AUTO_EXPOSURE | (infinite ? arm::FFXM_FSR2_ENABLE_DEPTH_INFINITE : 0);
+    cd.maxRenderSize = {desc.renderWidth, desc.renderHeight};
+    cd.displaySize = {desc.outputWidth, desc.outputHeight};
+    cd.backendInterface = s.asrInterface;
+    cd.fpMessage = AsrMessage;
+    const arm::FfxmErrorCode e = arm::ffxmFsr2ContextCreate(&s.asrContext, &cd);
+    if (e != arm::FFXM_OK)
+        return AsrFail("ffxmFsr2ContextCreate", e);
+    s.asrContextReady = true;
+    std::memcpy(s.asrKey, key, sizeof(key));
+    Log("vk: Arm ASR from %ux%u to %ux%u, %s shaders", desc.renderWidth, desc.renderHeight, desc.outputWidth,
+        desc.outputHeight, desc.preset == UpscalePreset::Performance ? "performance"
+                           : desc.preset == UpscalePreset::Balanced  ? "balanced"
+                                                                     : "quality");
+    return true;
+}
+} // namespace
+
+bool TemporalUpscale(const TemporalUpscaleDesc &desc)
+{
+    State &s = S();
+    std::lock_guard<std::recursive_mutex> guard(s.lock);
+    if (!s.caps.temporalUpscale || s.asrFailed || !desc.color || !desc.depth || !desc.motion || !desc.output)
+        return false;
+    for (gb::Texture *input : {desc.color, desc.depth, desc.motion, desc.reactive})
+        if (input && AsrFormat(static_cast<Texture *>(input)->desc.format) == arm::FFXM_SURFACE_FORMAT_UNKNOWN)
+        {
+            Log("vk: TemporalUpscale: an input's format has no Arm ASR equivalent (BGRA8: copy it to RGBA8)");
+            return false;
+        }
+    if (AsrFormat(static_cast<Texture *>(desc.output)->desc.format) == arm::FFXM_SURFACE_FORMAT_UNKNOWN)
+    {
+        Log("vk: TemporalUpscale: the output's format has no Arm ASR equivalent");
+        return false;
+    }
+    if (!AsrContext(desc))
+        return false;
+    VkCommandBuffer cmd = Cmd();
+    if (s.rendering)
+        SuspendRendering();
+    FullBarrier(cmd);
+    arm::FfxmFsr2DispatchDescription d = {};
+    d.commandList = arm::ffxmGetCommandListVK(cmd);
+    d.color = AsrResource(desc.color, false);
+    d.depth = AsrResource(desc.depth, false);
+    d.motionVectors = AsrResource(desc.motion, false);
+    d.reactive = AsrResource(desc.reactive, false);
+    d.output = AsrResource(desc.output, true);
+    d.jitterOffset = {desc.jitterX, desc.jitterY};
+    d.motionVectorScale = {1.0f, 1.0f}; // already in render pixels
+    d.renderSize = {desc.renderWidth, desc.renderHeight};
+    d.enableSharpening = desc.sharpness > 0.0f;
+    d.sharpness = std::min(std::max(desc.sharpness, 0.0f), 1.0f);
+    d.frameTimeDelta = desc.frameMs;
+    d.preExposure = 1.0f;
+    d.reset = desc.reset;
+    d.cameraNear = desc.cameraNear;
+    d.cameraFar = desc.cameraFar;
+    d.cameraFovAngleVertical = desc.verticalFov;
+    d.viewSpaceToMetersFactor = 0.0254f; // the engine's units are inches
+    const arm::FfxmErrorCode e = arm::ffxmFsr2ContextDispatch(&s.asrContext, &d);
+    // ASR leaves its own pipeline bound and its own viewport and scissor set.
+    s.bound = nullptr;
+    FullBarrier(cmd);
+    if (e != arm::FFXM_OK)
+        return AsrFail("ffxmFsr2ContextDispatch", e);
+    return true;
 }
 
 void ReadTexture(gb::Texture *handle, uint8_t level, uint8_t layer, const Box &box, void *data, uint32_t rowPitch)

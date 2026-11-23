@@ -479,6 +479,37 @@ void Blit(Texture *src, uint8_t srcLevel, uint8_t srcLayer, const Rect &srcRect,
 // Reads a texture level back to the CPU. A sync point: it waits for the recorded work that writes it.
 void ReadTexture(Texture *texture, uint8_t level, uint8_t layer, const Box &box, void *data, uint32_t rowPitch);
 
+// ---- temporal upscaling, outside passes (Caps::temporalUpscale; docs/VULKAN.md, step 6)
+
+enum class UpscalePreset : uint8_t
+{
+    Quality,
+    Balanced,
+    Performance,
+};
+
+// One frame of a temporal upscaler (Arm ASR, FSR 2's inputs). Every input is level 0 of a sampled 2D texture of the
+// render size, rendered with the frame's jitter; the output is a colour target of the output size.
+struct TemporalUpscaleDesc
+{
+    Texture *color;    // the scene, in display (not linear) colours
+    Texture *depth;    // R32F, 0 near to 1 far, the scene's depth
+    Texture *motion;   // RG16F: for each pixel, the render pixels from where it is to where it was the frame before
+    Texture *reactive; // optional R8: 1 where the history must not be trusted (particles, transparencies)
+    Texture *output;
+    uint16_t renderWidth, renderHeight, outputWidth, outputHeight;
+    float jitterX, jitterY; // the projection's offset this frame, in render pixels (ffxmFsr2GetJitterOffset)
+    float frameMs;
+    float sharpness;        // 0 (off) to 1
+    float cameraNear, cameraFar, verticalFov; // the far plane may be infinite (FLT_MAX)
+    bool reset;             // a camera cut: the history goes
+    UpscalePreset preset;
+};
+
+// Records one upscale. Each call is one frame of the upscaler's history: one call a presented frame. False, and
+// nothing written, when the backend has no temporal upscaler (Caps::temporalUpscale) or it fails (logged).
+bool TemporalUpscale(const TemporalUpscaleDesc &desc);
+
 // ---- queries and fences: written by the GPU, polled without waiting
 
 enum class QueryType : uint8_t
@@ -528,6 +559,7 @@ struct Caps
     uint64_t memoryBytes; // what textures and buffers can use, an estimate
     // Per Format: bit 0 sampled, bit 1 colour attachment, bit 2 depth attachment, bit 3 filterable.
     uint8_t formatFlags[static_cast<int>(Format::Count)];
+    bool temporalUpscale; // TemporalUpscale works
 };
 
 inline constexpr uint8_t FORMAT_SAMPLED = 1, FORMAT_COLOR_TARGET = 2, FORMAT_DEPTH_TARGET = 4, FORMAT_FILTERABLE = 8;

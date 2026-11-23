@@ -2484,6 +2484,30 @@ set(BO1_VULKAN_INCLUDE_DIRS
 	"${CMAKE_CURRENT_SOURCE_DIR}/third_party/vma"
 )
 
+# Arm ASR (third_party/arm_asr): the FSR 2 component and its standalone Vulkan backend, in the Vulkan backend.
+set(ARM_ASR_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third_party/arm_asr")
+set(GFX_BACKEND_ARM_ASR_FILES
+	"${ARM_ASR_DIR}/src/shared/ffxm_assert.cpp"
+	"${ARM_ASR_DIR}/src/shared/ffxm_object_management.cpp"
+	"${ARM_ASR_DIR}/src/components/fsr2/ffxm_fsr2.cpp"
+	"${ARM_ASR_DIR}/src/backends/shared/ffxm_shader_blobs.cpp"
+	"${ARM_ASR_DIR}/src/backends/shared/blob_accessors/ffxm_fsr2_shaderblobs.cpp"
+	"${ARM_ASR_DIR}/src/backends/vk/ffxm_hash.cpp"
+	"${ARM_ASR_DIR}/src/backends/vk/ffxm_vk.cpp"
+)
+set(BO1_ARM_ASR_INCLUDE_DIRS
+	"${ARM_ASR_DIR}"
+	"${ARM_ASR_DIR}/include"
+	"${ARM_ASR_DIR}/include/host"
+	"${ARM_ASR_DIR}/include/host/backends/vk"
+	"${ARM_ASR_DIR}/include/gpu"
+	"${ARM_ASR_DIR}/src/components"
+	"${ARM_ASR_DIR}/src/backends/shared"
+	"${ARM_ASR_DIR}/src/backends/shared/blob_accessors"
+	"${ARM_ASR_DIR}/src/backends/shared/blob_accessors/prebuilt_shaders"
+	"${ARM_ASR_DIR}/src/backends/vk"
+)
+
 # ----- src/qcommon -----
 set(SRC_QCOMMON
 	"${SRC_DIR}/qcommon/bitarray.h"

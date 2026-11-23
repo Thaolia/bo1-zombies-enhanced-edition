@@ -161,6 +161,15 @@ console's compositor stretches the frame bilinearly.
     On a game capture rendered at 960x540, the 1280x720 result is closer to the native 720p one than the stretch
     (PSNR 37.6 against 36.1 dB, 2026-11-22).
 
+## Temporal upscaling (`gb::TemporalUpscale`, docs/VULKAN.md step 6)
+A contract call outside passes, reported by `Caps::temporalUpscale`: one frame of Arm ASR (FSR 2's inputs). Every
+input is a sampled 2D texture of the render size: the scene colour (RGBA8, not BGRA8), its depth as R32F (0 near, 1
+far), the camera's motion as RG16F in render pixels, an optional R8 reactive mask; the output is a colour target of
+the output size. The jitter, frame time, sharpening, camera near/far/vertical field of view, a reset flag and a shader
+preset complete it. Checklist: no implicit state (the backend keeps one ASR context per sizes and preset, made again
+when they change), no query, the call orders itself against the work recorded before and after it (full barriers on
+Vulkan), resources declared as usual, no API names. Null records and checks the inputs, GL and deko3d return false.
+
 ## The null backend (`src/gfx_backend/null`)
 It implements the whole header without a GPU: it draws nothing and keeps no texel, and its results are those of a
 device that drew nothing (occlusion queries count 0, fences are reached at once, readbacks return zeros). It checks

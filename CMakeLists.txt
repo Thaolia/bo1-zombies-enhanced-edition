@@ -161,7 +161,16 @@ if(NOT (BO1_PLATFORM STREQUAL "win32" AND NOT BO1_ARCH_64))
             VERBATIM)
         list(APPEND GFX_BACKEND_VULKAN_FILES "${BO1_VK_SHADER_HEADER}")
         set_source_files_properties("${SRC_DIR}/gfx_backend/vulkan/gb_vk.cpp" PROPERTIES
-                                    INCLUDE_DIRECTORIES "${CMAKE_BINARY_DIR}/generated")
+                                    INCLUDE_DIRECTORIES "${CMAKE_BINARY_DIR}/generated;${ARM_ASR_DIR}/include")
+        # Arm ASR (docs/VULKAN.md, step 6): built as it comes, its own include paths on its files only. It calls a few
+        # Vulkan functions by their global names, which volk's pointers provide (forced include, the loader stays
+        # volk's), and wcscpy/wcscmp without <cwchar>, which MSVC's headers bring in on their own. Its warnings are
+        # its own.
+        list(APPEND GFX_BACKEND_VULKAN_FILES ${GFX_BACKEND_ARM_ASR_FILES})
+        set_source_files_properties(${GFX_BACKEND_ARM_ASR_FILES} PROPERTIES
+            INCLUDE_DIRECTORIES "${BO1_ARM_ASR_INCLUDE_DIRS}"
+            COMPILE_DEFINITIONS "FFXM_FSR;_SILENCE_CXX17_CODECVT_HEADER_DEPRECATION_WARNING"
+            COMPILE_OPTIONS "$<IF:$<CXX_COMPILER_ID:MSVC>,/FIvolk.h;/W0,-include;cwchar;-include;volk.h;-w>")
     endif()
 endif()
 

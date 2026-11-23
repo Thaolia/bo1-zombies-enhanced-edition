@@ -442,6 +442,12 @@ void Blit(gb::Texture *src, uint8_t srcLevel, uint8_t srcLayer, const Rect &srcR
     Emit(cmd::Blit{G(src), srcLevel, srcLayer, srcRect, G(dst), dstLevel, dstLayer, dstRect, filter});
 }
 
+// GL has no temporal upscaler (Caps::temporalUpscale stays false): the frontend keeps FSR 1.0.
+bool TemporalUpscale(const TemporalUpscaleDesc &)
+{
+    return false;
+}
+
 void ReadTexture(gb::Texture *texture, uint8_t level, uint8_t layer, const Box &box, void *data, uint32_t rowPitch)
 {
     Emit(cmd::ReadTexture{G(texture), level, layer, box, data, rowPitch});

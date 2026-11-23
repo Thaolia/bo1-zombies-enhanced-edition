@@ -70,6 +70,7 @@ struct Swapchain
     X(void, ReadTexture,                                                                                              \
       (Texture * texture, uint8_t level, uint8_t layer, const Box &box, void *data, uint32_t rowPitch),               \
       (texture, level, layer, box, data, rowPitch))                                                                   \
+    X(bool, TemporalUpscale, (const TemporalUpscaleDesc &desc), (desc))                                               \
     X(Query *, CreateQuery, (QueryType type), (type))                                                                 \
     X(void, DestroyQuery, (Query * query), (query))                                                                   \
     X(void, BeginQuery, (Query * query), (query))                                                                     \

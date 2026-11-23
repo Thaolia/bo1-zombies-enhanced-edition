@@ -692,6 +692,68 @@ void TestMultisampledDepthResolve()
     gb::DestroyTexture(resolved);
 }
 
+// TemporalUpscale (Arm ASR on Vulkan; GL has none): a still scene, green on the left and red on the right, upscaled
+// twice over several frames of jitter, keeps its halves.
+void TestTemporalUpscale()
+{
+    gb::TemporalUpscaleDesc u = {};
+    if (!gb::GetCaps().temporalUpscale)
+    {
+        Check(!gb::TemporalUpscale(u), "without Caps::temporalUpscale, TemporalUpscale does nothing");
+        return;
+    }
+    constexpr int kOut = kSize * 2;
+    const auto texture = [](gb::Format format, gb::Usage usage, int size) {
+        return gb::CreateTexture({gb::TextureType::Tex2D, format, usage, true, uint16_t(size), uint16_t(size), 1, 1, 1,
+                                  {}});
+    };
+    gb::Texture *color = texture(gb::Format::RGBA8, gb::Usage::Static, kSize);
+    gb::Texture *depth = texture(gb::Format::R32F, gb::Usage::Static, kSize);
+    gb::Texture *motion = texture(gb::Format::RG16F, gb::Usage::Static, kSize);
+    gb::Texture *output = texture(gb::Format::RGBA8, gb::Usage::RenderTarget, kOut);
+    std::vector<uint32_t> rgba(kSize * kSize), zero(kSize * kSize, 0);
+    std::vector<float> far(kSize * kSize, 0.5f);
+    for (int y = 0; y < kSize; ++y)
+        for (int x = 0; x < kSize; ++x)
+            rgba[y * kSize + x] = x < kSize / 2 ? 0xFF00FF00u : 0xFF0000FFu; // bytes R, G, B, A
+    const gb::Box all = {0, 0, 0, kSize, kSize, 1};
+    gb::UploadTexture(color, 0, 0, all, rgba.data(), kSize * 4, kSize * kSize * 4);
+    gb::UploadTexture(depth, 0, 0, all, far.data(), kSize * 4, kSize * kSize * 4);
+    gb::UploadTexture(motion, 0, 0, all, zero.data(), kSize * 4, kSize * kSize * 4);
+    u.color = color;
+    u.depth = depth;
+    u.motion = motion;
+    u.output = output;
+    u.renderWidth = u.renderHeight = kSize;
+    u.outputWidth = u.outputHeight = kOut;
+    u.frameMs = 16.7f;
+    u.sharpness = 0.2f;
+    u.cameraNear = 4.0f;
+    u.cameraFar = 1e38f;
+    u.verticalFov = 1.2f;
+    u.preset = gb::UpscalePreset::Quality;
+    bool all_ok = true;
+    for (int frame = 0; frame < 8; ++frame)
+    {
+        u.jitterX = (frame & 1) ? 0.25f : -0.25f;
+        u.jitterY = (frame & 2) ? 0.25f : -0.25f;
+        u.reset = frame == 0;
+        all_ok = gb::TemporalUpscale(u) && all_ok;
+        EndFrame();
+    }
+    Check(all_ok, "TemporalUpscale records a frame");
+    std::vector<uint32_t> out(kOut * kOut);
+    gb::ReadTexture(output, 0, 0, {0, 0, 0, kOut, kOut, 1}, out.data(), kOut * 4);
+    const auto channel = [&](int x, int y, int shift) { return int((out[y * kOut + x] >> shift) & 0xFF); };
+    Check(channel(20, 64, 8) > 200 && channel(20, 64, 0) < 40 && channel(108, 64, 0) > 200 &&
+              channel(108, 64, 8) < 40,
+          "a still two-colour scene comes out of the temporal upscaler at twice the size, halves in place");
+    gb::DestroyTexture(color);
+    gb::DestroyTexture(depth);
+    gb::DestroyTexture(motion);
+    gb::DestroyTexture(output);
+}
+
 // A hardware shadow map (gfx_backend.h, SamplerDesc::depthCompare): a sampled D24S8 attachment read through a shadow
 // sampler gives 1 where the reference depth is less than or equal to the stored one.
 void TestShadowCompare()
@@ -869,6 +931,7 @@ int main()
     TestMultisampledEdges();
     TestMultisampledDepthResolve();
     TestShadowCompare();
+    TestTemporalUpscale();
     TestColorClamp();
     TestQueriesAndFences();
     TestShaderFailure();
