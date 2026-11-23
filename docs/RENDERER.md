@@ -288,11 +288,14 @@ run has no surface; it renders into its textures and `Present` only submits.
 - In the game, pipelines compile on background threads (1 to 3, `host::AsyncPipelines`; the tests keep them
   synchronous): `GetPipeline` returns at once and a draw whose pipeline is not ready is skipped (`vk perf:` counts
   them). The user's Intel Iris Xe spends 100-500 ms on one pipeline, so every new combination of shaders and states
-  (the first shots, effects, zombies) stopped the game that long; now an object misses a few frames instead. A shader
-  is freed only once the queue is empty, and the threads stop before the pipelines are freed.
+  (the first shots, effects, zombies) stopped the game that long; now an object misses a few frames instead. Freeing
+  a shader drops the queued jobs that read it and waits only for the running ones (waiting for the whole queue froze
+  a map's unload for minutes on a first run, 2026-11-23); `vk perf:` tells how many are waiting. The threads stop
+  before the pipelines are freed.
 - The pipeline cache is kept between runs in `vk_pipelines.bin` beside the program (`host::PipelineCachePath`). Its
   Vulkan header must name this device, vendor and driver (`pipelineCacheUUID`) or it is not read. It is written once
-  ten seconds go by without a new pipeline, and at shutdown, through a temporary file.
+  ten seconds go by without a new pipeline, at least every minute while the threads still compile, and at shutdown,
+  through a temporary file.
 
 `gb_vk_test` is `gb_backend_test.cpp` built for this backend (`GB_TEST_VULKAN`): the same 46 checks with no window,
 on any Vulkan 1.3 device (lavapipe included).
