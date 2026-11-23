@@ -234,6 +234,22 @@ optimised for mobile GPUs:
    passes added to `gb_deko3d.cpp`). **A prototype measured on the console first.** Arm reports 2.9-5.3 ms at 2400x1080
    on Immortalis GPUs. On the Tegra X1 at 720p the cost may eat what 540p saves, so only a console measurement
    decides. 3-5 sessions.
+   **Asked by the user (2026-11-23). First finding:** uam 1.1.0 (Mesa's GL GLSL front end) rejects every ASR shader
+   as written: `GL_EXT_samplerless_texture_functions`, `GL_EXT_shader_explicit_arithmetic_types` (float16_t) and
+   separate texture/sampler objects in descriptor sets are Vulkan GLSL only (tried on the 7 passes, preprocessed with
+   `glslangValidator -E`). The work, in order:
+   1. A GL-dialect variant of ASR's GPU glue (`include/gpu/ffxm_core_glsl.h`, `fsr2/ffxm_fsr2_callbacks_glsl.h`,
+      the passes' resource declarations) in `src/gfx_backend/deko3d/asr/`, never editing `third_party/arm_asr`:
+      combined samplers at deko3d's per-stage bindings, `FFXM_HALF 0` (the 32-bit paths; uam has no float16 type),
+      quad operations replaced where uam lacks `GL_KHR_shader_subgroup_quad`, images with explicit formats.
+      Checked by compiling every permutation `getPipelinePermutationFlags` can ask for with uam (and `UseMesaSchedule`
+      on the result), then on GL first: the same GLSL through the GL backend would give a desktop reference.
+   2. A deko3d `FfxmInterface` (the 15 callbacks the Vulkan backend has in `ffxm_vk.cpp`): resources from the
+      backend's pools, compute and graphics pipelines from embedded DKSH, the jobs (clear, copy, compute dispatch,
+      full-screen draw) recorded into the frame's command buffer with the barriers `gb_deko3d.cpp` already uses.
+      `Caps::temporalUpscale` on deko3d then, and the start menu's 540p offers ASR.
+   3. Ryujinx for correctness (it runs deko3d), **the console for the cost**: the user's `perf:` line at 540p with
+      FSR 1.0 against ASR quality and performance. Kept only if it fits the frame budget (GPU 22-29 ms today).
 
 Known limit: with camera-only motion vectors, zombies and other animated models may ghost. Per-object motion vectors
 would mean changing every skinned material's generated shaders, which is out of scope.
