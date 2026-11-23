@@ -410,7 +410,7 @@ class App:
             self.msg("Choisissez d'abord votre installation de Black Ops (« c »).", C_ERR)
             return
         self.setup_job = gamesetup.Setup(self.root, p["steam_install"], video=p["setup_video"],
-                                         convert=p["setup_convert"])
+                                         convert=p["setup_convert"], spirv=p["setup_spirv"])
         self.setup_job.start()
         self.msg("Installation lancée.", C_INFO)
 
@@ -421,6 +421,8 @@ class App:
             self.missing_cache = (0.0, None)
             if job.error:
                 self.msg(f"Installation : {job.error}", C_ERR)
+            elif job.warning:
+                self.msg(f"Installation terminée, sauf Vulkan : {job.warning}", C_WARN)
             else:
                 self.msg("Installation terminée : le jeu peut démarrer (F1).", C_OK)
 

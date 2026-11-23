@@ -1,5 +1,11 @@
 # Vulkan backend and upscalers — plan
 
+ZmClient makes the Vulkan files from the player's own game (2026-11-23): its Installation view keeps the
+`shaders.pack` ffconv writes with the zones (it dropped it on Windows, where only D3D9 ran) and compiles it to
+`shaders.spv` with glslang (`tools/zmclient/zmclient/spirvpack.py`, which `tools/ffconv/gen/make_spirv_pack.py` now
+wraps: both write the same bytes). The Windows package carries Khronos' `glslang.exe` 16.6.0 and its licence
+(`third_party/glslang`); on Linux ZmClient uses the system's glslang.
+
 Status (2026-11-23): steps 1-7 done (FSR1 checked on the console too; Vulkan on Linux and win64; Arm ASR with its
 reactive mask; native AA; SSAA), merged into `switch`. Open: ASR on the Switch (step 6, item 4) and OpenBSD (step 8).
 Each step updates this file, `docs/RENDERER.md` and `docs/PORTING.md` (phase 9) in the session that does it.

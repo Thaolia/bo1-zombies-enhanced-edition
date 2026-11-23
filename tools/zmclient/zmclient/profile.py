@@ -92,6 +92,7 @@ DEFAULTS = {
     "steam_install": "",                # the Black Ops install the Installation view copies from
     "setup_video": True,
     "setup_convert": True,
+    "setup_spirv": True,                # compile shaders.spv (Vulkan) after the conversion, or when it is stale
 }
 
 _NAME = re.compile(r"^[A-Za-z0-9_.\-]{1,15}$")

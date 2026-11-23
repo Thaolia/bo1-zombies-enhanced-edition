@@ -23,7 +23,7 @@ TOOLS = os.path.join(HERE, "..", "..", "tools")
 sys.path.insert(0, os.path.join(TOOLS, "zmclient"))
 sys.path.insert(0, os.path.join(TOOLS, "zmadmin"))
 
-from zmclient import dirbrowser, gamesetup, profile as P  # noqa: E402
+from zmclient import dirbrowser, gamesetup, profile as P, spirvpack  # noqa: E402
 from zmclient.browser import Browser  # noqa: E402
 from zmclient.cli import main as cli_main  # noqa: E402
 from zmclient.client import Client  # noqa: E402
@@ -962,6 +962,27 @@ class ServerBrowser(unittest.TestCase):
             a.stop()
 
 
+# Two shaders as ffconv writes them: the vertex constants at UBO binding 0, the pixel ones at 1, a sampler at 0.
+GLSL_VERTEX = (b"#version 430 core\nlayout(std140, binding = 0) uniform V { vec4 c; };\n"
+               b"void main() { gl_Position = c; }\n")
+GLSL_PIXEL = (b"#version 430 core\nlayout(std140, binding = 1) uniform P { vec4 k; };\n"
+              b"layout(binding = 0) uniform sampler2D s;\nlayout(location = 0) out vec4 o;\n"
+              b"void main() { o = texture(s, vec2(0.5)) * k; }\n")
+GLSL_BROKEN = b"#version 430 core\nvoid main() { this is not glsl }\n"
+
+
+def glsl_pack(shaders):
+    """A BO1GLSL1 pack of [(hash, stage, glsl)] (src/gfx_d3d9emu/shader_pack.h)."""
+    import struct
+    head, entry = struct.Struct("<8sII"), struct.Struct("<QIIII")
+    entries, payloads = b"", b""
+    base = head.size + len(shaders) * entry.size
+    for h, stage, glsl in shaders:
+        entries += entry.pack(h, stage, base + len(payloads), len(glsl), 0)
+        payloads += glsl
+    return head.pack(b"BO1GLSL1", 1, len(shaders)) + entries + payloads
+
+
 FAKE_FFCONV = r'''
 import os, sys
 args = sys.argv[1:]
@@ -972,7 +993,7 @@ os.makedirs(os.path.join(out, "zone", "common"))
 for i, n in enumerate(("a.ff", "b.ff")):
     print(f"[{i + 1}/2] {n}")
     open(os.path.join(out, "zone", "common", n), "w").write("ff")
-open(os.path.join(out, "shaders.pack"), "w").write("pack")
+open(os.path.join(out, "shaders.pack"), "wb").write(bytes.fromhex(os.environ["FAKE_FFCONV_PACK"]))
 '''
 
 
@@ -996,10 +1017,13 @@ class GameSetup(unittest.TestCase):
         self.saved = gamesetup.converter_command
         gamesetup.converter_command = lambda lay, install, out: [sys.executable, self.fake, "--game", install, "--out",
                                                                  out]
+        os.environ["FAKE_FFCONV_PACK"] = glsl_pack([(0x11, 0, GLSL_VERTEX), (0x22, 1, GLSL_PIXEL)]).hex()
+        self.glslang = spirvpack.find_glslang(self.dist.root)
 
     def tearDown(self):
         gamesetup.converter_command = self.saved
         os.environ.pop("FAKE_FFCONV_FAIL", None)
+        os.environ.pop("FAKE_FFCONV_PACK", None)
         self.tmp.cleanup()
 
     def run_setup(self, **kw):
@@ -1014,16 +1038,55 @@ class GameSetup(unittest.TestCase):
         self.assertEqual((job.zone_at, job.zone_count), (2, 2))
         self.assertIsNone(gamesetup.ready(self.dist.root))
         st = gamesetup.state(self.dist.root)
-        self.assertTrue(all(ok for ok, _ in st.values()), st)
+        # shaders.spv needs glslang: without it the rest installs and the job says why Vulkan is left out
+        self.assertTrue(all(ok for part, (ok, _) in st.items() if part != "spirv"), st)
+        self.assertEqual(st["spirv"][0], bool(self.glslang), st)
+        self.assertEqual(job.warning is None, bool(self.glslang), job.warning)
         self.assertTrue(os.path.isfile(os.path.join(self.dist.root, "main", "video", "intro.bik")))
         self.assertFalse(os.path.exists(os.path.join(self.dist.root, "players", "config.cfg")))
-        self.assertEqual(os.path.isfile(os.path.join(self.dist.root, "shaders.pack")), os.name != "nt")
+        self.assertTrue(os.path.isfile(os.path.join(self.dist.root, "shaders.pack")))   # kept for Vulkan on Windows
         again = self.run_setup(convert=False)
         self.assertIn("0 fichiers à copier", "\n".join(again.lines))
         # a new ffconv in the package: the zones it did not make are stale
         with open(os.path.join(self.dist.root, "ffconv.exe"), "w") as fh:
             fh.write("v2")
         self.assertFalse(gamesetup.state(self.dist.root)["zones"][0])
+
+    def test_spirv(self):
+        if not self.glslang:
+            self.skipTest("no glslang")
+        job = self.run_setup(video=False)
+        self.assertIsNone(job.error, job.lines)
+        spv = os.path.join(self.dist.root, "shaders.spv")
+        with open(spv, "rb") as fh:
+            data = fh.read()
+        self.assertEqual(data[:16], b"BO1SPRV1" + (1).to_bytes(4, "little") + (2).to_bytes(4, "little"))
+        self.assertEqual((job.shader_at, job.shader_count), (2, 2))
+        # up to date: not compiled again
+        again = self.run_setup(video=False, convert=False)
+        self.assertEqual(again.shader_count, 0)
+        # a shaders.pack newer than it: compiled again, and one shader glslang refuses is left out with a warning
+        with open(os.path.join(self.dist.root, "shaders.pack"), "wb") as fh:
+            fh.write(glsl_pack([(0x11, 0, GLSL_VERTEX), (0x33, 1, GLSL_BROKEN)]))
+        os.utime(spv, (1, 1))
+        self.assertFalse(gamesetup.state(self.dist.root)["spirv"][0])
+        third = self.run_setup(video=False, convert=False)
+        self.assertIsNone(third.error, third.lines)
+        self.assertIn("1 shaders refusés", third.warning)
+        self.assertIn("0000000000000033.frag", "\n".join(third.lines))
+        self.assertTrue(gamesetup.state(self.dist.root)["spirv"][0])
+
+    def test_spirv_without_glslang(self):
+        saved = spirvpack.find_glslang
+        spirvpack.find_glslang = lambda root: None
+        try:
+            job = self.run_setup(video=False)
+        finally:
+            spirvpack.find_glslang = saved
+        self.assertIsNone(job.error)
+        self.assertIn("glslang-tools", job.warning)
+        self.assertIsNone(gamesetup.ready(self.dist.root))   # the game still starts, without Vulkan
+        self.assertFalse(os.path.exists(os.path.join(self.dist.root, "shaders.spv")))
 
     def test_relative_install_path(self):
         here = os.getcwd()

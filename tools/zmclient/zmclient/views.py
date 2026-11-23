@@ -1017,7 +1017,8 @@ class ExtraView(View):
 # ------------------------------------------------------------------------------------------------------------- Setup
 class SetupView(View):
     name, title = "setup", "Installation"
-    hints = "c choisir l'installation  v vidéos  z zones  i installer  Échap annuler  r actualiser  ? aide"
+    hints = ("c choisir l'installation  v vidéos  z zones  s shaders Vulkan  i installer  Échap annuler  r actualiser  "
+             "? aide")
 
     def __init__(self, app):
         super().__init__(app)
@@ -1058,9 +1059,11 @@ class SetupView(View):
         put(scr, y, 1, f"Dossier du paquet :          {app.root}", color(C_DIM), width=width - 2)
         y += 2
         labels = {"localization": "localization.txt", "iwd": "main/*.iwd", "video": "main/video/",
-                  "zones": "zone/ (converties)", "pack": "shaders.pack"}
+                  "zones": "zone/ (converties)", "pack": "shaders.pack", "spirv": "shaders.spv"}
+        needs_pack = gamesetup.Layout(app.root).needs_pack
         for part, (ok, text) in self.state.items():
-            mark, pair = (OK_MARK, C_OK) if ok else (BAD_MARK, C_WARN if part == "video" else C_ERR)
+            optional = part in gamesetup.OPTIONAL or (part == "pack" and not needs_pack)
+            mark, pair = (OK_MARK, C_OK) if ok else (BAD_MARK, C_WARN if optional else C_ERR)
             put(scr, y, 3, f"{mark} {labels[part]:<20}", color(pair))
             put(scr, y, 27, text, 0, width=width - 28)
             y += 1
@@ -1072,6 +1075,10 @@ class SetupView(View):
         put(scr, y, 3, f"[{'x' if p['setup_convert'] else ' '}] convertir les zones (ffconv, ~6 minutes)",
             curses.A_BOLD if not job else color(C_DIM))
         self.zone(y, 3, 45, lambda: self.key("z"))
+        y += 1
+        put(scr, y, 3, f"[{'x' if p['setup_spirv'] else ' '}] compiler les shaders Vulkan (shaders.spv, 5 à 15 minutes)",
+            curses.A_BOLD if not job else color(C_DIM))
+        self.zone(y, 3, 60, lambda: self.key("s"))
         y += 2
         x = 3
         running = job and not job.finished
@@ -1086,12 +1093,16 @@ class SetupView(View):
                 status = f"Copie : {job.done_bytes >> 20} / {job.total_bytes >> 20} Mo ({pct} %)"
             elif job.phase == "conversion des zones" and job.zone_count:
                 status = f"Conversion : zone {job.zone_at} / {job.zone_count}"
+            elif job.phase == "shaders Vulkan" and job.shader_count:
+                status = f"Shaders Vulkan : {job.shader_at} / {job.shader_count}"
             else:
                 status = job.phase.capitalize()
+            warned = job.finished and not job.error and job.warning
             if job.finished:
-                status = f"Échec : {job.error}" if job.error else "Installation terminée."
-            put(scr, y, 3, status, color(C_ERR if job.finished and job.error else C_OK if job.finished else C_INFO),
-                width=width - 4)
+                status = (f"Échec : {job.error}" if job.error else f"Installation terminée, sauf Vulkan : {job.warning}"
+                          if warned else "Installation terminée.")
+            put(scr, y, 3, status, color(C_ERR if job.finished and job.error else C_WARN if warned else C_OK
+                                         if job.finished else C_INFO), width=width - 4)
             y += 1
             for line in job.lines[-max(0, top + height - y - 1):]:
                 put(scr, y, 5, line, color(C_DIM), width=width - 6)
@@ -1138,7 +1149,7 @@ class SetupView(View):
                 return True
             return False
         if running:
-            if k in ("c", "i", "v", "z"):
+            if k in ("c", "i", "v", "z", "s"):
                 app.msg("Une installation est en cours.", C_WARN)
                 return True
             return False
@@ -1149,6 +1160,9 @@ class SetupView(View):
             app.save_profile()
         elif k == "z":
             app.profile["setup_convert"] = not app.profile["setup_convert"]
+            app.save_profile()
+        elif k == "s":
+            app.profile["setup_spirv"] = not app.profile["setup_spirv"]
             app.save_profile()
         elif k == "r":
             self.installs = gamesetup.find_installs()
