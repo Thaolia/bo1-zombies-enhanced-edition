@@ -25,7 +25,20 @@ STAGES = {0: 'vert', 1: 'frag'}
 # uam's output depends on where its heap lands: with address randomisation 7 of 64 runs on one shader gave other code
 # (2026-10-27, 1790 of 13704 shaders differed between two packs of the same GLSL), with it off 64 of 64 matched the
 # pack checked on the console. Without setarch the pack still builds, but may differ from run to run.
-NO_ASLR = ['setarch', platform.machine(), '-R'] if shutil.which('setarch') else []
+def no_aslr_prefix():
+    # setarch can be present but refused: Docker's default seccomp profile rejects ADDR_NO_RANDOMIZE ("failed to set
+    # personality ... Operation not permitted").
+    command = ['setarch', platform.machine(), '-R']
+    if not shutil.which('setarch'):
+        return []
+    try:
+        ok = subprocess.run(command + ['true'], capture_output=True).returncode == 0
+    except OSError:
+        ok = False
+    return command if ok else []
+
+
+NO_ASLR = no_aslr_prefix()
 
 
 def read_glsl_pack(path):
@@ -67,7 +80,7 @@ def main():
         raise SystemExit(f'uam not found at {opts.uam} (set --uam or DEVKITPRO)')
 
     if not NO_ASLR:
-        print('setarch not found: uam runs with address randomisation, the pack may differ between runs')
+        print('setarch not found or refused: uam runs with address randomisation, the pack may differ between runs')
     shaders = read_glsl_pack(opts.glsl_pack)
     print(f'{opts.glsl_pack}: {len(shaders)} GLSL shaders -> compiling with {opts.uam} (jobs={opts.jobs})')
     with tempfile.TemporaryDirectory() as work, concurrent.futures.ThreadPoolExecutor(opts.jobs) as pool:

@@ -75,6 +75,21 @@ jobs:
         with:
           name: dxsdk
           path: dxsdk
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: glslang (Khronos release 16.6.0, as C:\SDKs\glslang-16.6.0 on a PC)
+        shell: pwsh
+        run: |
+          $zip = "$env:RUNNER_TEMP\glslang.zip"
+          Invoke-WebRequest -Uri "https://github.com/KhronosGroup/glslang/releases/download/16.6.0/glslang-16.6.0-windows-x86_64-release.zip" -OutFile $zip
+          $hash = (Get-FileHash -Algorithm SHA256 $zip).Hash.ToLower()
+          if ($hash -ne '82bf434e69b9bb4829de7e2b4bc2c5e7a7861e53d66cf75e5cc70f5f694a8d9b') { Write-Error "glslang: SHA-256 $hash"; exit 1 }
+          Expand-Archive $zip -DestinationPath "$env:RUNNER_TEMP\glslang"
+          $exe = Get-ChildItem -Recurse "$env:RUNNER_TEMP\glslang" -Filter glslang.exe | Select-Object -First 1
+          if (-not $exe) { Write-Error "no glslang.exe in the release archive"; exit 1 }
+          & $exe.FullName --version | Select-Object -First 1
+          $exe.DirectoryName | Out-File -Append -Encoding utf8 $env:GITHUB_PATH
       - name: Build BO1Zombies.exe
         shell: pwsh
         run: |
@@ -83,9 +98,6 @@ jobs:
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           cmake --build --preset win64-msvc-release
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
       - name: Build zmadmin.exe and zmclient.exe (Nuitka, as tools/*/build.sh windows)
         shell: pwsh
         run: |
@@ -155,6 +167,7 @@ jobs:
           sudo apt-get install -y -q ninja-build cmake python3 python3-venv libsdl2-dev libncurses-dev mingw-w64 \
               rsync patchelf meson bison flex python3-mako
           tools/ci/install_llvm.sh 21
+          tools/ci/install_glslang.sh
       - name: Build BO1Zombies (Linux)
         run: |
           cmake -S . -B build/linux -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=clang \
@@ -194,7 +207,11 @@ jobs:
     name: Switch (devkitA64, libnx, deko3d)
     needs: dxsdk
     runs-on: ubuntu-24.04
-    container: devkitpro/devkita64:latest
+    container:
+      image: devkitpro/devkita64:latest
+      # uam runs under setarch -R (tools/embed_shaders.py: reproducible DKSH); Docker's default seccomp profile refuses
+      # that personality.
+      options: --security-opt seccomp=unconfined
     steps:
       - name: Git
         run: |
@@ -266,6 +283,8 @@ jobs:
           sudo apt-get install -y -q ninja-build cmake python3 python3-cryptography mingw-w64 curl xz-utils
           tools/ci/install_llvm.sh 21
           sudo apt-get install -y -q lld-21 llvm-21
+          # the shaders are compiled to SPIR-V on the build machine
+          tools/ci/install_glslang.sh
       # The release's sets never change: keep its sysroot. -current moves every day: fetched each time.
       - name: Cache the sysroot (release only)
         if: matrix.flavor != 'current'

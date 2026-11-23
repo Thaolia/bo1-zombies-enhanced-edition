@@ -25,7 +25,20 @@ import tempfile
 
 STAGES = ('vert', 'frag')
 # uam's output depends on where its heap lands (make_dksh_pack.py): without address randomisation it is reproducible.
-NO_ASLR = ['setarch', platform.machine(), '-R'] if shutil.which('setarch') else []
+def no_aslr_prefix():
+    # setarch can be present but refused: Docker's default seccomp profile rejects ADDR_NO_RANDOMIZE ("failed to set
+    # personality ... Operation not permitted").
+    command = ['setarch', platform.machine(), '-R']
+    if not shutil.which('setarch'):
+        return []
+    try:
+        ok = subprocess.run(command + ['true'], capture_output=True).returncode == 0
+    except OSError:
+        ok = False
+    return command if ok else []
+
+
+NO_ASLR = no_aslr_prefix()
 SPIRV_ARGS = ['-V', '--target-env', 'vulkan1.1', '--shift-UBO-binding', '16']
 
 
@@ -70,6 +83,9 @@ def main():
     if opts.glslang:
         parts.append(f'#define {opts.macro}_HAS_SPIRV 1')
     parts += ['', f'namespace {opts.namespace}', '{']
+    if opts.uam and not NO_ASLR:
+        print('embed_shaders: setarch not found or refused: uam runs with address randomisation, its DKSH may differ'
+              ' between builds', file=sys.stderr)
     with tempfile.TemporaryDirectory() as work:
         for name, path, stage in shaders:
             if opts.glsl:
