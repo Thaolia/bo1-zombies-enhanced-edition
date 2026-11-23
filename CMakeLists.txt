@@ -110,6 +110,72 @@ target_include_directories(BO1Zombies PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src/li
 target_include_directories(BO1Zombies PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src/libs/libtommath-1.0")
 target_include_directories(BO1Zombies PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src/libs/libvpx-1.5.0/include")
 
+# Shaders of the program itself go into generated headers (tools/embed_shaders.py): the frontend's upscaler
+# (src/gfx_d3d9emu/shaders, docs/RENDERER.md "Upscaling") as GLSL, on the Switch also as DKSH compiled by uam, with
+# the Vulkan backend also as SPIR-V, beside the backend's own Present shaders; each backend gets the form its
+# shaders.pack has. 32-bit Windows builds neither the D3D9 frontend nor a backend, and needs none of it.
+if(NOT (BO1_PLATFORM STREQUAL "win32" AND NOT BO1_ARCH_64))
+    find_program(BO1_PYTHON3 NAMES python3 python REQUIRED)
+    if(BO1_PLATFORM STREQUAL "switch")
+        set(BO1_VULKAN OFF)
+    else()
+        # The Vulkan backend (docs/VULKAN.md), opt-in at run time: BO1_GFX_BACKEND=vulkan on posix, where GL stays the
+        # default; r_mod_gfxApi vulkan on win64, where the system's Direct3D 9 stays the default.
+        option(BO1_VULKAN "Build the Vulkan backend" ON)
+    endif()
+    set(BO1_EMBED_SHADERS "${CMAKE_CURRENT_SOURCE_DIR}/tools/embed_shaders.py")
+    set(BO1_UPSCALE_SHADERS "${SRC_DIR}/gfx_d3d9emu/shaders")
+    set(BO1_UPSCALE_HEADER "${CMAKE_BINARY_DIR}/generated/upscale_shaders.h")
+    set(BO1_UPSCALE_FORMS --glsl)
+    if(BO1_PLATFORM STREQUAL "switch")
+        find_program(BO1_UAM uam REQUIRED HINTS "$ENV{DEVKITPRO}/tools/bin")
+        list(APPEND BO1_UPSCALE_FORMS --uam "${BO1_UAM}")
+    endif()
+    if(BO1_VULKAN)
+        # Windows has no glslang of its own: the Khronos release (glslang.exe), unpacked where the DirectX SDK is.
+        find_program(BO1_GLSLANG NAMES glslangValidator glslang REQUIRED HINTS "C:/SDKs/glslang-16.6.0/bin")
+        list(APPEND BO1_UPSCALE_FORMS --glslang "${BO1_GLSLANG}")
+    endif()
+    add_custom_command(
+        OUTPUT "${BO1_UPSCALE_HEADER}"
+        COMMAND "${BO1_PYTHON3}" "${BO1_EMBED_SHADERS}" "${BO1_UPSCALE_HEADER}" --namespace d3d9emu::upscale_shaders
+                --macro BO1_UPSCALE ${BO1_UPSCALE_FORMS} "Vs=${BO1_UPSCALE_SHADERS}/fsr1_vs.glsl:vert"
+                "Easu=${BO1_UPSCALE_SHADERS}/fsr1_easu.glsl:frag" "Rcas=${BO1_UPSCALE_SHADERS}/fsr1_rcas.glsl:frag"
+                "Motion=${BO1_UPSCALE_SHADERS}/temporal_motion.glsl:frag"
+        DEPENDS "${BO1_EMBED_SHADERS}" "${BO1_UPSCALE_SHADERS}/fsr1_vs.glsl" "${BO1_UPSCALE_SHADERS}/fsr1_easu.glsl"
+                "${BO1_UPSCALE_SHADERS}/fsr1_rcas.glsl" "${BO1_UPSCALE_SHADERS}/temporal_motion.glsl"
+        COMMENT "Embedding the upscaler's shaders"
+        VERBATIM)
+    list(APPEND GFX_D3D9EMU_FILES "${BO1_UPSCALE_HEADER}")
+    set_source_files_properties("${SRC_DIR}/gfx_d3d9emu/d3d9emu_upscale.cpp"
+                                "${SRC_DIR}/gfx_d3d9emu/d3d9emu_temporal.cpp" PROPERTIES
+                                INCLUDE_DIRECTORIES "${CMAKE_BINARY_DIR}/generated")
+    if(BO1_VULKAN)
+        set(BO1_VK_SHADERS "${SRC_DIR}/gfx_backend/vulkan/shaders")
+        set(BO1_VK_SHADER_HEADER "${CMAKE_BINARY_DIR}/generated/vk_shaders.h")
+        add_custom_command(
+            OUTPUT "${BO1_VK_SHADER_HEADER}"
+            COMMAND "${BO1_PYTHON3}" "${BO1_EMBED_SHADERS}" "${BO1_VK_SHADER_HEADER}" --namespace gb::vulkan::shaders
+                    --macro BO1_VK --glslang "${BO1_GLSLANG}" "PresentVs=${BO1_VK_SHADERS}/present_vs.glsl:vert"
+                    "PresentFs=${BO1_VK_SHADERS}/present_fs.glsl:frag"
+            DEPENDS "${BO1_EMBED_SHADERS}" "${BO1_VK_SHADERS}/present_vs.glsl" "${BO1_VK_SHADERS}/present_fs.glsl"
+            COMMENT "Embedding the Vulkan backend's shaders"
+            VERBATIM)
+        list(APPEND GFX_BACKEND_VULKAN_FILES "${BO1_VK_SHADER_HEADER}")
+        set_source_files_properties("${SRC_DIR}/gfx_backend/vulkan/gb_vk.cpp" PROPERTIES
+                                    INCLUDE_DIRECTORIES "${CMAKE_BINARY_DIR}/generated;${ARM_ASR_DIR}/include")
+        # Arm ASR (docs/VULKAN.md, step 6): built as it comes, its own include paths on its files only. It calls a few
+        # Vulkan functions by their global names, which volk's pointers provide (forced include, the loader stays
+        # volk's), and wcscpy/wcscmp without <cwchar>, which MSVC's headers bring in on their own. Its warnings are
+        # its own.
+        list(APPEND GFX_BACKEND_VULKAN_FILES ${GFX_BACKEND_ARM_ASR_FILES})
+        set_source_files_properties(${GFX_BACKEND_ARM_ASR_FILES} PROPERTIES
+            INCLUDE_DIRECTORIES "${BO1_ARM_ASR_INCLUDE_DIRS}"
+            COMPILE_DEFINITIONS "FFXM_FSR;_SILENCE_CXX17_CODECVT_HEADER_DEPRECATION_WARNING"
+            COMPILE_OPTIONS "$<IF:$<CXX_COMPILER_ID:MSVC>,/FIvolk.h;/W0,-include;cwchar;-include;volk.h;-w>")
+    endif()
+endif()
+
 if(BO1_PLATFORM STREQUAL "win32")
     if(NOT BO1_ARCH_64)
         set(CMAKE_GENERATOR_PLATFORM "WIN32")
@@ -232,30 +298,28 @@ if(BO1_PLATFORM STREQUAL "win32")
     if(MSVC)
         target_link_options(BO1Zombies PRIVATE "/PDBALTPATH:%_PDB%")
     endif()
+
+    # win64: the D3D9 frontend (src/gfx_d3d9emu) on the Vulkan backend, chosen with r_mod_gfxApi vulkan
+    # (docs/VULKAN.md, step 5); the system's Direct3D 9 stays the default and win32 builds none of it. D3DX stays
+    # d3dx9.lib's (d3dx9emu.cpp would collide with it), and Bink is a stub there (BO1_OFFLINE).
+    if(BO1_ARCH_64 AND BO1_VULKAN)
+        list(REMOVE_ITEM GFX_D3D9EMU_FILES "${SRC_DIR}/gfx_d3d9emu/d3dx9emu.cpp")
+        target_sources(BO1Zombies PRIVATE ${GFX_D3D9EMU_FILES} ${GFX_BACKEND_NULL_FILES} ${GFX_BACKEND_VULKAN_FILES}
+                       "${SRC_DIR}/platform/windows/win_d3d9host.cpp" "${SRC_DIR}/platform/windows/win_vkhost.cpp"
+                       "${SRC_DIR}/platform/windows/win_gfxapi.h")
+        target_include_directories(BO1Zombies SYSTEM PRIVATE ${BO1_VULKAN_INCLUDE_DIRS})
+        target_compile_definitions(BO1Zombies PRIVATE BO1_WIN_VULKAN)
+        # The frontend and the backends call std::min/std::max, which windows.h's macros of the same name break.
+        set_property(SOURCE ${GFX_D3D9EMU_FILES} ${GFX_BACKEND_NULL_FILES} ${GFX_BACKEND_VULKAN_FILES}
+                     "${SRC_DIR}/platform/windows/win_d3d9host.cpp" "${SRC_DIR}/platform/windows/win_vkhost.cpp"
+                     APPEND PROPERTY COMPILE_DEFINITIONS NOMINMAX)
+        set_target_properties(BO1Zombies PROPERTIES BO1_GB_VULKAN ON)
+        set_source_files_properties("${SRC_DIR}/gfx_backend/gb_backend.cpp" PROPERTIES COMPILE_DEFINITIONS
+            "$<$<BOOL:$<TARGET_PROPERTY:BO1_GB_VULKAN>>:BO1_GB_VULKAN>")
+    endif()
 else()
     # posix / switch: Win32 declarations come from our shim (src/platform/posix/include); the D3D9 ones are copied
     # from the user's DirectX SDK at configure time, so nothing from Microsoft is committed.
-    # The frontend's upscaler shaders (src/gfx_d3d9emu/shaders, docs/RENDERER.md "Upscaling") go into a generated
-    # header as GLSL, and on the Switch also as DKSH compiled by uam, the form its shaders.pack has.
-    find_program(BO1_PYTHON3 NAMES python3 python REQUIRED)
-    set(BO1_UPSCALE_GLSL "${SRC_DIR}/gfx_d3d9emu/shaders/fsr1_vs.glsl" "${SRC_DIR}/gfx_d3d9emu/shaders/fsr1_easu.glsl"
-        "${SRC_DIR}/gfx_d3d9emu/shaders/fsr1_rcas.glsl")
-    set(BO1_UPSCALE_HEADER "${CMAKE_BINARY_DIR}/generated/upscale_shaders.h")
-    set(BO1_UPSCALE_UAM_ARGS "")
-    if(BO1_PLATFORM STREQUAL "switch")
-        find_program(BO1_UAM uam REQUIRED HINTS "$ENV{DEVKITPRO}/tools/bin")
-        set(BO1_UPSCALE_UAM_ARGS --uam "${BO1_UAM}")
-    endif()
-    add_custom_command(
-        OUTPUT "${BO1_UPSCALE_HEADER}"
-        COMMAND "${BO1_PYTHON3}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/upscale_shaders.py"
-                "${SRC_DIR}/gfx_d3d9emu/shaders" "${BO1_UPSCALE_HEADER}" ${BO1_UPSCALE_UAM_ARGS}
-        DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/tools/upscale_shaders.py" ${BO1_UPSCALE_GLSL}
-        COMMENT "Embedding the upscaler's shaders"
-        VERBATIM)
-    list(APPEND GFX_D3D9EMU_FILES "${BO1_UPSCALE_HEADER}")
-    set_source_files_properties("${SRC_DIR}/gfx_d3d9emu/d3d9emu_upscale.cpp" PROPERTIES
-                                INCLUDE_DIRECTORIES "${CMAKE_BINARY_DIR}/generated")
     set(DXSDK_DIR "/mnt/c/SDKs/DXSDK_Jun10/DXSDK" CACHE PATH "June 2010 DirectX SDK root (its Include/d3d9*.h are used)")
     foreach(BO1_DX_HEADER d3d9.h d3d9types.h d3d9caps.h)
         if(NOT EXISTS "${DXSDK_DIR}/Include/${BO1_DX_HEADER}")
@@ -292,8 +356,16 @@ else()
         # Only the dispatcher knows whether the target has the GL backend: a target-wide definition would rebuild
         # every file.
         set_target_properties(BO1Zombies PROPERTIES BO1_GB_GL ON)
-        set_source_files_properties("${SRC_DIR}/gfx_backend/gb_backend.cpp" PROPERTIES
-                                    COMPILE_DEFINITIONS "$<$<BOOL:$<TARGET_PROPERTY:BO1_GB_GL>>:BO1_GB_GL>")
+        set_source_files_properties("${SRC_DIR}/gfx_backend/gb_backend.cpp" PROPERTIES COMPILE_DEFINITIONS
+            "$<$<BOOL:$<TARGET_PROPERTY:BO1_GB_GL>>:BO1_GB_GL>;$<$<BOOL:$<TARGET_PROPERTY:BO1_GB_VULKAN>>:BO1_GB_VULKAN>")
+        # The Vulkan backend (src/gfx_backend/vulkan): Vulkan's headers, volk (the loader opened at run time, so the
+        # game starts without Vulkan) and the Vulkan Memory Allocator are vendored; its own Present shaders are SPIR-V
+        # in a generated header; SDL2 makes the surfaces (posix_vkhost.cpp).
+        if(BO1_VULKAN)
+            target_sources(BO1Zombies PRIVATE ${GFX_BACKEND_VULKAN_FILES} "${SRC_DIR}/platform/posix/posix_vkhost.cpp")
+            target_include_directories(BO1Zombies SYSTEM PRIVATE ${BO1_VULKAN_INCLUDE_DIRS})
+            set_target_properties(BO1Zombies PROPERTIES BO1_GB_VULKAN ON)
+        endif()
         # D3DXSaveSurfaceToFileA's image encoders (third_party/stb), for that one file.
         set_source_files_properties("${SRC_DIR}/gfx_d3d9emu/d3dx9emu.cpp" PROPERTIES
                                     COMPILE_OPTIONS "-isystem;${CMAKE_CURRENT_SOURCE_DIR}/third_party/stb")
@@ -410,15 +482,44 @@ else()
         target_compile_options(d3d9emu_test PRIVATE -include "${SRC_DIR}/platform/compat.h" -Wall -Wextra
                                -Wno-unused-parameter -Wno-unknown-pragmas
                                $<$<CXX_COMPILER_ID:Clang>:-Wno-nonportable-include-path>)
-        # The GL backend's contract test (docs/RENDERER.md): it draws with the backend alone and reads the pixels
-        # back. SDL_VIDEODRIVER=offscreen ./gb_gl_test in the build folder.
-        add_executable(gb_gl_test "${CMAKE_CURRENT_SOURCE_DIR}/tests/gfx_backend/gb_gl_test.cpp"
-                       ${GFX_BACKEND_NULL_FILES} ${GFX_BACKEND_GL_FILES})
-        target_include_directories(gb_gl_test PRIVATE "${SRC_DIR}")
+        # The backends' contract test (docs/RENDERER.md): it draws with a backend alone and reads the pixels back.
+        # SDL_VIDEODRIVER=offscreen ./gb_gl_test (GL) and ./gb_vk_test (Vulkan, no window) in the build folder. Its
+        # shaders (tests/gfx_backend/shaders) are embedded as GLSL, and as SPIR-V for the Vulkan one.
+        set(BO1_TEST_SHADERS "${CMAKE_CURRENT_SOURCE_DIR}/tests/gfx_backend/shaders")
+        set(BO1_TEST_SHADER_HEADER "${CMAKE_BINARY_DIR}/generated/test_shaders.h")
+        set(BO1_TEST_SHADER_FORMS --glsl)
+        if(BO1_VULKAN)
+            list(APPEND BO1_TEST_SHADER_FORMS --glslang "${BO1_GLSLANG}")
+        endif()
+        add_custom_command(
+            OUTPUT "${BO1_TEST_SHADER_HEADER}"
+            COMMAND "${BO1_PYTHON3}" "${BO1_EMBED_SHADERS}" "${BO1_TEST_SHADER_HEADER}" --namespace test_shaders
+                    --macro BO1_TEST ${BO1_TEST_SHADER_FORMS} "Vs=${BO1_TEST_SHADERS}/test_vs.glsl:vert"
+                    "Ps=${BO1_TEST_SHADERS}/test_ps.glsl:frag" "ClampVs=${BO1_TEST_SHADERS}/clamp_vs.glsl:vert"
+                    "ClampPs=${BO1_TEST_SHADERS}/clamp_ps.glsl:frag"
+            DEPENDS "${BO1_EMBED_SHADERS}" "${BO1_TEST_SHADERS}/test_vs.glsl" "${BO1_TEST_SHADERS}/test_ps.glsl"
+                    "${BO1_TEST_SHADERS}/clamp_vs.glsl" "${BO1_TEST_SHADERS}/clamp_ps.glsl"
+            COMMENT "Embedding the backend test's shaders"
+            VERBATIM)
+        add_executable(gb_gl_test "${CMAKE_CURRENT_SOURCE_DIR}/tests/gfx_backend/gb_backend_test.cpp"
+                       "${BO1_TEST_SHADER_HEADER}" ${GFX_BACKEND_NULL_FILES} ${GFX_BACKEND_GL_FILES})
+        target_include_directories(gb_gl_test PRIVATE "${SRC_DIR}" "${CMAKE_BINARY_DIR}/generated")
         target_include_directories(gb_gl_test SYSTEM PRIVATE "${BO1_GLCOREARB_DIR}")
         target_link_libraries(gb_gl_test PRIVATE SDL2::SDL2 Threads::Threads)
         target_compile_options(gb_gl_test PRIVATE -Wall -Wextra)
         set_target_properties(gb_gl_test PROPERTIES BO1_GB_GL ON)
+        if(BO1_VULKAN)
+            add_executable(gb_vk_test "${CMAKE_CURRENT_SOURCE_DIR}/tests/gfx_backend/gb_backend_test.cpp"
+                           "${BO1_TEST_SHADER_HEADER}" ${GFX_BACKEND_NULL_FILES}
+                           ${GFX_BACKEND_VULKAN_FILES})
+            target_include_directories(gb_vk_test PRIVATE "${SRC_DIR}" "${CMAKE_BINARY_DIR}/generated")
+            target_include_directories(gb_vk_test SYSTEM PRIVATE ${BO1_VULKAN_INCLUDE_DIRS})
+            target_link_libraries(gb_vk_test PRIVATE SDL2::SDL2 Threads::Threads ${CMAKE_DL_LIBS})
+            target_compile_definitions(gb_vk_test PRIVATE GB_TEST_VULKAN)
+            # Vulkan structures are written {VK_STRUCTURE_TYPE_...}, the rest zero: -Wextra would flag each one.
+            target_compile_options(gb_vk_test PRIVATE -Wall -Wextra -Wno-missing-field-initializers)
+            set_target_properties(gb_vk_test PROPERTIES BO1_GB_VULKAN ON)
+        endif()
         # The frontend's FSR 1.0 upscaler on the GL backend (docs/RENDERER.md, "Upscaling"): it upscales test images
         # and reads them back. SDL_VIDEODRIVER=offscreen ./upscale_gl_test in the build folder.
         add_executable(upscale_gl_test "${CMAKE_CURRENT_SOURCE_DIR}/tests/gfx_d3d9emu/upscale_gl_test.cpp"

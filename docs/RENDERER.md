@@ -117,20 +117,40 @@ console's compositor stretches the frame bilinearly.
   Each pass is one full-screen triangle (`gl_VertexID`, no vertex input) with the constants of `FsrEasuCon` /
   `FsrRcasCon` in a 64-byte block at binding 1. The back buffer `GetFrontBufferData` and screenshots read is still
   the engine's own size.
+- **The 2D at the output size** (`d3d9emu_scene.h`, docs/VULKAN.md step 6.1). The engine calls
+  `Bo1Emu_SceneComplete` at the end of `RB_Draw3D`, once every view's scene, post effects included, is in the back
+  buffer and before the 2D (each view's HUD in `RB_Draw3DCommon`, then the frame's commands). The frontend then:
+  - runs the three steps above into `m_hudTarget`, an output-size colour target made with the back buffer;
+  - until `Present`, sends every pass into the back buffer to `m_hudTarget` instead (`PassTarget`), with the viewport,
+    the scissor rect and the clear rects scaled from the back buffer's size to the output's (`PassViewport`,
+    `PassScissor`), `bo1_pos_fixup` from the scaled viewport, and without the back buffer's depth buffer, whose size
+    no longer matches (`PassDepth`; the 2D does not depth-test);
+  - redirects `StretchRect` from or to the back buffer the same way, rects scaled (the saved-screen blur and flash
+    read the frame so far), and `GetRenderTargetData` of the back buffer gets the frame so far brought back to its
+    size;
+  - presents `m_hudTarget` as it is.
+
+  The HUD and menus over a scene are then drawn at the output size instead of being upscaled with the scene. A frame
+  without a scene (main menu without a world, loading screen, cinematic) is upscaled whole at `Present` as before. A
+  read of the back buffer after such a `Present` (the headless client's screenshot, `GetFrontBufferData`) first gets
+  the presented frame brought back to the back buffer's size, once (`RestorePresentedFrame`), since the back buffer
+  then holds only the scene. Split screen works: every view's scene is done before the first HUD.
 - **Shaders**: `src/gfx_d3d9emu/shaders/fsr1_*.glsl`, GLSL 4.30 ports of the 32-bit paths of `ffx_fsr1.h`
   (`third_party/fidelityfx_fsr1`).
   - EASU reads the source with `textureGather`. RCAS reads it with `texelFetch`, clamped at the edges (HLSL's Load
     would return black there).
   - RCAS's divisors are kept off zero: AMD's code relies on the hardware's min/max dropping a NaN, which GLSL leaves
     undefined.
-  - `tools/upscale_shaders.py` embeds them in a generated header as GLSL and, in the Switch build, as DKSH from uam
-    (under `setarch -R`, deterministic). The frontend hands the backend the form its `shaders.pack` has
+  - `tools/embed_shaders.py` embeds them in a generated header as GLSL, in the Switch build also as DKSH from uam
+    (under `setarch -R`, deterministic), and with the Vulkan backend also as SPIR-V. The frontend hands the backend the form its `shaders.pack` has
     (`ShaderPackForm`), under fixed hashes (`b01f5a1000000001` to `03`) that no shader of the zombies zones' pack has.
   - Without a usable form (no pack, a DKSH pack in a build without the DKSH), the frame is stretched by a linear
     `Blit`, logged once.
 - **Tests**:
   - `d3d9emu_test` checks the calls on the null backend: swapchain size, three shaders, copy, two passes, the
-    presented image, and nothing new on the next frame.
+    presented image, and nothing new on the next frame; after `Bo1Emu_SceneComplete`, the 2D's pass on the
+    output-size target with its viewport and clear rects scaled, a second call doing nothing, that target presented
+    as it is, a screenshot of the last frame bringing it back once, and a frame without a scene upscaled whole.
   - `SDL_VIDEODRIVER=offscreen ./upscale_gl_test [--image in.ppm --out dir]` upscales on GL and checks:
     - a flat image stays flat;
     - rows stay the right way up;
@@ -140,6 +160,20 @@ console's compositor stretches the frame bilinearly.
 
     On a game capture rendered at 960x540, the 1280x720 result is closer to the native 720p one than the stretch
     (PSNR 37.6 against 36.1 dB, 2026-11-22).
+
+## Temporal upscaling (`gb::TemporalUpscale`, docs/VULKAN.md step 6)
+The frontend side is `d3d9emu_temporal.cpp`: the engine jitters the main projection by `Bo1Emu_TemporalJitter`
+(`d3d9emu_scene.h`) and passes its camera to `Bo1Emu_SceneComplete`; the frontend makes the inputs below from the
+scene and its depth buffer (one motion pass, shader `shaders/temporal_motion.glsl`) and draws the 2D after it at the
+output size, as with FSR 1.0. The contract:
+
+A contract call outside passes, reported by `Caps::temporalUpscale`: one frame of Arm ASR (FSR 2's inputs). Every
+input is a sampled 2D texture of the render size: the scene colour (RGBA8, not BGRA8), its depth as R32F (0 near, 1
+far), the camera's motion as RG16F in render pixels, an optional R8 reactive mask; the output is a colour target of
+the output size. The jitter, frame time, sharpening, camera near/far/vertical field of view, a reset flag and a shader
+preset complete it. Checklist: no implicit state (the backend keeps one ASR context per sizes and preset, made again
+when they change), no query, the call orders itself against the work recorded before and after it (full barriers on
+Vulkan), resources declared as usual, no API names. Null records and checks the inputs, GL and deko3d return false.
 
 ## The null backend (`src/gfx_backend/null`)
 It implements the whole header without a GPU: it draws nothing and keeps no texel, and its results are those of a
@@ -182,13 +216,92 @@ and the windows to present to; the Switch would implement the same host with EGL
   the frontend side waited (frames, links, sync points) and how long the backend's thread spent on commands, builds
   and swaps.
 
-`tests/gfx_backend/gb_gl_test.cpp` draws with the backend alone under SDL's offscreen driver and reads the pixels
+`tests/gfx_backend/gb_backend_test.cpp`, built as `gb_gl_test`, draws with the backend alone under SDL's offscreen driver and reads the pixels
 back: row 0 on top, fragment coordinates, depth and the viewport's depth range, viewport and scissor rows, clockwise
 front faces and two-sided stencil, pixel centres through `bo1_pos_fixup` (with the fixup turned off it fails),
 4-sample edge pixels (with the old half-pixel viewport it fails), texture rows and formats (B5G6R5, B5G5R5A1,
 RGBA8, BC1, an L8 swizzle), an upload after a draw that left another unit active, BGRX8 alpha, `Clear` rects,
 `Blit` copies and scaling, a hardware shadow map compare, occlusion counts, timestamps and fences, and a shader that
 does not compile.
+
+## The Vulkan backend (`src/gfx_backend/vulkan`)
+Vulkan 1.3 with dynamic rendering, timeline semaphores, host query reset and `VK_KHR_push_descriptor`. Opt-in:
+`BO1_GFX_BACKEND=vulkan` (docs/VULKAN.md; the dispatcher never falls back from it, so a failure is seen). The loader is
+opened at run time by volk and memory comes from the Vulkan Memory Allocator (`third_party/volk`, `third_party/vma`,
+headers in `third_party/vulkan-headers`). Its host (`gb_vk_host.h`) gives the instance extensions and a surface per
+window: on posix SDL2 (`posix_vkhost.cpp`), which makes the game windows Vulkan ones once the backend runs. A headless
+run has no surface; it renders into its textures and `Present` only submits.
+
+- **Recording**, as deko3d's:
+  - the frame is recorded into command buffers and submitted at `Present`, two frames in flight, each slot with its
+    command pool, uniform blocks (4 MB, host-visible), staging chunks and query pools;
+  - every submission signals one timeline semaphore, whose values order frames, fences, queries and the destruction
+    of objects the GPU may still use;
+  - a readback, or a fence or query polled before its work was submitted, submits the frame so far (an open pass is
+    ended and begun again with load ops `Load`); a poll while an occlusion query is open returns "not ready" instead,
+    since a query cannot span two command buffers.
+- **Images** stay in `VK_IMAGE_LAYOUT_GENERAL` from their creation (the transition goes into the setup commands), and
+  a full memory barrier at each pass boundary, copy and readback resolves the contract's hazards. Colour targets are
+  always created sampled, since `Present` reads its image through a shader.
+- **Uploads** go into a "setup" command buffer submitted before the frame's, unless work recorded in the frame's open
+  commands already uses the resource: then they go in order into the frame, the pass suspended around the copy.
+  Dynamic and shared buffers are host-visible: `NoOverwrite`, or a store the GPU is done with, is written in place;
+  `Discard` on a store in use renames it (up to 8 spare stores per buffer); `Ordered` on a store in use is a staged
+  copy in order.
+- **Draws**: one pipeline layout for all, one descriptor set pushed per draw: samplers at 0-15, the vertex and pixel
+  constant blocks at 16 and 17, as `make_spirv_pack.py` moves them. Pipelines are built at `GetPipeline` with dynamic
+  viewport, scissor, stencil reference, blend constants, topology (within the pipeline's class) and vertex strides.
+  - A sampler the shader reads (reflected from its SPIR-V: binding, dimension, depth comparison) that the draw leaves
+    unbound reads a 1x1 dummy of its kind: opaque black, or depth 1 for a shadow map.
+  - A vertex input the declaration does not give reads (0, 0, 0, 1) from a dummy stream at binding 8, as D3D9 does;
+    Vulkan would leave it undefined.
+- **Conventions**:
+  - the viewport goes in with a negative height (y + height, -height), so clip-space +y is row 0 and the winding on
+    screen is D3D9's: `VK_FRONT_FACE_CLOCKWISE`;
+  - depth bias × 2^24 (2^16 on D16);
+  - D24S8 is `D24_UNORM_S8_UINT`, or `D32_SFLOAT_S8_UINT` where the device cannot render the former (AMD);
+  - BGRX8 is `B8G8R8A8_UNORM` whose alpha stays 1: cleared to 1, never written by a pipeline, sampled through an
+    alpha-one swizzle and read back as 0xFF;
+  - `ReadTexture` of D24S8 packs depth in the top 24 bits and stencil in the low byte, as GL reads it;
+  - a multisampled depth buffer `Blit` into a single-sample depth texture (D3D9's RESZ with `r_aaSamples` above 1)
+    resolves at the end of an empty rendering scope, `VK_RESOLVE_MODE_SAMPLE_ZERO_BIT`: `vkCmdResolveImage` takes
+    colour only, and the Intel Iris Xe driver lost the device on it at the first frame in game;
+  - point lists need `VK_KHR_maintenance5` (a point whose vertex shader writes no `PointSize` is 1 pixel, as in D3D9);
+    without it their draws are skipped;
+  - `MipFilter::None` clamps the level of detail to 0.25.
+- **Present** draws the image into the swapchain's through D3D9's gamma ramp (a 256x1 RGBA16 texture), filtered to
+  the window's size, with the backend's own SPIR-V shaders (`vulkan/shaders`, embedded by `tools/embed_shaders.py`).
+  The swapchain is UNORM (as the GL window), FIFO with vsync, else mailbox or immediate; it is made again when the
+  window changes size or the surface says it is out of date.
+- **Caps** come from the device's format features: a colour target must also blit both ways; BC1-3 need
+  `textureCompressionBC`.
+- `BO1_VK_DEBUG=1` loads the Khronos validation layer when it is installed and logs its first 64 messages. Every 10 s a
+  `vk perf:` line gives frames, draws a frame, submissions and suspended passes a frame, renames, new pipelines (and the
+  milliseconds the driver spent compiling them) and the memory VMA holds. A frame longer than 50 ms logs a `vk hitch:`
+  line (the first 500): the backend's share of it (GPU waits, acquire, present, pipelines, new textures, staged bytes,
+  submissions); the rest of the frame was the engine's.
+- In the game, pipelines compile on background threads (1 to 3, `host::AsyncPipelines`; the tests keep them
+  synchronous): `GetPipeline` returns at once and a draw whose pipeline is not ready is skipped (`vk perf:` counts
+  them). The user's Intel Iris Xe spends 100-500 ms on one pipeline, so every new combination of shaders and states
+  (the first shots, effects, zombies) stopped the game that long; now an object misses a few frames instead. A shader
+  is freed only once the queue is empty, and the threads stop before the pipelines are freed.
+- The pipeline cache is kept between runs in `vk_pipelines.bin` beside the program (`host::PipelineCachePath`). Its
+  Vulkan header must name this device, vendor and driver (`pipelineCacheUUID`) or it is not read. It is written once
+  ten seconds go by without a new pipeline, and at shutdown, through a temporary file.
+
+`gb_vk_test` is `gb_backend_test.cpp` built for this backend (`GB_TEST_VULKAN`): the same 46 checks with no window,
+on any Vulkan 1.3 device (lavapipe included).
+
+### On win64 (`r_mod_gfxApi vulkan`, docs/VULKAN.md step 5)
+`win64-msvc` also builds the frontend (without `d3dx9emu.cpp`) and the null and Vulkan backends (`BO1_WIN_VULKAN`).
+The system's Direct3D 9 stays the default; with `r_mod_gfxApi vulkan`, `R_PreCreateWindow` takes the emulated
+`IDirect3D9` from `Bo1_EmulatedDirect3D` (`src/platform/windows/win_d3d9host.cpp`), and falls back to the system's
+when `shaders.spv` is missing beside the exe or Vulkan does not start. On Windows the emulator's entry points are
+`Bo1Emu_Direct3DCreate9`/`Bo1Emu_Direct3DCreate9Ex`, so `d3d9.lib`'s keep their names; D3DX remains `d3dx9.lib`'s and
+works on the emulated surfaces (screenshots). The surface is `VK_KHR_win32_surface` on the game's `HWND`
+(`win_vkhost.cpp`). FSR 1.0 there is `r_mod_upscale`: the engine makes its back buffer (and vidConfig) the window's
+size over the mode's factor, the window keeps its size, and the host hands the frontend the window as the upscaler's
+output (`Bo1_SetUpscale`); the mouse is moved into back buffer pixels (`Bo1_ClientToBackBuffer`).
 
 ## Shaders
 `ffconv` translates D3D9 SM3 bytecode with MojoShader (`third_party/mojoshader`, GLSL profile) and normalises the

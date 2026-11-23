@@ -458,6 +458,59 @@ class CommandLine(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "63"):
             P.build_command(p, "x", "/g", launch_cfg="+set a 1 " * 40)
 
+    def test_gfx_api(self):
+        p = P.Profile()
+        line = " ".join(P.build_command(p, "x", "/g"))
+        # r_mod_gfxApi is archived in config.cfg: the default is set too, so that an old "vulkan" does not stay
+        self.assertIn("+set r_mod_gfxApi d3d9", line)
+        self.assertIsNone(P.launch_env(p))
+        p["gfx_api"] = "vulkan"
+        self.assertIn("+set r_mod_gfxApi vulkan", " ".join(P.build_command(p, "x", "/g")))
+        env = P.launch_env(p)
+        self.assertEqual(env["BO1_GFX_BACKEND"], "vulkan")
+        self.assertEqual(env.get("PATH"), os.environ.get("PATH"))
+        p["mode"], p["join_host"] = "join", "10.0.0.1"
+        self.assertIn("+set r_mod_gfxApi vulkan", " ".join(P.build_command(p, "x", "/g")))
+
+    def test_mod_pools(self):
+        def pools(argv):
+            return " ".join(argv).count("+set bo1_mod_pools 1")
+        p = P.Profile()
+        self.assertEqual(pools(P.build_command(p, "x", "/g")), 0)            # no weapon mod: the retail pools
+        argv = ["x", "+set", "fs_mods", "zinfo", "bo2weapons"]
+        P.add_mod_pools(argv)
+        self.assertEqual(pools(argv), 1)
+        argv = ["x", "+set", "fs_mods", "zinfo hitmarker dualwield", "+devmap", "zombie_temple"]
+        P.add_mod_pools(argv)
+        self.assertEqual(pools(argv), 1)
+        argv = ["x", "+set", "fs_mods", "dualwield", "+set", "bo1_mod_zones", "zombie_bo2nuked"]
+        P.add_mod_pools(argv)
+        self.assertEqual(pools(argv), 0)                                       # bo1_mod_zones raises them already
+        argv = ["x", "+set", "fs_mods", "zinfo", "hitmarker"]
+        P.add_mod_pools(argv)
+        self.assertEqual(pools(argv), 0)
+
+    def test_fsr(self):
+        p = P.Profile()
+        p["fsr"] = "quality"
+        self.assertNotIn("r_mod_upscale", " ".join(P.build_command(p, "x", "/g")))   # Vulkan only
+        p["gfx_api"] = "vulkan"
+        line = " ".join(P.build_command(p, "x", "/g"))
+        self.assertIn("+set r_mod_upscale quality +set r_mod_upscaleSharpness 0.2 +set r_mod_upscaler fsr1", line)
+        p["upscaler"] = "asr_balanced"
+        self.assertIn("+set r_mod_upscaler asr_balanced", " ".join(P.build_command(p, "x", "/g")))
+        p["fsr"] = "native"
+        self.assertIn("+set r_mod_upscale native", " ".join(P.build_command(p, "x", "/g")))
+        p["fsr"] = "quality"
+        p["fsr"], p["fsr_sharpness"] = "off", 1.0
+        self.assertIn("+set r_mod_upscale off +set r_mod_upscaleSharpness 1", " ".join(P.build_command(p, "x", "/g")))
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "profile.json")
+            with open(path, "w") as f:
+                json.dump({"fsr": "huge", "fsr_sharpness": 3.0, "upscaler": "dlss"}, f)
+            q = P.Profile(path)
+            self.assertEqual((q["fsr"], q["fsr_sharpness"], q["upscaler"]), ("off", 0.2, "fsr1"))
+
     def test_scene_models(self):
         def dvar(argv, name):
             values = [argv[i + 2] for i in range(len(argv) - 2) if argv[i] == "+set" and argv[i + 1] == name]

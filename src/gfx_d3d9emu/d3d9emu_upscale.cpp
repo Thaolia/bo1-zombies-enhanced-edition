@@ -1,5 +1,6 @@
 // FSR 1.0 on the presented frame (d3d9emu_upscale.h). The shaders come from src/gfx_d3d9emu/shaders, embedded by
-// tools/upscale_shaders.py as GLSL and, in the Switch build, as DKSH: the backend gets the form shaders.pack has.
+// tools/embed_shaders.py as GLSL, as DKSH in the Switch build and as SPIR-V in builds with the Vulkan backend: the
+// backend gets the form shaders.pack has.
 
 #include "d3d9emu_upscale.h"
 
@@ -106,6 +107,15 @@ bool Upscaler::PrepareShaders(gb::Format format)
             Logf("d3d9emu: upscale: this build has no DKSH of the FSR 1.0 shaders: stretched instead");
 #endif
             break;
+        case ShaderForm::Spirv:
+#if defined(BO1_UPSCALE_HAS_SPIRV)
+            m_vertex = Create(gb::Stage::Vertex, kHashVertex, upscale_shaders::kSpirvVs);
+            m_easu = Create(gb::Stage::Pixel, kHashEasu, upscale_shaders::kSpirvEasu);
+            m_rcas = Create(gb::Stage::Pixel, kHashRcas, upscale_shaders::kSpirvRcas);
+#else
+            Logf("d3d9emu: upscale: this build has no SPIR-V of the FSR 1.0 shaders: stretched instead");
+#endif
+            break;
         case ShaderForm::None:
             Logf("d3d9emu: upscale: no shaders.pack tells the shaders' form: stretched instead");
             break;
@@ -188,20 +198,24 @@ void Upscaler::DrawPass(gb::Texture *target, const gb::Pipeline *pipeline, gb::T
 }
 
 gb::Texture *Upscaler::Run(gb::Texture *source, gb::Format format, uint32_t sourceWidth, uint32_t sourceHeight,
-                           uint32_t outputWidth, uint32_t outputHeight, float sharpness)
+                           uint32_t outputWidth, uint32_t outputHeight, float sharpness, gb::Texture *target)
 {
+    const gb::Rect from = {0, 0, sourceWidth, sourceHeight};
+    const gb::Rect to = {0, 0, outputWidth, outputHeight};
     if (!PrepareTargets(format, sourceWidth, sourceHeight, outputWidth, outputHeight))
     {
         WarnOnce("upscale targets", "d3d9emu: upscale: the %ux%u targets could not be made", outputWidth,
                  outputHeight);
-        return source;
+        if (!target)
+            return source;
+        gb::Blit(source, 0, 0, from, target, 0, 0, to, gb::Filter::Linear);
+        return target;
     }
-    const gb::Rect from = {0, 0, sourceWidth, sourceHeight};
-    const gb::Rect to = {0, 0, outputWidth, outputHeight};
+    gb::Texture *output = target ? target : m_output;
     if (!PrepareShaders(format))
     {
-        gb::Blit(source, 0, 0, from, m_output, 0, 0, to, gb::Filter::Linear);
-        return m_output;
+        gb::Blit(source, 0, 0, from, output, 0, 0, to, gb::Filter::Linear);
+        return output;
     }
     if (!m_logged)
     {
@@ -214,7 +228,7 @@ gb::Texture *Upscaler::Run(gb::Texture *source, gb::Format format, uint32_t sour
     Fsr1EasuConstants(constants, float(sourceWidth), float(sourceHeight), float(outputWidth), float(outputHeight));
     DrawPass(m_middle, m_easuPipeline, m_input, outputWidth, outputHeight, constants);
     Fsr1RcasConstants(constants, sharpness);
-    DrawPass(m_output, m_rcasPipeline, m_middle, outputWidth, outputHeight, constants);
-    return m_output;
+    DrawPass(output, m_rcasPipeline, m_middle, outputWidth, outputHeight, constants);
+    return output;
 }
 } // namespace d3d9emu

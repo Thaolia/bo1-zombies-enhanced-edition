@@ -2258,6 +2258,12 @@ void Blit(gb::Texture *srcHandle, uint8_t srcLevel, uint8_t srcLayer, const Rect
 }
 void ReadTexture(gb::Texture *, uint8_t, uint8_t, const Box &, void *, uint32_t) {}
 
+// No temporal upscaler on the console yet (docs/VULKAN.md, step 6.4): Caps::temporalUpscale stays false.
+bool TemporalUpscale(const TemporalUpscaleDesc &)
+{
+    return false;
+}
+
 // Queries are not yet backed by GPU counters. They must still report a *ready* result: the engine's GetData spin
 // loops (rb_sky, rb_corona, rb_superflare, rb_pixelcost) poll GetData and busy-wait while it returns S_FALSE, so a
 // query that never completes hangs the render thread forever (the first-geometry hang, docs/PORTING.md). Occlusion

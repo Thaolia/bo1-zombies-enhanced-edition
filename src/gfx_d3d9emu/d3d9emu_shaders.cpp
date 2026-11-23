@@ -49,9 +49,9 @@ public:
         return true;
     }
 
-    bool Dksh() const
+    ShaderForm Form() const
     {
-        return m_dksh;
+        return m_form;
     }
 
     const ShaderPackEntry *Find(uint64_t hash) const
@@ -89,9 +89,12 @@ private:
         if (size < long(sizeof(header)) || std::fread(&header, sizeof(header), 1, file) != 1)
             return "too short";
         if (std::memcmp(header.magic, SHADER_PACK_MAGIC, sizeof(header.magic)) &&
-            std::memcmp(header.magic, SHADER_PACK_MAGIC_DKSH, sizeof(header.magic)))
+            std::memcmp(header.magic, SHADER_PACK_MAGIC_DKSH, sizeof(header.magic)) &&
+            std::memcmp(header.magic, SHADER_PACK_MAGIC_SPIRV, sizeof(header.magic)))
             return "bad magic";
-        m_dksh = !std::memcmp(header.magic, SHADER_PACK_MAGIC_DKSH, sizeof(header.magic));
+        m_form = !std::memcmp(header.magic, SHADER_PACK_MAGIC_DKSH, sizeof(header.magic))    ? ShaderForm::Dksh
+                 : !std::memcmp(header.magic, SHADER_PACK_MAGIC_SPIRV, sizeof(header.magic)) ? ShaderForm::Spirv
+                                                                                              : ShaderForm::Glsl;
         if (header.version != SHADER_PACK_VERSION)
             return "unknown version";
         if (uint64_t(header.count) * sizeof(ShaderPackEntry) > uint64_t(size) - sizeof(header))
@@ -111,7 +114,7 @@ private:
     }
 
     bool m_tried = false;
-    bool m_dksh = false;
+    ShaderForm m_form = ShaderForm::Glsl;
     FILE *m_file = nullptr;
     std::vector<ShaderPackEntry> m_entries;
 };
@@ -135,7 +138,7 @@ ShaderForm ShaderPackForm()
     ShaderPack &pack = Pack();
     if (!pack.Open())
         return ShaderForm::None;
-    return pack.Dksh() ? ShaderForm::Dksh : ShaderForm::Glsl;
+    return pack.Form();
 }
 
 size_t ShaderBytecodeSize(const DWORD *function, size_t maxBytes)

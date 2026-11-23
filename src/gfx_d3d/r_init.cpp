@@ -12,6 +12,9 @@
 #include <d3d9.h>
 #include "rb_backend.h"
 #include "r_dvars.h"
+#if defined(BO1_WIN_VULKAN)
+#include <platform/windows/win_gfxapi.h> // mod: r_mod_gfxApi
+#endif
 #include <database/db_registry.h>
 #include "rb_logfile.h"
 #include "r_buffers.h"
@@ -366,6 +369,23 @@ char __cdecl R_CreateDevice(const GfxWindowParms *wndParms)
     }
 }
 
+#if defined(BO1_WIN_VULKAN)
+// mod: r_mod_upscale (emulated Direct3D only): the back buffer, which vidConfig and D3D9 both use, is the window's size
+// over the mode's factor; the window keeps its own size and the frontend upscales into it. "native" keeps the window's
+// size and asks for the upscaler anyway: Arm ASR at 1:1 is a temporal anti-aliasing (docs/VULKAN.md, step 7).
+// True while the mode asks for the upscaler.
+static bool R_ModUpscaleSize(int windowWidth, int windowHeight, unsigned int *width, unsigned int *height)
+{
+    static const float factors[] = {1.0f, 1.3f, 1.5f, 1.7f, 2.0f, 1.0f};
+    const int mode = r_mod_upscale ? r_mod_upscale->current.integer : 0;
+    if ( !Bo1_EmulatedDirect3DActive() || mode <= 0 || mode >= (int)(sizeof(factors) / sizeof(factors[0])) )
+        return false;
+    *width = (unsigned int)((float)windowWidth / factors[mode] + 0.5f);
+    *height = (unsigned int)((float)windowHeight / factors[mode] + 0.5f);
+    return true;
+}
+#endif
+
 void __cdecl R_SetD3DPresentParameters(_D3DPRESENT_PARAMETERS_ *d3dpp, const GfxWindowParms *wndParms)
 {
     if ( !d3dpp && !Assert_MyHandler("C:\\projects_pc\\cod\\codsrc\\src\\gfx_d3d\\r_init.cpp", 389, 0, "%s", "d3dpp") )
@@ -379,6 +399,19 @@ void __cdecl R_SetD3DPresentParameters(_D3DPRESENT_PARAMETERS_ *d3dpp, const Gfx
     memset((unsigned __int8 *)d3dpp, 0, sizeof(_D3DPRESENT_PARAMETERS_));
     d3dpp->BackBufferHeight = wndParms->displayHeight;
     d3dpp->BackBufferWidth = wndParms->displayWidth;
+#if defined(BO1_WIN_VULKAN)
+    if ( R_ModUpscaleSize(wndParms->displayWidth, wndParms->displayHeight, &d3dpp->BackBufferWidth,
+                          &d3dpp->BackBufferHeight) )
+    {
+        Bo1_SetUpscale(d3dpp->BackBufferWidth, d3dpp->BackBufferHeight, wndParms->displayWidth, wndParms->displayHeight,
+                       r_mod_upscaleSharpness->current.value, (unsigned int)r_mod_upscaler->current.integer);
+        Com_Printf(8, "r_mod_upscale: %s %s, %u x %u to the %i x %i window\n", Dvar_EnumToString(r_mod_upscaler),
+            Dvar_EnumToString(r_mod_upscale), d3dpp->BackBufferWidth, d3dpp->BackBufferHeight,
+            wndParms->displayWidth, wndParms->displayHeight);
+    }
+    else
+        Bo1_SetUpscale(0, 0, 0, 0, 0.0f, 0);
+#endif
     d3dpp->BackBufferFormat = D3DFMT_A8R8G8B8;
     d3dpp->BackBufferCount = 1;
     d3dpp->MultiSampleType = dx.multiSampleType;
@@ -913,6 +946,10 @@ void __cdecl R_StoreWindowSettings(const GfxWindowParms *wndParms)
     vidConfig.sceneHeight = wndParms->sceneHeight;
     vidConfig.displayWidth = wndParms->displayWidth;
     vidConfig.displayHeight = wndParms->displayHeight;
+#if defined(BO1_WIN_VULKAN)
+    R_ModUpscaleSize(wndParms->displayWidth, wndParms->displayHeight, &vidConfig.displayWidth, &vidConfig.displayHeight);
+    R_ModUpscaleSize(wndParms->sceneWidth, wndParms->sceneHeight, &vidConfig.sceneWidth, &vidConfig.sceneHeight);
+#endif
     vidConfig.displayFrequency = wndParms->hz;
     vidConfig.isFullscreen = wndParms->fullscreen;
     switch ( r_aspectRatio->current.integer )
@@ -1223,6 +1260,16 @@ char __cdecl R_PreCreateWindow()
     else
     {
         Com_Printf(8, "Getting Direct3D 9 interface...\n");
+#if defined(BO1_WIN_VULKAN)
+        // mod: r_mod_gfxApi vulkan, the D3D9 frontend on the Vulkan backend; the system's Direct3D 9 when it fails.
+        if ( r_mod_gfxApi->current.integer == 1 )
+        {
+            dx.d3d9 = Bo1_EmulatedDirect3D(Sys_IsHeadlessClient());
+            Com_Printf(8, dx.d3d9 ? "r_mod_gfxApi: Direct3D 9 emulated on Vulkan\n"
+                                  : "r_mod_gfxApi: Vulkan unavailable, using the system's Direct3D 9\n");
+        }
+        if ( !dx.d3d9 )
+#endif
         if ( Sys_IsHeadlessClient() )
         {
             // zombies: a headless client's window is on a desktop that is never the input desktop. Plain Direct3D 9

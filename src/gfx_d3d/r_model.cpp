@@ -54,13 +54,23 @@ const int boxVerts[24][3] =
 
 
 
+// gfx_model's list. The decompiled command kept its count in an int that only the retail stack frame put right
+// before the array, and the callback read that count pointer-sized: past the array on 64-bit.
+namespace
+{
+struct ModelList
+{
+    unsigned int count;
+    XModel *sorted[2048];
+};
+} // namespace
+
 void __cdecl R_ModelList_f()
 {
     const char *Name; // eax
     const char *v1; // [esp+8h] [ebp-212Ch]
     const char *fmt; // [esp+Ch] [ebp-2128h]
-    int inData; // [esp+104h] [ebp-2030h] BYREF
-    XModel *v4[2050]; // [esp+108h] [ebp-202Ch] BYREF
+    ModelList list;
     XModel *model; // [esp+2110h] [ebp-24h]
     int v6; // [esp+2114h] [ebp-20h]
     int v7; // [esp+2118h] [ebp-1Ch]
@@ -73,20 +83,18 @@ void __cdecl R_ModelList_f()
 
     v7 = 0;
     v6 = 0;
-    inData = 0;
-    DB_EnumXAssets(ASSET_TYPE_XMODEL, (void (__cdecl *)(XAssetHeader, void *))R_GetModelList, &inData, 1);
-    //std::_Sort<XModel * *,int,bool (__cdecl *)(XModel * &,XModel * &)>(v4, &v4[inData], (4 * inData) >> 2, R_ModelSort);
-
-    std::sort(v4, v4 + inData, R_ModelSort);
+    list.count = 0;
+    DB_EnumXAssets(ASSET_TYPE_XMODEL, (void (__cdecl *)(XAssetHeader, void *))R_GetModelList, &list, 1);
+    std::sort(list.sorted, list.sorted + list.count, R_ModelSort);
 
     Com_Printf(8, "---------------------------\n");
     Com_Printf(8, "SM# is the number of static model instances\n");
     Com_Printf(8, "instKB is static model instance usage\n");
     Com_Printf(8, "DE# is the number of dyn entity instances\n");
     Com_Printf(8, "     SM#    instKB     DE#     geoKB    name\n");
-    for ( i = 0; i < inData; ++i )
+    for ( i = 0; i < (int)list.count; ++i )
     {
-        model = v4[i];
+        model = list.sorted[i];
         MemUsage = XModelGetMemUsage(model);
         v7 += MemUsage;
         MemoryUsage = R_StaticModelGetMemoryUsage(model, &modelCount);
@@ -133,7 +141,8 @@ bool __cdecl R_ModelSort(const XModel *model1, const XModel *model2)
 
 void __cdecl R_GetModelList(XAssetHeader header, XAssetHeader *data)
 {
-    if ( data->xmodelPieces >= (XModelPieces *)0x800
+    ModelList *list = (ModelList *)data;
+    if ( list->count >= ARRAY_COUNT(list->sorted)
         && !Assert_MyHandler(
                     "C:\\projects_pc\\cod\\codsrc\\src\\gfx_d3d\\r_model.cpp",
                     96,
@@ -143,7 +152,8 @@ void __cdecl R_GetModelList(XAssetHeader header, XAssetHeader *data)
     {
         __debugbreak();
     }
-    data[(intptr_t)data->xmodelPieces++ + 1] = header;
+    if ( list->count < ARRAY_COUNT(list->sorted) )
+        list->sorted[list->count++] = header.model;
 }
 
 XModel *__cdecl R_RegisterModel(char *name)

@@ -335,6 +335,7 @@ bool Init()
     s.caps.maxTextureSize = 16384;
     s.caps.maxSamples = 8;
     s.caps.memoryBytes = PhysicalMemory();
+    s.caps.temporalUpscale = true;
     for (int f = 1; f < int(Format::Count); ++f)
     {
         const Format format = Format(f);
@@ -731,6 +732,39 @@ void ReadTexture(gb::Texture *handle, uint8_t level, uint8_t layer, const Box &b
         std::memset(static_cast<uint8_t *>(data) + size_t(y) * rowPitch, 0, rowBytes);
     Record("ReadTexture T%d level=%u layer=%u box=%u,%u %ux%u", texture->id, level, layer, box.x, box.y, box.width,
            box.height);
+}
+
+bool TemporalUpscale(const TemporalUpscaleDesc &desc)
+{
+    if (S().inPass)
+        Violation("TemporalUpscale inside a pass");
+    const auto check = [&](gb::Texture *handle, const char *what, Format format, uint32_t width, uint32_t height,
+                           bool target) {
+        const Texture *t = N(handle);
+        if (!t)
+        {
+            Violation("TemporalUpscale without its %s", what);
+            return 0;
+        }
+        if ((format != Format::Unknown && t->desc.format != format) || t->desc.width != width ||
+            t->desc.height != height || t->desc.type != TextureType::Tex2D || t->desc.samples > 1 ||
+            (target ? t->desc.usage != Usage::RenderTarget : !t->desc.sampled))
+            Violation("TemporalUpscale: the %s T%d is not a %s %ux%u 2D texture", what, t->id,
+                      target ? "colour target" : "sampled", width, height);
+        return t->id;
+    };
+    const int color = check(desc.color, "colour", Format::Unknown, desc.renderWidth, desc.renderHeight, false);
+    const int depth = check(desc.depth, "depth", Format::R32F, desc.renderWidth, desc.renderHeight, false);
+    const int motion = check(desc.motion, "motion", Format::RG16F, desc.renderWidth, desc.renderHeight, false);
+    const int reactive = desc.reactive
+                             ? check(desc.reactive, "reactive mask", Format::R8, desc.renderWidth, desc.renderHeight,
+                                     false)
+                             : 0;
+    const int output = check(desc.output, "output", Format::Unknown, desc.outputWidth, desc.outputHeight, true);
+    Record("TemporalUpscale c=T%d d=T%d m=T%d r=T%d -> T%d %ux%u -> %ux%u jitter=%g,%g sharpness=%g preset=%d%s", color,
+           depth, motion, reactive, output, desc.renderWidth, desc.renderHeight, desc.outputWidth, desc.outputHeight,
+           desc.jitterX, desc.jitterY, desc.sharpness, int(desc.preset), desc.reset ? " reset" : "");
+    return true;
 }
 
 gb::Query *CreateQuery(QueryType type)

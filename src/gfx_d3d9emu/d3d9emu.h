@@ -4,13 +4,27 @@
 // into the backend contract (src/gfx_backend/gfx_backend.h). No GL or deko3d here.
 
 #include <d3d9.h>
+#if defined(_WIN32)
+#undef DrawState // winuser.h's DrawStateA/W would rename gb::DrawState
+#endif
 
 #include <gfx_backend/gfx_backend.h>
+
+#include "d3d9emu_scene.h"
 
 #include <cstdint>
 #include <memory>
 #include <mutex>
 #include <vector>
+
+// printf-style checking of a logger's arguments where the compiler offers it (GCC and clang; MSVC has no attribute).
+#if !defined(BO1_PRINTF_FORMAT)
+#if defined(__GNUC__)
+#define BO1_PRINTF_FORMAT(fmt, args) __attribute__((format(printf, fmt, args)))
+#else
+#define BO1_PRINTF_FORMAT(fmt, args)
+#endif
+#endif
 
 namespace d3d9emu
 {
@@ -19,9 +33,9 @@ namespace d3d9emu
 std::recursive_mutex &DeviceLock();
 using Guard = std::lock_guard<std::recursive_mutex>;
 
-void Logf(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
+void Logf(const char *fmt, ...) BO1_PRINTF_FORMAT(1, 2);
 // Logs a line the first time `key` is seen.
-void WarnOnce(const char *key, const char *fmt, ...) __attribute__((format(printf, 2, 3)));
+void WarnOnce(const char *key, const char *fmt, ...) BO1_PRINTF_FORMAT(2, 3);
 // A method the engine never calls: ends the process naming it, so that a new caller is noticed at once.
 [[noreturn]] void Unemulated(const char *method);
 
@@ -120,10 +134,17 @@ void Rebind(T *&slot, T *next)
         return ReleaseCount();                                                                                         \
     }
 
+// The method's full name, for Unemulated's message.
+#if defined(_MSC_VER)
+#define D3D9EMU_FUNCTION __FUNCSIG__
+#else
+#define D3D9EMU_FUNCTION __PRETTY_FUNCTION__
+#endif
+
 #define D3D9EMU_UNEMULATED(type, name, params)                                                                        \
     type STDMETHODCALLTYPE name params override                                                                        \
     {                                                                                                                  \
-        Unemulated(__PRETTY_FUNCTION__);                                                                              \
+        Unemulated(D3D9EMU_FUNCTION);                                                                                 \
     }
 
 #define D3D9EMU_PRIVATE_DATA                                                                                          \
@@ -134,6 +155,7 @@ void Rebind(T *&slot, T *next)
 class Device;
 class Surface;
 class Upscaler;
+class Temporal;
 
 // ---- texture storage (d3d9emu_resources.cpp)
 
@@ -476,6 +498,7 @@ enum class ShaderForm
     None,
     Glsl,
     Dksh,
+    Spirv,
 };
 ShaderForm ShaderPackForm();
 
@@ -862,6 +885,11 @@ public:
     // Open occlusion queries count in every pass begun until they close.
     void QueryOpened(Query *query);
     void QueryClosed(Query *query);
+    // The frame's 3D scene is in the back buffer (d3d9emu_scene.h): while upscaling, it is upscaled into m_hudTarget
+    // now, and the rest of the frame drawn into the back buffer goes there, at the output size.
+    void SceneComplete(const Bo1EmuSceneView *view);
+    // Bo1Emu_TemporalJitter (d3d9emu_scene.h)
+    bool TemporalJitter(float *x, float *y);
 
 protected:
     IUnknown *Parent() override;
@@ -883,6 +911,19 @@ private:
     void OpenPass();
     bool IsAttachment(const gb::Texture *texture) const;
     bool PrepareDraw(gb::DrawState &state, D3DPRIMITIVETYPE type, const gb::VertexBinding *upStream);
+    // After SceneComplete: the surface a draw into `surface` really targets (m_hudTarget for the back buffer), the
+    // depth buffer that goes with it (none when its size no longer matches), and the engine's back buffer pixels
+    // moved to the target's (x and y scaled from the back buffer's size to the output's).
+    Surface *PassTarget(Surface *surface) const;
+    Surface *PassDepth() const;
+    bool PassOnHud() const;
+    int32_t HudX(int64_t x) const;
+    int32_t HudY(int64_t y) const;
+    D3DVIEWPORT9 PassViewport() const;
+    RECT PassScissor() const;
+    // After a Present of m_hudTarget, a read of the back buffer (a screenshot of the last frame) sees that frame: it is
+    // brought back to the back buffer's size first, once, unless something drew into the back buffer since.
+    void RestorePresentedFrame();
     void BuildPipeline(gb::PipelineDesc &desc, gb::Topology topology) const;
     const gb::Sampler *SamplerFor(uint32_t index, const Storage &texture);
     void Resolve();
@@ -901,6 +942,19 @@ private:
     uint32_t m_outputWidth = 0, m_outputHeight = 0;
     float m_upscaleSharpness = 0.0f;
     std::unique_ptr<Upscaler> m_upscaler;
+    // The output-size target the frame's 2D goes to after SceneComplete (m_hudActive until Present). Made with the back
+    // buffer while upscaling.
+    std::unique_ptr<Surface> m_hudTarget;
+    bool m_hudActive = false;
+    bool m_hudPresented = false; // the last Present showed m_hudTarget, and the back buffer holds only its scene
+    bool m_hudLogged = false;
+    // The temporal upscaler (d3d9emu_temporal.h): its shader preset from the host (0: none), and the depth buffer last
+    // drawn with a back-buffer-sized target, the scene's.
+    uint8_t m_temporalPreset = 0;
+    std::unique_ptr<Temporal> m_temporal;
+    Surface *m_sceneDepth = nullptr;
+    double m_lastSceneSeconds = 0.0;
+    bool m_temporalLogged = false;
     std::vector<uint8_t> m_readScratch;      // GetFrontBufferData's copy of the last frame
 
     // D3D9 state

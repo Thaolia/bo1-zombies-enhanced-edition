@@ -2412,6 +2412,9 @@ set(SRC_GFX_D3D9EMU
 	"${SRC_DIR}/gfx_d3d9emu/d3d9emu_queries.cpp"
 	"${SRC_DIR}/gfx_d3d9emu/d3d9emu_resources.cpp"
 	"${SRC_DIR}/gfx_d3d9emu/d3d9emu_shaders.cpp"
+	"${SRC_DIR}/gfx_d3d9emu/d3d9emu_scene.h"
+	"${SRC_DIR}/gfx_d3d9emu/d3d9emu_temporal.cpp"
+	"${SRC_DIR}/gfx_d3d9emu/d3d9emu_temporal.h"
 	"${SRC_DIR}/gfx_d3d9emu/d3d9emu_upscale.cpp"
 	"${SRC_DIR}/gfx_d3d9emu/d3d9emu_upscale.h"
 	"${SRC_DIR}/gfx_d3d9emu/d3dx9emu.cpp"
@@ -2464,6 +2467,48 @@ source_group("gfx_backend/deko3d" FILES ${SRC_GFX_BACKEND_DEKO3D})
 
 set(GFX_BACKEND_DEKO3D_FILES
 	${SRC_GFX_BACKEND_DEKO3D}
+)
+
+set(SRC_GFX_BACKEND_VULKAN
+	"${SRC_DIR}/gfx_backend/vulkan/gb_vk.cpp"
+	"${SRC_DIR}/gfx_backend/vulkan/gb_vk.h"
+	"${SRC_DIR}/gfx_backend/vulkan/gb_vk_host.h"
+	"${SRC_DIR}/gfx_backend/vulkan/gb_vk_vma.cpp"
+)
+source_group("gfx_backend/vulkan" FILES ${SRC_GFX_BACKEND_VULKAN})
+
+set(GFX_BACKEND_VULKAN_FILES
+	${SRC_GFX_BACKEND_VULKAN}
+	"${CMAKE_CURRENT_SOURCE_DIR}/third_party/volk/volk.c"
+)
+set(BO1_VULKAN_INCLUDE_DIRS
+	"${CMAKE_CURRENT_SOURCE_DIR}/third_party/vulkan-headers/include"
+	"${CMAKE_CURRENT_SOURCE_DIR}/third_party/volk"
+	"${CMAKE_CURRENT_SOURCE_DIR}/third_party/vma"
+)
+
+# Arm ASR (third_party/arm_asr): the FSR 2 component and its standalone Vulkan backend, in the Vulkan backend.
+set(ARM_ASR_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third_party/arm_asr")
+set(GFX_BACKEND_ARM_ASR_FILES
+	"${ARM_ASR_DIR}/src/shared/ffxm_assert.cpp"
+	"${ARM_ASR_DIR}/src/shared/ffxm_object_management.cpp"
+	"${ARM_ASR_DIR}/src/components/fsr2/ffxm_fsr2.cpp"
+	"${ARM_ASR_DIR}/src/backends/shared/ffxm_shader_blobs.cpp"
+	"${ARM_ASR_DIR}/src/backends/shared/blob_accessors/ffxm_fsr2_shaderblobs.cpp"
+	"${ARM_ASR_DIR}/src/backends/vk/ffxm_hash.cpp"
+	"${ARM_ASR_DIR}/src/backends/vk/ffxm_vk.cpp"
+)
+set(BO1_ARM_ASR_INCLUDE_DIRS
+	"${ARM_ASR_DIR}"
+	"${ARM_ASR_DIR}/include"
+	"${ARM_ASR_DIR}/include/host"
+	"${ARM_ASR_DIR}/include/host/backends/vk"
+	"${ARM_ASR_DIR}/include/gpu"
+	"${ARM_ASR_DIR}/src/components"
+	"${ARM_ASR_DIR}/src/backends/shared"
+	"${ARM_ASR_DIR}/src/backends/shared/blob_accessors"
+	"${ARM_ASR_DIR}/src/backends/shared/blob_accessors/prebuilt_shaders"
+	"${ARM_ASR_DIR}/src/backends/vk"
 )
 
 # ----- src/qcommon -----
