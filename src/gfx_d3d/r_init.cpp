@@ -370,16 +370,19 @@ char __cdecl R_CreateDevice(const GfxWindowParms *wndParms)
 }
 
 #if defined(BO1_WIN_VULKAN)
-// mod: r_mod_upscale (FSR 1.0, emulated Direct3D only): the back buffer, which vidConfig and D3D9 both use, is the
-// window's size over the mode's factor; the window keeps its own size and the frontend upscales into it at Present.
-static void R_ModUpscaleSize(int windowWidth, int windowHeight, unsigned int *width, unsigned int *height)
+// mod: r_mod_upscale (emulated Direct3D only): the back buffer, which vidConfig and D3D9 both use, is the window's size
+// over the mode's factor; the window keeps its own size and the frontend upscales into it. "native" keeps the window's
+// size and asks for the upscaler anyway: Arm ASR at 1:1 is a temporal anti-aliasing (docs/VULKAN.md, step 7).
+// True while the mode asks for the upscaler.
+static bool R_ModUpscaleSize(int windowWidth, int windowHeight, unsigned int *width, unsigned int *height)
 {
-    static const float factors[] = {1.0f, 1.3f, 1.5f, 1.7f, 2.0f};
+    static const float factors[] = {1.0f, 1.3f, 1.5f, 1.7f, 2.0f, 1.0f};
     const int mode = r_mod_upscale ? r_mod_upscale->current.integer : 0;
     if ( !Bo1_EmulatedDirect3DActive() || mode <= 0 || mode >= (int)(sizeof(factors) / sizeof(factors[0])) )
-        return;
+        return false;
     *width = (unsigned int)((float)windowWidth / factors[mode] + 0.5f);
     *height = (unsigned int)((float)windowHeight / factors[mode] + 0.5f);
+    return true;
 }
 #endif
 
@@ -397,8 +400,8 @@ void __cdecl R_SetD3DPresentParameters(_D3DPRESENT_PARAMETERS_ *d3dpp, const Gfx
     d3dpp->BackBufferHeight = wndParms->displayHeight;
     d3dpp->BackBufferWidth = wndParms->displayWidth;
 #if defined(BO1_WIN_VULKAN)
-    R_ModUpscaleSize(wndParms->displayWidth, wndParms->displayHeight, &d3dpp->BackBufferWidth, &d3dpp->BackBufferHeight);
-    if ( d3dpp->BackBufferWidth != (unsigned int)wndParms->displayWidth )
+    if ( R_ModUpscaleSize(wndParms->displayWidth, wndParms->displayHeight, &d3dpp->BackBufferWidth,
+                          &d3dpp->BackBufferHeight) )
     {
         Bo1_SetUpscale(d3dpp->BackBufferWidth, d3dpp->BackBufferHeight, wndParms->displayWidth, wndParms->displayHeight,
                        r_mod_upscaleSharpness->current.value, (unsigned int)r_mod_upscaler->current.integer);

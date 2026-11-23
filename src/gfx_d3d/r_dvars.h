@@ -294,7 +294,7 @@ extern const dvar_s *r_mod_sceneModels; // mod: r_mod_sceneModels
 extern const dvar_s *r_mod_drawStats; // mod: draw call statistics (rb_stats.cpp)
 #if defined(BO1_WIN_VULKAN)
 extern const dvar_s *r_mod_gfxApi; // mod: win64 only, d3d9 (the system's) or vulkan (docs/VULKAN.md)
-extern const dvar_s *r_mod_upscale; // mod: win64 Vulkan only, FSR 1.0: off, ultra, quality, balanced, performance
+extern const dvar_s *r_mod_upscale; // mod: win64 Vulkan only: off, ultra, quality, balanced, performance, native
 extern const dvar_s *r_mod_upscaleSharpness; // mod: FSR 1.0's RCAS, in stops below its sharpest (0 to 2)
 extern const dvar_s *r_mod_upscaler; // mod: fsr1, asr_quality, asr_balanced, asr_performance
 #endif

@@ -760,7 +760,25 @@ int main(int argc, char **argv)
     CHECK(device->Present(nullptr, nullptr, nullptr, nullptr) == D3D_OK);
     device->SetDepthStencilSurface(nullptr);
     sceneDepth->Release();
+
+    // ---- native anti-aliasing (docs/VULKAN.md, step 7): an output of the back buffer's own size only with the
+    // temporal upscaler
+    pp.BackBufferWidth = 640;
+    pp.BackBufferHeight = 480;
+    Mark();
+    CHECK(device->Reset(&pp) == D3D_OK);
+    CHECK(Count("BGRA8 RenderTarget 640x480x1") == 2); // the back buffer and the 2D's target
+    float nativeX, nativeY;
+    CHECK(Bo1Emu_TemporalJitter(device, &nativeX, &nativeY));
     g_temporal = 0;
+    Mark();
+    CHECK(device->Reset(&pp) == D3D_OK);
+    CHECK(Count("BGRA8 RenderTarget 640x480x1") == 1 && HostLogged("no temporal upscaler is asked for"));
+    CHECK(!Bo1Emu_TemporalJitter(device, &nativeX, &nativeY));
+    pp.BackBufferWidth = 320;
+    pp.BackBufferHeight = 240;
+    CHECK(device->Reset(&pp) == D3D_OK); // FSR 1.0 from 320x240 again, its targets made by a frame
+    CHECK(device->Present(nullptr, nullptr, nullptr, nullptr) == D3D_OK);
 
     g_upscale = false;
     Mark();

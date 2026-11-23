@@ -47,7 +47,7 @@ GFX_APIS = ("default", "vulkan")
 # FSR 1.0 under Vulkan on Windows (r_mod_upscale): the game renders at the window's size over the mode's factor and
 # upscales to the window; the sharpness is RCAS's, in stops below its sharpest (r_mod_upscaleSharpness). The choices are
 # the Switch start menu's (launcher_config.cpp).
-FSR_MODES = ("off", "ultra", "quality", "balanced", "performance")
+FSR_MODES = ("off", "ultra", "quality", "balanced", "performance", "native")  # native: Arm ASR as anti-aliasing
 FSR_SHARPNESS = (0.0, 0.2, 0.5, 1.0, 2.0)
 # What upscales at that factor (r_mod_upscaler): FSR 1.0, or Arm ASR (temporal, with its quality, balanced or
 # performance shaders) where the GPU has what it needs; the game falls back to FSR 1.0 otherwise.

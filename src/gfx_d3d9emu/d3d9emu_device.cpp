@@ -265,11 +265,14 @@ void Device::ChooseOutput(const D3DPRESENT_PARAMETERS &p)
     host::UpscaleSettings settings;
     if (!host::Upscale(&settings))
         return;
+    // At 1:1 only the temporal upscaler has something to do (native anti-aliasing, docs/VULKAN.md step 7).
+    const bool same = settings.outputWidth == p.BackBufferWidth && settings.outputHeight == p.BackBufferHeight;
     if (settings.outputWidth < p.BackBufferWidth || settings.outputHeight < p.BackBufferHeight ||
-        (settings.outputWidth == p.BackBufferWidth && settings.outputHeight == p.BackBufferHeight))
+        (same && !settings.temporal))
     {
-        Logf("d3d9emu: upscale: the output %ux%u is not larger than the %ux%u back buffer: none",
-             settings.outputWidth, settings.outputHeight, p.BackBufferWidth, p.BackBufferHeight);
+        Logf("d3d9emu: upscale: the output %ux%u is not larger than the %ux%u back buffer%s: none",
+             settings.outputWidth, settings.outputHeight, p.BackBufferWidth, p.BackBufferHeight,
+             same ? " and no temporal upscaler is asked for" : "");
         return;
     }
     const FormatInfo *format = FindFormat(p.BackBufferFormat);

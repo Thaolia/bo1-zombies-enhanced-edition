@@ -254,7 +254,7 @@ optimised for mobile GPUs:
 Known limit: with camera-only motion vectors, zombies and other animated models may ghost. Per-object motion vectors
 would mean changing every skinned material's generated shaders, which is out of scope.
 
-## Step 7 — SSAA and native AA (rendering above the window's resolution)
+## Step 7 — SSAA and native AA (rendering above the window's resolution) — native AA done
 Asked by the user (2026-11-23): let the game render larger than the screen or the window, for image quality on GPUs
 with headroom. Two modes:
 - **SSAA** (supersampling): the inverse of FSR1's render scale. The back buffer is the window's size times a factor above
@@ -265,6 +265,12 @@ with headroom. Two modes:
   pixels), so the Switch only gets it if a console measurement allows it.
 - **Native AA**: ASR (step 6) at a 1:1 ratio, its temporal accumulation used as anti-aliasing at the window's size
   (AMD's and Arm's "native AA" mode). Needs step 6's jitter, motion vectors and reactive mask, so it follows it.
+  **Done (2026-11-23)**: `r_mod_upscale native` (factor 1, `R_ModUpscaleSize` now says whether a mode asks for the
+  upscaler) with `r_mod_upscaler asr_*`; the frontend accepts an output of the back buffer's own size only when the
+  temporal upscaler is asked for (`ChooseOutput`; with FSR 1.0 it logs and does nothing). Frames without a scene go
+  through FSR 1.0 at 1:1 (RCAS only sharpens). ZmClient: "Natif (anti-aliasing ASR)". `d3d9emu_test` checks both
+  cases; Kino headless on the Iris Xe, 1920x1080 native with ASR quality: a clean frame, about 30 fps (the run's
+  cap); `r_init.cpp`, `r_dvars.cpp` identical on 32-bit. The reactive mask is still missing. SSAA is not done.
 - Points to check: the engine's render targets sized from vidConfig (post effects, shadow maps) at 2x the window;
   the 2D HUD (rendered at the back buffer's size, so sharp at 2x, but text sizes follow vidConfig); the mouse mapped
   into back buffer pixels (`Bo1_ClientToBackBuffer` already handles any ratio); memory (a 4K back buffer with MSAA);

@@ -1080,9 +1080,11 @@ void __cdecl R_RegisterDvars()
                                       "mod: graphics API, d3d9 (the system's Direct3D 9) or vulkan (Direct3D 9 emulated on Vulkan)");
     // mod: FSR 1.0 on Vulkan (docs/VULKAN.md, step 5): the back buffer is the window over AMD's factor for the mode
     // (1.3, 1.5, 1.7, 2), upscaled to the window at Present. Latched: vid_restart or the next start.
-    static const char *upscaleNames[] = {"off", "ultra", "quality", "balanced", "performance", NULL};
+    // "native" (docs/VULKAN.md, step 7): the window's own size, Arm ASR (r_mod_upscaler asr_*) as temporal
+    // anti-aliasing; with FSR 1.0 the frontend does nothing at 1:1.
+    static const char *upscaleNames[] = {"off", "ultra", "quality", "balanced", "performance", "native", NULL};
     r_mod_upscale = _Dvar_RegisterEnum("r_mod_upscale", upscaleNames, 0, 0x21u,
-                                       "mod: FSR 1.0 with r_mod_gfxApi vulkan: off, ultra (x1.3), quality (x1.5), balanced (x1.7), performance (x2)");
+                                       "mod: upscaling with r_mod_gfxApi vulkan: off, ultra (x1.3), quality (x1.5), balanced (x1.7), performance (x2), native (anti-aliasing with Arm ASR)");
     r_mod_upscaleSharpness = _Dvar_RegisterFloat("r_mod_upscaleSharpness", 0.2f, 0.0f, 2.0f, 0x21u,
                                                  "mod: FSR 1.0 sharpening, in stops below the sharpest: 0 sharpest, 0.2 AMD's default, 2 softest");
     // mod: the upscaler for r_mod_upscale (docs/VULKAN.md, step 6): FSR 1.0, or Arm ASR (temporal, the projection
