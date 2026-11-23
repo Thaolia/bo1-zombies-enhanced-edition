@@ -2003,7 +2003,10 @@ bool Init()
     s.asyncPipelines = host::AsyncPipelines();
     if (s.asyncPipelines)
     {
-        const unsigned threads = std::clamp(std::thread::hardware_concurrency() / 4, 1u, 3u);
+        // Half the logical cores, at most 4: a first run with 2x MSAA on the user's i7-11370H (8 threads) queued
+        // 3 400 pipelines at the map's load (r_shaderWarming), 2 000 of them new to the driver at ~200 ms each, and
+        // 2 threads left objects and the HUD undrawn for minutes.
+        const unsigned threads = std::clamp(std::thread::hardware_concurrency() / 2, 1u, 4u);
         for (unsigned i = 0; i < threads; ++i)
             s.compilers.emplace_back(CompilePipelines);
         Log("vk: pipelines compile on %u background threads", threads);
