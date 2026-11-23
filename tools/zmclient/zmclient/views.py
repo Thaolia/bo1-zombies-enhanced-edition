@@ -13,7 +13,7 @@ from . import help as H
 from .dirbrowser import FolderDialog, start_folder
 from .dvarhelp import KNOWN, describe
 from .gamecfg import BY_NAME, SETTINGS, valid_bind_key, validate
-from .profile import (BO2_WEAPON_CHOICES, DEFAULT_PORT, MAP_LABELS, START_PERKS, bo2_weapons_available,
+from .profile import (BO2_WEAPON_CHOICES, DEFAULT_PORT, MAP_LABELS, SSAA_MODES, START_PERKS, bo2_weapons_available,
                       bo2_weapons_installed, dual_wield_installed, FAR_RESPAWN_CHOICES, SPAWN_RATE_CHOICES,
                       START_POINT_CHOICES, check_extra, unlimited_pap_installed, map_installed, map_label, nightmare_available,
                       parse_size, quote_command, resolve_map, solo_maps, specials_available, split_on, valid_host,
@@ -624,6 +624,15 @@ class LaunchView(RowsView):
         return self.choose(key, title, [("", "réglage du jeu", "rien n'est ajouté à la ligne de commande"),
                                         ("1", "oui", ""), ("0", "non", "")])
 
+    @staticmethod
+    def upscale_disabled(p):
+        """Why the upscaler and sharpness rows are greyed, or None: supersampling only averages down."""
+        if p["gfx_api"] != "vulkan" or p["fsr"] == "off":
+            return "agrandissement désactivé"
+        if p["fsr"] in SSAA_MODES:
+            return "le suréchantillonnage n'en a pas besoin"
+        return None
+
     def rows(self):
         p, app = self.p, self.app
         aim_off = "l'aide à la visée est désactivée" if p["aim_assist"] == "0" else None
@@ -654,11 +663,11 @@ class LaunchView(RowsView):
             Row("upscaler", "Méthode d'agrandissement", H.UPSCALER_LABELS[p["upscaler"]],
                 self.choose("upscaler", "Méthode d'agrandissement",
                             [(k, v, H.UPSCALER_HELP[k]) for k, v in H.UPSCALER_LABELS.items()]),
-                disabled=None if p["gfx_api"] == "vulkan" and p["fsr"] != "off" else "agrandissement désactivé"),
+                disabled=self.upscale_disabled(p)),
             Row("fsr_sharpness", "Netteté", H.FSR_SHARPNESS_LABELS[p["fsr_sharpness"]],
                 self.choose("fsr_sharpness", "Netteté",
                             [(k, v, H.ROW_HELP["fsr_sharpness"]) for k, v in H.FSR_SHARPNESS_LABELS.items()]),
-                disabled=None if p["gfx_api"] == "vulkan" and p["fsr"] != "off" else "agrandissement désactivé"),
+                disabled=self.upscale_disabled(p)),
             Row("scene_models", "Modèles affichés par image", str(p["scene_models"]),
                 self.choose("scene_models", "Modèles affichés par image", [
                     (1024, "1024", "le jeu d'origine"),

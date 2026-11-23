@@ -246,7 +246,8 @@ RUN_INFO_LABELS = {0: "non", 1: "au chargement", 2: "chargement + en jeu"}
 GFX_API_LABELS = {"default": "Direct3D 9 (Windows) / OpenGL (Linux)", "vulkan": "Vulkan"}
 FSR_LABELS = {"off": "non", "ultra": "Ultra qualité (x1,3)", "quality": "Qualité (x1,5)",
               "balanced": "Équilibré (x1,7)", "performance": "Performance (x2)",
-              "native": "Natif (anti-aliasing ASR)"}
+              "native": "Natif (anti-aliasing ASR)", "ssaa_1.5x": "Suréchantillonnage x1,5 (SSAA)",
+              "ssaa_2x": "Suréchantillonnage x2 (SSAA)"}
 FSR_HELP = {
     "off": "Le jeu rend à la taille de la fenêtre.",
     "ultra": "Rendu à 77 % de la fenêtre puis agrandi par FSR 1.0 : presque aucune perte.",
@@ -255,6 +256,10 @@ FSR_HELP = {
     "performance": "Rendu à la moitié de la fenêtre : le plus rapide, le plus flou.",
     "native": "Rendu à la taille de la fenêtre, Arm ASR sert d'anti-aliasing (bords lisses, pas de gain de FPS). "
               "Choisir une méthode Arm ASR à la ligne suivante : avec FSR 1.0, rien ne change.",
+    "ssaa_1.5x": "Rendu à 1,5 fois la fenêtre sur chaque côté (2880x1620 pour 1920x1080), puis réduit : "
+                 "bords lisses et détails fins stables, mais 2,25 fois plus de pixels à dessiner.",
+    "ssaa_2x": "Rendu au double de la fenêtre sur chaque côté (3840x2160 pour 1920x1080), puis réduit : "
+               "la meilleure image, 4 fois plus de pixels à dessiner. Pour les cartes graphiques puissantes.",
 }
 FSR_SHARPNESS_LABELS = {0.0: "maximum", 0.2: "forte (défaut AMD)", 0.5: "moyenne", 1.0: "douce", 2.0: "faible"}
 UPSCALER_LABELS = {"fsr1": "FSR 1.0", "asr_quality": "Arm ASR qualité", "asr_balanced": "Arm ASR équilibré",

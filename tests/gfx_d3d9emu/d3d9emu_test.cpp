@@ -649,8 +649,8 @@ int main(int argc, char **argv)
     const std::string hudTarget = LastId("CreateTexture");
     Mark();
     CHECK(device->Present(nullptr, nullptr, nullptr, nullptr) == D3D_OK);
-    CHECK(Count("CreateShader") == 3 && Has("vertex b01f5a1000000001") && Has("pixel b01f5a1000000002") &&
-          Has("pixel b01f5a1000000003"));
+    CHECK(Count("CreateShader") == 4 && Has("vertex b01f5a1000000001") && Has("pixel b01f5a1000000002") &&
+          Has("pixel b01f5a1000000003") && Has("pixel b01f5a1000000007"));
     CHECK(Has("BGRA8 RenderTarget sampled 320x240x1") && Count("BGRA8 RenderTarget sampled 640x480x1") == 2);
     const std::string upscaled = LastId("CreateTexture");
     CHECK(Find("Blit") >= 0 && Find("Blit") < Find("BeginPass") && Count("BeginPass") == 2 && Count("EndPass") == 2);
@@ -750,12 +750,32 @@ int main(int argc, char **argv)
     CHECK(device->Present(nullptr, nullptr, nullptr, nullptr) == D3D_OK);
     CHECK(device->BeginScene() == D3D_OK);
     CHECK(device->DrawIndexedPrimitive(D3DPT_TRIANGLELIST, 0, 0, 4, 0, 2) == D3D_OK);
+    // the reactive mask: the scene copied before and after its emissive draws, one pass into R8 from the two copies
+    Mark();
+    Bo1Emu_SceneTransparents(device, false);
+    CHECK(Has("RGBA8 RenderTarget sampled 320x240x1") && Has("R8 RenderTarget sampled 320x240x1") &&
+          Count("Blit") == 1 && Has("EndPass") && Find("EndPass") < Find("Blit"));
+    const std::string reactiveMask = LastId("CreateTexture");
+    CHECK(device->DrawIndexedPrimitive(D3DPT_TRIANGLELIST, 0, 0, 4, 0, 2) == D3D_OK); // an effect
+    Mark();
+    Bo1Emu_SceneTransparents(device, true);
+    CHECK(!Has("CreateTexture") && Count("Blit") == 1 && Has("BeginPass c0=" + reactiveMask) &&
+          Count("Draw P") == 1);
     Mark();
     Bo1Emu_SceneComplete(device, &camera);
     CHECK(Has("TemporalUpscale") && !Has(" reset")); // the second frame has a history
+    CHECK(Has(" r=" + reactiveMask + " "));
     Mark();
     Bo1Emu_SceneComplete(device, nullptr); // once a frame: nothing more
     CHECK(!Has("TemporalUpscale"));
+    CHECK(device->EndScene() == D3D_OK);
+    CHECK(device->Present(nullptr, nullptr, nullptr, nullptr) == D3D_OK);
+    // a frame without the emissive calls has no mask: the last one is not reused
+    CHECK(device->BeginScene() == D3D_OK);
+    CHECK(device->DrawIndexedPrimitive(D3DPT_TRIANGLELIST, 0, 0, 4, 0, 2) == D3D_OK);
+    Mark();
+    Bo1Emu_SceneComplete(device, &camera);
+    CHECK(Has("TemporalUpscale") && Has(" r=T0 "));
     CHECK(device->EndScene() == D3D_OK);
     CHECK(device->Present(nullptr, nullptr, nullptr, nullptr) == D3D_OK);
     device->SetDepthStencilSurface(nullptr);
@@ -778,6 +798,32 @@ int main(int argc, char **argv)
     pp.BackBufferWidth = 320;
     pp.BackBufferHeight = 240;
     CHECK(device->Reset(&pp) == D3D_OK); // FSR 1.0 from 320x240 again, its targets made by a frame
+    CHECK(device->Present(nullptr, nullptr, nullptr, nullptr) == D3D_OK);
+
+    // ---- supersampling (r_mod_upscale ssaa_*): a back buffer larger than the output on both axes is averaged down in
+    // one pass, never by the temporal upscaler
+    g_temporal = 1;
+    pp.BackBufferWidth = 1280;
+    pp.BackBufferHeight = 960;
+    Mark();
+    CHECK(device->Reset(&pp) == D3D_OK);
+    CHECK(Has("BGRA8 RenderTarget 1280x960x1") && Has("BGRA8 RenderTarget 640x480x1") &&
+          HostLogged("supersampling has no temporal upscaler"));
+    CHECK(!Bo1Emu_TemporalJitter(device, &nativeX, &nativeY));
+    Mark();
+    CHECK(device->Present(nullptr, nullptr, nullptr, nullptr) == D3D_OK);
+    CHECK(Count("Draw P") == 1 && Has("viewport=0,0,640x480") && Has("BGRA8 RenderTarget sampled 1280x960x1") &&
+          HostLogged("supersampling, 1280x960 averaged down to 640x480"));
+    // larger on one axis only: neither
+    pp.BackBufferWidth = 1280;
+    pp.BackBufferHeight = 240;
+    Mark();
+    CHECK(device->Reset(&pp) == D3D_OK);
+    CHECK(HostLogged("larger on one axis only") && Has("ResizeSwapchain W") && Has(" 1280x240"));
+    g_temporal = 0;
+    pp.BackBufferWidth = 320;
+    pp.BackBufferHeight = 240;
+    CHECK(device->Reset(&pp) == D3D_OK); // FSR 1.0 from 320x240 again
     CHECK(device->Present(nullptr, nullptr, nullptr, nullptr) == D3D_OK);
 
     g_upscale = false;

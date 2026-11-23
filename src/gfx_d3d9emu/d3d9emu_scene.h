@@ -6,8 +6,9 @@
 // the output size, so the 2D stays sharp. Without upscaling, or on a frame without a scene (menus, loading screens,
 // cinematics), the whole frame is upscaled at Present as before.
 //
-// With a temporal upscaler (Arm ASR), the engine also jitters its projection by Bo1Emu_TemporalJitter's offset and
-// hands SceneComplete the frame's camera.
+// With a temporal upscaler (Arm ASR), the engine also jitters its projection by Bo1Emu_TemporalJitter's offset, hands
+// SceneComplete the frame's camera, and brackets the scene's emissive draws with Bo1Emu_SceneTransparents, from which
+// the frontend makes the upscaler's reactive mask.
 
 struct IDirect3DDevice9;
 
@@ -27,3 +28,6 @@ void Bo1Emu_SceneComplete(IDirect3DDevice9 *device, const Bo1EmuSceneView *view)
 // The sub-pixel offset of the next scene's projection, in render pixels (x right, y down), and true, while the
 // temporal upscaler is in use; false otherwise (no jitter). Called once a frame, for the main view.
 bool Bo1Emu_TemporalJitter(IDirect3DDevice9 *device, float *x, float *y);
+// The scene's emissive draws (particles, effects) start (`done` false) or are over (true), in the scene's render
+// target. Does nothing without the temporal upscaler.
+void Bo1Emu_SceneTransparents(IDirect3DDevice9 *device, bool done);

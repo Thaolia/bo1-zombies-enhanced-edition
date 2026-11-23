@@ -501,6 +501,12 @@ class CommandLine(unittest.TestCase):
         self.assertIn("+set r_mod_upscaler asr_balanced", " ".join(P.build_command(p, "x", "/g")))
         p["fsr"] = "native"
         self.assertIn("+set r_mod_upscale native", " ".join(P.build_command(p, "x", "/g")))
+        from zmclient import views as V
+        p["fsr"] = "ssaa_2x"
+        self.assertIn("+set r_mod_upscale ssaa_2x", " ".join(P.build_command(p, "x", "/g")))
+        self.assertEqual(V.LaunchView.upscale_disabled(p), "le suréchantillonnage n'en a pas besoin")
+        p["fsr"] = "native"
+        self.assertIsNone(V.LaunchView.upscale_disabled(p))
         p["fsr"] = "quality"
         p["fsr"], p["fsr_sharpness"] = "off", 1.0
         self.assertIn("+set r_mod_upscale off +set r_mod_upscaleSharpness 1", " ".join(P.build_command(p, "x", "/g")))

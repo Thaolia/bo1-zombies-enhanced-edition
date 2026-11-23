@@ -693,7 +693,7 @@ void TestMultisampledDepthResolve()
 }
 
 // TemporalUpscale (Arm ASR on Vulkan; GL has none): a still scene, green on the left and red on the right, upscaled
-// twice over several frames of jitter, keeps its halves.
+// twice over several frames of jitter, keeps its halves, the last frames with a reactive mask (R8, 0.9 everywhere).
 void TestTemporalUpscale()
 {
     gb::TemporalUpscaleDesc u = {};
@@ -711,7 +711,9 @@ void TestTemporalUpscale()
     gb::Texture *depth = texture(gb::Format::R32F, gb::Usage::Static, kSize);
     gb::Texture *motion = texture(gb::Format::RG16F, gb::Usage::Static, kSize);
     gb::Texture *output = texture(gb::Format::RGBA8, gb::Usage::RenderTarget, kOut);
+    gb::Texture *reactive = texture(gb::Format::R8, gb::Usage::Static, kSize);
     std::vector<uint32_t> rgba(kSize * kSize), zero(kSize * kSize, 0);
+    const std::vector<uint8_t> mask(kSize * kSize, 230);
     std::vector<float> far(kSize * kSize, 0.5f);
     for (int y = 0; y < kSize; ++y)
         for (int x = 0; x < kSize; ++x)
@@ -720,6 +722,7 @@ void TestTemporalUpscale()
     gb::UploadTexture(color, 0, 0, all, rgba.data(), kSize * 4, kSize * kSize * 4);
     gb::UploadTexture(depth, 0, 0, all, far.data(), kSize * 4, kSize * kSize * 4);
     gb::UploadTexture(motion, 0, 0, all, zero.data(), kSize * 4, kSize * kSize * 4);
+    gb::UploadTexture(reactive, 0, 0, all, mask.data(), kSize, kSize * kSize);
     u.color = color;
     u.depth = depth;
     u.motion = motion;
@@ -738,10 +741,11 @@ void TestTemporalUpscale()
         u.jitterX = (frame & 1) ? 0.25f : -0.25f;
         u.jitterY = (frame & 2) ? 0.25f : -0.25f;
         u.reset = frame == 0;
+        u.reactive = frame >= 4 ? reactive : nullptr;
         all_ok = gb::TemporalUpscale(u) && all_ok;
         EndFrame();
     }
-    Check(all_ok, "TemporalUpscale records a frame");
+    Check(all_ok, "TemporalUpscale records a frame, with and without a reactive mask");
     std::vector<uint32_t> out(kOut * kOut);
     gb::ReadTexture(output, 0, 0, {0, 0, 0, kOut, kOut, 1}, out.data(), kOut * 4);
     const auto channel = [&](int x, int y, int shift) { return int((out[y * kOut + x] >> shift) & 0xFF); };
@@ -752,6 +756,7 @@ void TestTemporalUpscale()
     gb::DestroyTexture(depth);
     gb::DestroyTexture(motion);
     gb::DestroyTexture(output);
+    gb::DestroyTexture(reactive);
 }
 
 // A hardware shadow map (gfx_backend.h, SamplerDesc::depthCompare): a sampled D24S8 attachment read through a shadow
