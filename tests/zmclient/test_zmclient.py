@@ -1018,6 +1018,16 @@ class GameSetup(unittest.TestCase):
         os.remove(lay.ffconv)
         self.assertIn("pas de ffconv.exe", self.saved(lay, self.install, out))
 
+    def test_no_converter_on_openbsd(self):
+        """ffconv.exe is a 32-bit Windows program: OpenBSD's wine cannot run it, even next to the program."""
+        lay = gamesetup.Layout(self.dist.root)
+        saved = gamesetup.IS_OPENBSD
+        gamesetup.IS_OPENBSD = True
+        try:
+            self.assertIn("pas de conversion sur OpenBSD", self.saved(lay, self.install, lay.root))
+        finally:
+            gamesetup.IS_OPENBSD = saved
+
     def test_steam_library_file(self):
         steam = os.path.join(self.tmp.name, "Steam")
         os.makedirs(os.path.join(steam, "steamapps"))

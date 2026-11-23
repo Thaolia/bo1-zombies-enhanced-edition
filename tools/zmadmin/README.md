@@ -97,9 +97,10 @@ PID's program is that folder's). Quitting asks whether to stop them; a stop send
 On Windows the server runs without a window (`CREATE_NO_WINDOW`); the first start from a new folder showed Windows'
 firewall question for `BO1Zombies.exe`: allow it for players on other machines.
 
-## Building (Nuitka)
+## Building (Nuitka, a zipapp for OpenBSD)
 
-    tools/zmadmin/build.sh [linux] [windows]      # build/zmadmin/linux/zmadmin, build/zmadmin/windows/zmadmin.exe
+    tools/zmadmin/build.sh [linux] [windows] [openbsd]
+        # build/zmadmin/linux/zmadmin, build/zmadmin/windows/zmadmin.exe, build/zmadmin/openbsd/zmadmin
 
 One file per platform, with Python inside. Linux: a venv and a copy of the sources on ext4 (`$ZMADMIN_WORK`, default
 `~/.cache/zmadmin`), gcc and patchelf. Windows, from WSL: a venv of the Windows Python 3.13 in
@@ -107,6 +108,13 @@ One file per platform, with Python inside. Linux: a venv and a copy of the sourc
 `.py` file or `build.sh` is newer than the binary, and puts the binaries in `BO1Zombies_linux/` and
 `BO1Zombies_windows/`. The Linux binary needs the glibc of the machine that built it (2.38 here; the game itself
 needs 2.43).
+
+OpenBSD: Nuitka cannot cross-compile, so `openbsd` makes a zipapp of the sources (`python3 -m zipapp`, shebang
+`/usr/bin/env python3`), run by OpenBSD's own Python (`pkg_add python%3`: 3.14 with curses on 8.0 and -current,
+checked 2026-11-23). One file serves both ABIs. There ZmAdmin finds the package's `BO1Zombies-8.0` or
+`BO1Zombies-current` as `bo1_program.sh` does (`BO1_OPENBSD`, else `kern.version`, else `uname -r`), raises the data
+size limit for the servers it starts (as `ulimit -d` in `server.sh`), and with no `/proc` it checks a saved server PID
+is alive and has the program's command name (`ps -o comm=`): a same-named program of another folder passes that check.
 
 ## Tests
 

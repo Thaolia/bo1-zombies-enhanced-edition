@@ -10,7 +10,7 @@ import os
 import subprocess
 import time
 
-from zmadmin.launcher import IS_WINDOWS, _pid_exe, _same_file
+from zmadmin.launcher import IS_WINDOWS, pid_runs
 
 from .profile import split_home
 
@@ -47,8 +47,7 @@ class Client:
             return False
         if not self.pid:
             return False
-        exe = _pid_exe(self.pid)
-        return exe is not None and _same_file(exe.removesuffix(" (deleted)"), self.dist.exe)
+        return pid_runs(self.pid, self.dist.exe)
 
     def start(self, argv, fs_game=""):
         if self.running():

@@ -165,21 +165,24 @@ jobs:
           cd tools/ffconv
           cmake --preset ffconv -DDXSDK_DIR="$GITHUB_WORKSPACE/dxsdk"
           cmake --build --preset ffconv
-      - name: Build zmadmin and zmclient (Nuitka)
+      - name: Build zmadmin and zmclient (Nuitka; zipapps for OpenBSD, which Nuitka cannot cross-compile to)
         run: |
-          tools/zmadmin/build.sh linux
-          tools/zmclient/build.sh linux
+          tools/zmadmin/build.sh linux openbsd
+          tools/zmclient/build.sh linux openbsd
       - name: Build uam (uam.exe with MinGW-w64, and a static Linux uam)
         run: tools/uam/build.sh windows linux
       - name: Collect
         run: |
-          mkdir -p out/linux/Release out/ffconv out/zmadmin/linux out/zmclient/linux out/uam/windows out/uam/linux
+          mkdir -p out/linux/Release out/ffconv out/zmadmin/linux out/zmclient/linux out/zmadmin/openbsd \
+              out/zmclient/openbsd out/uam/windows out/uam/linux
           cp build/uam/windows/uam.exe build/uam/windows/uam-LICENSE.txt out/uam/windows/
           cp build/uam/linux/uam build/uam/linux/uam-LICENSE.txt out/uam/linux/
           cp build/linux/Release/BO1Zombies out/linux/Release/
           cp build/ffconv/ffconv.exe out/ffconv/
           cp build/zmadmin/linux/zmadmin out/zmadmin/linux/
           cp build/zmclient/linux/zmclient out/zmclient/linux/
+          cp build/zmadmin/openbsd/zmadmin out/zmadmin/openbsd/
+          cp build/zmclient/openbsd/zmclient out/zmclient/openbsd/
           ls -lR out
       - uses: actions/upload-artifact@v4
         with:
@@ -322,7 +325,8 @@ jobs:
           A=artifacts
           # where make_dist.sh looks for each program
           mkdir -p build/win64-msvc/Release build/zmadmin/windows build/zmclient/windows build/zmadmin/linux \
-              build/zmclient/linux build/ffconv build/uam/windows build/uam/linux build/switch_setup/windows \
+              build/zmclient/linux build/zmadmin/openbsd build/zmclient/openbsd build/ffconv build/uam/windows \
+              build/uam/linux build/switch_setup/windows \
               work/linux/Release work/switch/Release work/switch/romfs work/openbsd-8.0/Release \
               work/openbsd-current/Release runtimes
           cp $A/linux/uam/windows/* build/uam/windows/
@@ -336,6 +340,8 @@ jobs:
           cp $A/linux/ffconv/ffconv.exe build/ffconv/
           cp $A/linux/zmadmin/linux/zmadmin build/zmadmin/linux/
           cp $A/linux/zmclient/linux/zmclient build/zmclient/linux/
+          cp $A/linux/zmadmin/openbsd/zmadmin build/zmadmin/openbsd/
+          cp $A/linux/zmclient/openbsd/zmclient build/zmclient/openbsd/
           cp $A/switch/switch/Release/BO1Zombies.nro work/switch/Release/
           cp $A/switch/switch/romfs/build.txt work/switch/romfs/
           for f in 8.0 current; do
@@ -346,7 +352,7 @@ jobs:
           cabextract -q -d runtimes -F d3dx9_43.dll $A/dxsdk/Redist/Jun2010_d3dx9_43_x64.cab
           cabextract -q -d runtimes -F xinput1_3.dll $A/dxsdk/Redist/APR2007_xinput_x64.cab
           chmod +x work/linux/Release/BO1Zombies build/zmadmin/linux/zmadmin build/zmclient/linux/zmclient \
-              build/uam/linux/uam
+              build/zmadmin/openbsd/zmadmin build/zmclient/openbsd/zmclient build/uam/linux/uam
           # artifacts are newer than the checkout, so --no-build takes them as up to date
           touch build/*/*/* build/ffconv/ffconv.exe
           ls -l runtimes
@@ -386,6 +392,7 @@ jobs:
               `Setup-Switch.bat` on Windows, `./setup_switch.sh <install>` on Linux (wine for ffconv, python3);
               then copy `switch/` to the SD card's root. See `BO1Zombies_switch_nodata/LISEZMOI.txt`.
             - OpenBSD/amd64 (`.tar.gz`): `BO1Zombies-8.0` for the release, `BO1Zombies-current` for -current;
-              `./play.sh` picks the running system's. It needs `pkg_add sdl2`, and the game files of a Windows or
-              Linux install made with zmclient (there is no zmclient or ffconv for OpenBSD). Not yet tried on a
-              real OpenBSD machine. See `BO1Zombies_openbsd_nodata/LISEZMOI.txt`.
+              `./play.sh` picks the running system's. It needs `pkg_add sdl2` (and `pkg_add python%3` for
+              `zmclient` and `zmadmin`), and the game files of a Windows or Linux install made with zmclient (there
+              is no ffconv for OpenBSD). Not yet tried on a real OpenBSD machine. See
+              `BO1Zombies_openbsd_nodata/LISEZMOI.txt`.

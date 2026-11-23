@@ -289,8 +289,9 @@ pass), and `shaders.dksh` when its `shaders.pack` changed (it fails if uam rejec
 `--out`, `--game`, `--zones`, `--dxsdk`, `--archive auto|zip|tar|none`, `--jobs`; `--help` lists them. The OpenBSD
 programs build with the cross toolchain of [cross-compiler-openbsd](https://github.com/Thaolia/cross-compiler-openbsd)
 (`--openbsd-cross <prefix>` or `OPENBSD_CROSS`: its `install.sh` prefix, with the `8.0` and `current` sysroots and
-their `sdl2` package). There is no ZmClient or ffconv for OpenBSD: the `_nodata` OpenBSD package takes the game files
-of a Windows or Linux install made with ZmClient (its `LISEZMOI.txt` lists them). The packages
+their `sdl2` package). Its `zmclient` and `zmadmin` are zipapps run by OpenBSD's Python (`pkg_add python%3`). There
+is no ffconv for OpenBSD: the `_nodata` OpenBSD package takes the game files of a Windows or Linux install made with
+ZmClient (its `LISEZMOI.txt` lists them). The packages
 hold your own game files: keep them for your own devices, never publish them (the `_nodata` ones hold none).
 
 `switch-tools\uam.exe` in the Windows package is deko3d's offline shader compiler, which devkitPro ships for Linux

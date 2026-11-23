@@ -345,8 +345,9 @@ ZmClient la propose sous « Mapkit : Nuketown native (Black Ops II, monde BSP) �
   ils prennent le programme du système qui tourne et montent la limite de mémoire) et `shaders.pack`. Il se compile
   avec la chaîne de [cross-compiler-openbsd](https://github.com/Thaolia/cross-compiler-openbsd)
   (`--openbsd-cross <préfixe>` ou `OPENBSD_CROSS` : le préfixe de son `install.sh`, avec les sysroots `8.0` et
-  `current` et leur paquet `sdl2`). Il n'y a ni ZmClient ni ffconv pour OpenBSD : le paquet OpenBSD `_nodata` prend
-  les fichiers du jeu d'une installation Windows ou Linux faite avec ZmClient (son `LISEZMOI.txt` les liste).
+  `current` et leur paquet `sdl2`). Son `zmclient` et son `zmadmin` sont des zipapps lancés par le Python d'OpenBSD
+  (`pkg_add python%3`). Il n'y a pas de ffconv pour OpenBSD : le paquet OpenBSD `_nodata` prend les fichiers du jeu
+  d'une installation Windows ou Linux faite avec ZmClient (son `LISEZMOI.txt` les liste).
 
 Chaque paquet contient aussi les zones converties, les `main/*.iwd` et le `localization.txt` de l'install (plus
 `main/video` sur PC), un `LISEZMOI.txt` et un `VERSION.txt` (commit, date, heure du lien du NRO). Avec

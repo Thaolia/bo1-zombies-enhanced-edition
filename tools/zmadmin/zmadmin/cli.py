@@ -8,7 +8,7 @@ import sys
 from . import __version__
 from . import help as H
 from .config import Config
-from .launcher import LocalServer, find_dist
+from .launcher import EXE_NAME, LocalServer, find_dist, missing_program_hint, raise_data_limit
 from .profiles import local_game, profile_configured, start_profile
 from .protocol import DEFAULT_PORT, ProtocolError, RconClient, parse_target, query_status, strip_colors
 
@@ -77,6 +77,7 @@ def main(argv=None):
     parser.add_argument("--list-profiles", action="store_true", help="print the folder's local server profiles, exit")
     parser.add_argument("--version", action="version", version=f"zmadmin {__version__}")
     args = parser.parse_args(argv)
+    raise_data_limit()
 
     if args.status or args.rcon:
         if not args.target:
@@ -98,9 +99,9 @@ def main(argv=None):
         parser.error("--start connects to the profile it starts: no TARGET")
     dist = find_dist(args.dist)
     if args.dist and not dist:
-        parser.error(f"{args.dist} is not a BO1Zombies folder (BO1Zombies, server script and zone/ needed)")
+        parser.error(f"{args.dist} is not a BO1Zombies folder ({EXE_NAME}, server script and zone/ needed)")
     if (args.start or args.list_profiles) and not dist:
-        parser.error("no BO1Zombies folder here: run it from one, or give --dist")
+        parser.error("no BO1Zombies folder here: run it from one, or give --dist" + missing_program_hint())
     config = Config(args.config)
     if args.list_profiles:
         return list_profiles(config, dist)

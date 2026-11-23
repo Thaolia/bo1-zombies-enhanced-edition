@@ -121,11 +121,14 @@ An install without the DLCs has only Kino, Five and Dead Ops: ZmClient marks the
 `zone/*/<map>.ff`) and refuses to launch them, solo or as the local server's map. `tools/make_dist.sh --no-game-data` makes packages
 (`BO1Zombies_<platform>_nodata/`) with no game file at all, for players who install from their own copy.
 
-## Building (Nuitka)
+## Building (Nuitka, a zipapp for OpenBSD)
 
-    tools/zmclient/build.sh [linux] [windows]     # build/zmclient/linux/zmclient, build/zmclient/windows/zmclient.exe
+    tools/zmclient/build.sh [linux] [windows] [openbsd]
+        # build/zmclient/linux/zmclient, build/zmclient/windows/zmclient.exe, build/zmclient/openbsd/zmclient
 
-As ZmAdmin's `build.sh`, with ZmAdmin's package compiled in. `tools/make_dist.sh` rebuilds it when a `.py` file of
+As ZmAdmin's `build.sh`, with ZmAdmin's package compiled in (put in the zipapp for OpenBSD). On OpenBSD the
+Installation view copies the game files but converts no zones: ffconv is a 32-bit Windows program and OpenBSD's wine
+runs 64-bit ones only. `tools/make_dist.sh` rebuilds it when a `.py` file of
 `tools/zmclient` or `tools/zmadmin/zmadmin`, or this `build.sh`, is newer than the binary.
 
 ## Tests

@@ -7,7 +7,8 @@
 #                                  ffconv.exe
 #   switch   BO1Zombies_switch/    an SD card tree: switch/bo1zm/ with the .nro and its data
 #   openbsd  BO1Zombies_openbsd/   the OpenBSD/amd64 client and dedicated server, one program for the release (8.0)
-#                                  and one for -current (play.sh and server.sh pick the running system's)
+#                                  and one for -current (play.sh and server.sh pick the running system's), zmclient
+#                                  and zmadmin (zipapps run by OpenBSD's python3; no ffconv)
 #
 #   tools/make_dist.sh [options] [windows] [linux] [switch] [openbsd]
 #                    no platform: windows, linux and switch (openbsd needs its cross toolchain, see --openbsd-cross)
@@ -42,8 +43,8 @@
 # What it builds when needed (unless --no-build): the win64-msvc preset (Visual Studio, from WSL), the Linux and
 # Switch programs (in --work, on ext4: from /mnt/c every header read waits on 9p), the converted zones when they are
 # missing or older than the converter's sources (ffconv, about 6 minutes, from WSL), shaders.dksh when the
-# shaders.pack it came from changed, ZmAdmin and ZmClient when their sources changed (Nuitka, tools/zmadmin/build.sh,
-# tools/zmclient/build.sh), ffconv (shipped so that ZmClient converts the player's own zones), and uam.exe
+# shaders.pack it came from changed, ZmAdmin and ZmClient when their sources changed (Nuitka, or a zipapp for
+# OpenBSD: tools/zmadmin/build.sh, tools/zmclient/build.sh), ffconv (shipped so that ZmClient converts the player's own zones), and uam.exe
 # (tools/uam/build.sh: deko3d's shader compiler for Windows, for a Switch package's shaders.dksh made on Windows). The windows package
 # and the conversion need WSL (they run Windows programs).
 #
@@ -316,30 +317,33 @@ build_dksh() {
 
 need() { [ -e "$1" ] || die "$2 not found: $1 (run without --no-build to build it)"; }
 
+# Nuitka cannot cross-compile: OpenBSD gets a zipapp of the sources, run by its own python3.
+zm_builder() { [ "$1" = openbsd ] && echo zipapp || echo Nuitka; }
+
 # ZmAdmin (tools/zmadmin, the server's admin console) is built again when one of its files is newer than the binary.
 ZMADMIN_VERSION="$(sed -n 's/^__version__ = "\(.*\)"/\1/p' "$ROOT/tools/zmadmin/zmadmin/__init__.py")"
-build_zmadmin() { # <linux|windows> <binary>
+build_zmadmin() { # <linux|windows|openbsd> <binary>
     if [ -f "$2" ] && [ -z "$(find "$ROOT/tools/zmadmin" -type f \( -name '*.py' -o -name build.sh \) -not -path '*/__pycache__/*' -newer "$2" -print -quit)" ]; then
         echo "zmadmin ($1) up to date"
         return
     fi
     [ "$BUILD" = 1 ] || die "zmadmin for $1 is missing or older than tools/zmadmin: $2 (run without --no-build)"
-    [ "$1" = linux ] || have_wsl || die "zmadmin.exe builds with the Windows Python and Visual Studio and needs WSL"
-    step "$1: building zmadmin with Nuitka"
+    [ "$1" != windows ] || have_wsl || die "zmadmin.exe builds with the Windows Python and Visual Studio and needs WSL"
+    step "$1: building zmadmin ($(zm_builder "$1"))"
     run_logged "zmadmin-$1" env ZMADMIN_WORK="$WORK/zmadmin" "$ROOT/tools/zmadmin/build.sh" "$1"
     tail -1 "$LOGS/zmadmin-$1.log"
 }
 
 # ZmClient (tools/zmclient, the client's launcher) imports ZmAdmin's package: a change in either rebuilds it.
 ZMCLIENT_VERSION="$(sed -n 's/^__version__ = "\(.*\)"/\1/p' "$ROOT/tools/zmclient/zmclient/__init__.py")"
-build_zmclient() { # <linux|windows> <binary>
+build_zmclient() { # <linux|windows|openbsd> <binary>
     if [ -f "$2" ] && [ -z "$(find "$ROOT/tools/zmclient" "$ROOT/tools/zmadmin/zmadmin" -type f \( -name '*.py' -o -name build.sh \) -not -path '*/__pycache__/*' -newer "$2" -print -quit)" ]; then
         echo "zmclient ($1) up to date"
         return
     fi
     [ "$BUILD" = 1 ] || die "zmclient for $1 is missing or older than its sources: $2 (run without --no-build)"
-    [ "$1" = linux ] || have_wsl || die "zmclient.exe builds with the Windows Python and Visual Studio and needs WSL"
-    step "$1: building zmclient with Nuitka"
+    [ "$1" != windows ] || have_wsl || die "zmclient.exe builds with the Windows Python and Visual Studio and needs WSL"
+    step "$1: building zmclient ($(zm_builder "$1"))"
     run_logged "zmclient-$1" env ZMCLIENT_WORK="$WORK/zmclient" "$ROOT/tools/zmclient/build.sh" "$1"
     tail -1 "$LOGS/zmclient-$1.log"
 }
@@ -389,6 +393,8 @@ fi
 if wants openbsd; then
     [ "$BUILD" = 1 ] && build_openbsd
     for f in "${OPENBSD_FLAVORS[@]}"; do need "$WORK/openbsd-$f/Release/BO1Zombies" "the OpenBSD $f program"; done
+    build_zmadmin openbsd "$ROOT/build/zmadmin/openbsd/zmadmin"
+    build_zmclient openbsd "$ROOT/build/zmclient/openbsd/zmclient"
 fi
 if wants switch; then
     [ "$BUILD" = 1 ] && build_switch
@@ -918,6 +924,7 @@ package_openbsd() {
     step "openbsd: $d"
     mkdir -p "$d/main"
     for f in "${OPENBSD_FLAVORS[@]}"; do cp "$WORK/openbsd-$f/Release/BO1Zombies" "$d/BO1Zombies-$f"; done
+    cp "$ROOT/build/zmadmin/openbsd/zmadmin" "$ROOT/build/zmclient/openbsd/zmclient" "$d/"
     rsync -a --delete --exclude "$UPAP_SCRIPT" "$ROOT/mods/" "$d/mods/"
     rsync -a "$ROOT/data/main/" "$d/main/"
     if [ "$GAME_DATA" = 1 ]; then
@@ -1005,15 +1012,19 @@ cd "$HERE"
 exec "$PROGRAM" +set fs_b "$HERE" +set fs_h "$HERE/server" +set bo1_server 1 +set net_ip 0.0.0.0 +set net_port "$PORT" "$@" +devmap "$MAP"
 EOF
     for f in "${OPENBSD_FLAVORS[@]}"; do chmod +x "$d/BO1Zombies-$f"; done
-    chmod +x "$d/play.sh" "$d/server.sh"
+    chmod +x "$d/play.sh" "$d/server.sh" "$d/zmadmin" "$d/zmclient"
     cat > "$d/LISEZMOI.txt" << 'EOF'
 BO1 Zombies, portage OpenBSD/amd64 : client (OpenGL 4.3) et serveur dédié
 =========================================================================
 
 PROGRAMMES  BO1Zombies-8.0 pour OpenBSD 8.0, BO1Zombies-current pour -current (un snapshot) : -current change
-            d'ABI entre deux versions. play.sh et server.sh prennent celui du système qui tourne ;
-            BO1_OPENBSD=8.0 ou BO1_OPENBSD=current en impose un. Après une mise à jour de -current, prenez le
-            paquet d'une version plus récente si le programme ne démarre plus.
+            d'ABI entre deux versions. play.sh, server.sh, zmclient et zmadmin prennent celui du système qui
+            tourne ; BO1_OPENBSD=8.0 ou BO1_OPENBSD=current en impose un. Après une mise à jour de -current, prenez
+            le paquet d'une version plus récente si le programme ne démarre plus.
+CLIENT      ./zmclient                    lanceur : partie solo (map, mods, horde, nightmare), rejoindre un serveur
+            (favoris et réseau local), ou lancer le serveur local et le rejoindre ; config.cfg, dvars libres.
+            Sa vue Installation copie les fichiers d'une install du jeu mais ne convertit pas les zones : ffconv
+            n'existe pas pour OpenBSD (voir la fin de ce fichier).
 JOUER       ./play.sh                     ouvre le menu du jeu (Zombies, Solo, une map).
             FULLSCREEN=1 ./play.sh        en plein écran.
 REJOINDRE   ./play.sh net 192.168.1.20:3074 MonNom
@@ -1028,12 +1039,19 @@ ZOMBIES     /zm_where dans la console : la position de chaque zombie vivant et s
 SPEEDRUN    en bas de l'écran de chargement : les réglages qui changent la partie et un hash SHA-512 du
             programme et des zones chargées (console_mp.log, lignes runinfo:) ; « bo1_runinfo 2 » le garde dans
             un coin en jeu. Il distingue deux runs faites avec des fichiers différents ; il ne prouve rien.
+ADMIN       ./zmadmin                     console d'administration du serveur (joueurs, partie, réglages, log).
+            Depuis ce dossier, elle lance aussi des serveurs, plusieurs à la fois : un profil chacun (map, mods,
+            port, mot de passe rcon, réglages gardés ; F1, n pour en créer un).
+            ./zmadmin --start <profil> le lance tel qu'enregistré, sans question (--detach : sans interface).
+            ./zmadmin 192.168.1.20 -p <rcon_password> pilote un serveur distant. ? : aide dans chaque vue.
 
-Prérequis : OpenBSD/amd64 avec X, SDL2 (doas pkg_add sdl2) et une carte graphique dont le pilote Mesa donne
-OpenGL 4.3 (amdgpu, inteldrm récents). OpenBSD compte la mémoire du programme dans la limite datasize de la classe
-de connexion (/etc/login.conf) : le serveur en prend environ 650 Mo sur Kino, le client bien plus (textures,
-pilote OpenGL). play.sh et server.sh la montent au maximum de la classe et préviennent sous 3 Go (client) ou 1 Go
-(serveur) : il faut alors une classe plus large (staff, ou une classe à vous ; usermod -L <classe> <vous>).
+Prérequis : OpenBSD/amd64 avec X, SDL2 (doas pkg_add sdl2), Python 3 pour zmclient et zmadmin
+(doas pkg_add python%3) et une carte graphique dont le pilote Mesa donne OpenGL 4.3 (amdgpu, inteldrm récents).
+OpenBSD compte la mémoire du programme dans la limite datasize de la classe de connexion (/etc/login.conf) : le
+serveur en prend environ 650 Mo sur Kino, le client bien plus (textures, pilote OpenGL). play.sh et server.sh la
+montent au maximum de la classe et préviennent sous 3 Go (client) ou 1 Go (serveur) : il faut alors une classe plus
+large (staff, ou une classe à vous ; usermod -L <classe> <vous>). zmclient et zmadmin la montent de même pour le
+jeu et les serveurs qu'ils lancent.
 Pas encore essayé sur une vraie machine OpenBSD : renvoyez main/console_mp.log en cas de problème.
 
 EOF
@@ -1042,7 +1060,7 @@ EOF
         data_note machines >> "$d/LISEZMOI.txt"
     else
         cat >> "$d/LISEZMOI.txt" << 'EOF'
-Ce dossier ne contient aucun fichier du jeu. ZmClient et ffconv n'existent pas pour OpenBSD : installez d'abord
+Ce dossier ne contient aucun fichier du jeu. ffconv n'existe pas pour OpenBSD : installez d'abord
 le paquet Windows ou Linux sur un PC avec votre Call of Duty: Black Ops (Steam), faites-y l'installation (zmclient,
 vue Installation, F7), puis copiez de ce dossier vers celui-ci : localization.txt, shaders.pack, zone/ et main/
 (ses .iwd et video/). Ce sont alors vos propres fichiers de jeu : gardez-les pour vos machines, ne les publiez pas.

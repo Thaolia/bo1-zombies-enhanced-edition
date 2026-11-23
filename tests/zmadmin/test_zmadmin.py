@@ -415,6 +415,81 @@ class LauncherTest(unittest.TestCase):
                                                   os.path.join("main", "maps", "zombie_bo2transit.d3dbsp")]))
 
 
+
+class OpenBSDTest(unittest.TestCase):
+    """The OpenBSD package: one program per ABI, found as bo1_program.sh finds it, and no /proc to check a PID."""
+
+    def test_flavor(self):
+        f = launcher.openbsd_flavor
+        self.assertEqual(f(env={"BO1_OPENBSD": "current"}, kern_version="OpenBSD 8.0 (GENERIC.MP) #1: ...\n"),
+                         "current")
+        self.assertEqual(f(env={}, kern_version="OpenBSD 8.0-current (GENERIC.MP) #12: ...\n    deraadt@\n",
+                           release="8.0"), "current")
+        self.assertEqual(f(env={}, kern_version="OpenBSD 8.1-beta (GENERIC.MP) #3: ...\n", release="8.1"), "current")
+        self.assertEqual(f(env={}, kern_version="OpenBSD 8.0 (GENERIC.MP) #1: ...\n", release="8.0"), "8.0")
+        self.assertEqual(f(env={}, kern_version="", release="8.0"), "8.0")
+
+    def test_program_name(self):
+        self.assertEqual(launcher.program_name("linux"), "BO1Zombies")
+        self.assertEqual(launcher.program_name("win32"), "BO1Zombies.exe")
+        self.assertEqual(launcher.program_name("openbsd8", env={}, kern_version="OpenBSD 8.0 (GENERIC.MP)\n",
+                                               release="8.0"), "BO1Zombies-8.0")
+        self.assertEqual(launcher.program_name("openbsd8", env={"BO1_OPENBSD": "current"}), "BO1Zombies-current")
+
+    def test_dist_with_the_flavor_program(self):
+        saved = launcher.EXE_NAME
+        launcher.EXE_NAME = "BO1Zombies-8.0"
+        try:
+            with tempfile.TemporaryDirectory() as d:
+                for name in ("BO1Zombies-current", "server.sh"):
+                    open(os.path.join(d, name), "w").close()
+                os.mkdir(os.path.join(d, "zone"))
+                self.assertIsNone(launcher.find_dist(d))       # only the other ABI's program
+                open(os.path.join(d, "BO1Zombies-8.0"), "w").close()
+                dist = launcher.find_dist(d)
+                self.assertEqual(dist.exe, os.path.join(os.path.abspath(d), "BO1Zombies-8.0"))
+        finally:
+            launcher.EXE_NAME = saved
+
+    @unittest.skipIf(os.name == "nt", "ps and sleep")
+    def test_pid_runs_by_command_name(self):
+        """A real process through ps -o comm= (Linux's ps answers it too; its names stop at 15 characters)."""
+        import shutil
+        import subprocess
+        saved = launcher.IS_OPENBSD
+        launcher.IS_OPENBSD = True
+        launcher._COMM_CACHE.clear()
+        try:
+            with tempfile.TemporaryDirectory() as d:
+                exe = os.path.join(d, "BO1Zombies-8.0")
+                shutil.copy(shutil.which("sleep"), exe)
+                os.chmod(exe, 0o755)
+                proc = subprocess.Popen([exe, "30"])
+                try:
+                    self.assertTrue(launcher.pid_runs(proc.pid, exe))
+                    self.assertFalse(launcher.pid_runs(proc.pid, os.path.join(d, "BO1Zombies-current")))
+                finally:
+                    proc.kill()
+                    proc.wait()
+                # a dead PID stops counting at once, though ps's cached answer still stands; past its lifetime ps
+                # finds no process
+                self.assertFalse(launcher.pid_runs(proc.pid, exe))
+                self.assertEqual(launcher._pid_comm(proc.pid), "BO1Zombies-8.0")
+                self.assertIsNone(launcher._pid_comm(proc.pid, now=time.monotonic() + launcher._COMM_TTL + 1))
+        finally:
+            launcher.IS_OPENBSD = saved
+            launcher._COMM_CACHE.clear()
+
+    def test_hint_only_on_openbsd(self):
+        saved = launcher.IS_OPENBSD
+        try:
+            launcher.IS_OPENBSD = False
+            self.assertEqual(launcher.missing_program_hint(), "")
+            launcher.IS_OPENBSD = True
+            self.assertIn("BO1_OPENBSD", launcher.missing_program_hint())
+        finally:
+            launcher.IS_OPENBSD = saved
+
 class LaunchDialogTest(unittest.TestCase):
     """ZmAdmin's local server launch, dialog by dialog, on a fake app: map, mods, then the choices that apply."""
 

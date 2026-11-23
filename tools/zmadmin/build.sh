@@ -1,13 +1,15 @@
 #!/bin/bash
 # Builds ZmAdmin into one executable per platform with Nuitka (bash, from WSL or Linux).
 #
-#   tools/zmadmin/build.sh [linux] [windows]       default: both
+#   tools/zmadmin/build.sh [linux] [windows] [openbsd]       default: linux and windows
 #
-# Output: build/zmadmin/linux/zmadmin and build/zmadmin/windows/zmadmin.exe.
+# Output: build/zmadmin/linux/zmadmin, build/zmadmin/windows/zmadmin.exe and build/zmadmin/openbsd/zmadmin.
 # - Linux: a venv and a copy of the sources in $ZMADMIN_WORK (ext4; default ~/.cache/zmadmin): from /mnt/c every file
 #   read waits on 9p. Needs python3-venv, gcc and patchelf.
 # - Windows: through powershell.exe, a venv of the Windows python3 (3.13) in build\zmadmin\venv-win with nuitka and
 #   windows-curses (the standard library has no curses on Windows), compiled by MSVC (Visual Studio Build Tools).
+# - OpenBSD: Nuitka cannot cross-compile, so a zipapp of the sources (the standard library only), run by
+#   OpenBSD's python3 (pkg_add python%3, which has curses). One file for both ABIs.
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$HERE/../.." && pwd)"
@@ -54,10 +56,22 @@ build_windows() {
     " | tr -d '\r'
 }
 
+build_openbsd() {
+    echo "== zmadmin: openbsd (zipapp)"
+    local stage="$WORK/pyz-openbsd"
+    rm -rf "$stage"
+    mkdir -p "$stage" "$OUT/openbsd"
+    rsync -a --exclude __pycache__ "$HERE/zmadmin/" "$stage/zmadmin/"
+    cp "$HERE/main.py" "$stage/__main__.py"
+    python3 -m zipapp "$stage" --python "/usr/bin/env python3" --compress --output "$OUT/openbsd/zmadmin"
+    python3 "$OUT/openbsd/zmadmin" --version
+}
+
 for t in "${targets[@]}"; do
     case "$t" in
     linux) build_linux ;;
     windows) build_windows ;;
-    *) echo "build.sh: unknown target '$t' (linux, windows)" >&2; exit 2 ;;
+    openbsd) build_openbsd ;;
+    *) echo "build.sh: unknown target '$t' (linux, windows, openbsd)" >&2; exit 2 ;;
     esac
 done

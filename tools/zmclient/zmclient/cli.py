@@ -6,7 +6,7 @@ import os
 import sys
 import time
 
-from zmadmin.launcher import EXE_NAME, IS_WINDOWS, Dist, program_dir
+from zmadmin.launcher import EXE_NAME, IS_WINDOWS, Dist, missing_program_hint, program_dir, raise_data_limit
 from zmadmin.protocol import ProtocolError, query_modinfo
 
 from . import __version__, gamesetup
@@ -86,6 +86,7 @@ def main(argv=None):
                         help="install the game files from DIR (default: the saved or the detected install)")
     parser.add_argument("--version", action="version", version=f"zmclient {__version__}")
     args = parser.parse_args(argv)
+    raise_data_limit()
 
     dist = find_dist(args.dist)
     if args.dist and not dist:
@@ -98,7 +99,7 @@ def main(argv=None):
         return run_setup(dist, profile, args.setup)
     if args.print_cmd or args.play:
         if not dist:
-            parser.error("no BO1Zombies folder here (--dist)")
+            parser.error("no BO1Zombies folder here (--dist)" + missing_program_hint())
         if args.play and profile["mode"] == "host":
             parser.error("--play does not start the local server: use the interface, or the solo or join mode")
         try:

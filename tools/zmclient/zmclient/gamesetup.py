@@ -17,7 +17,7 @@ import subprocess
 import threading
 import time
 
-from zmadmin.launcher import IS_WINDOWS
+from zmadmin.launcher import IS_OPENBSD, IS_WINDOWS
 
 GAME_FOLDER = "Call of Duty Black Ops"
 MARKER = "zmclient_setup.json"
@@ -177,7 +177,11 @@ def _windows_paths(tool, paths):
 
 def converter_command(lay, install, out_dir):
     """ffconv's command line, or a text saying why there is none. ffconv is a Windows program: Linux runs it through
-    WSL's interop when it can (a WSL distribution runs .exe files itself), else under wine."""
+    WSL's interop when it can (a WSL distribution runs .exe files itself), else under wine. OpenBSD cannot run it:
+    ffconv is a 32-bit program and OpenBSD's wine runs 64-bit ones only."""
+    if IS_OPENBSD:
+        return ("pas de conversion sur OpenBSD (ffconv est un programme Windows 32 bits) : convertissez sur un PC "
+                "Windows ou Linux (ZmClient, vue Installation) et copiez zone/ et shaders.pack ici")
     if not os.path.isfile(lay.ffconv):
         return f"pas de {FFCONV_NAME} dans le dossier : ce paquet ne sait pas convertir les zones"
     if IS_WINDOWS:

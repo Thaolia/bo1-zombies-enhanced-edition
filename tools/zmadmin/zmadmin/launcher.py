@@ -26,8 +26,58 @@ from . import gamemods
 from .config import DEFAULT_PROFILE
 
 IS_WINDOWS = os.name == "nt"
-EXE_NAME = "BO1Zombies.exe" if IS_WINDOWS else "BO1Zombies"
+IS_OPENBSD = sys.platform.startswith("openbsd")
+
+
+def openbsd_flavor(env=None, kern_version=None, release=None):
+    """The OpenBSD build that runs here, as the package's bo1_program.sh picks it: BO1_OPENBSD, else "current" on a
+    snapshot (kern.version says -current or -beta), else the release (uname -r, "8.0")."""
+    env = os.environ if env is None else env
+    if env.get("BO1_OPENBSD"):
+        return env["BO1_OPENBSD"]
+    if kern_version is None:
+        try:
+            kern_version = subprocess.run(["sysctl", "-n", "kern.version"], capture_output=True, text=True,
+                                          timeout=5).stdout
+        except (OSError, subprocess.SubprocessError):
+            kern_version = ""
+    first = kern_version.splitlines()[0] if kern_version else ""
+    if "-current" in first or "-beta" in first:
+        return "current"
+    return release if release is not None else os.uname().release
+
+
+def program_name(platform=sys.platform, **openbsd):
+    """The game program's file name in a make_dist.sh folder. The OpenBSD package holds one per ABI
+    (BO1Zombies-8.0, BO1Zombies-current): -current breaks the release's ABI."""
+    if platform.startswith("openbsd"):
+        return f"BO1Zombies-{openbsd_flavor(**openbsd)}"
+    return "BO1Zombies.exe" if platform == "win32" else "BO1Zombies"
+
+
+EXE_NAME = program_name()
 SCRIPT_NAME = "Server.bat" if IS_WINDOWS else "server.sh"
+
+
+def missing_program_hint():
+    """What to add to a "no BO1Zombies folder" message: on OpenBSD, the program looked for and how to pick another."""
+    if not IS_OPENBSD:
+        return ""
+    return f" (looked for {EXE_NAME}; BO1_OPENBSD=8.0 or BO1_OPENBSD=current picks another)"
+
+
+def raise_data_limit():
+    """OpenBSD counts mmap against the data size limit: raise it to the class maximum, as play.sh and server.sh do
+    with ulimit -d. Done once at start-up so the game and the server inherit it (no preexec_fn: the apps run
+    threads)."""
+    if not IS_OPENBSD:
+        return
+    import resource
+    try:
+        _, hard = resource.getrlimit(resource.RLIMIT_DATA)
+        resource.setrlimit(resource.RLIMIT_DATA, (hard, hard))
+    except (OSError, ValueError):
+        pass
 
 
 class ServerHome:
@@ -162,6 +212,43 @@ def _same_file(a, b):
     return os.path.normcase(os.path.abspath(a)) == os.path.normcase(os.path.abspath(b))
 
 
+# OpenBSD: pid -> (command name, monotonic time of the ps run). The views ask running() at every repaint.
+_COMM_CACHE = {}
+_COMM_TTL = 2.0
+
+
+def _pid_comm(pid, now=None):
+    """The command name OpenBSD keeps for pid (the executed file's base name), or None when no such process."""
+    now = time.monotonic() if now is None else now
+    hit = _COMM_CACHE.get(pid)
+    if hit and now - hit[1] < _COMM_TTL:
+        return hit[0]
+    try:
+        r = subprocess.run(["ps", "-o", "comm=", "-p", str(pid)], capture_output=True, text=True, timeout=5)
+        name = r.stdout.strip() if r.returncode == 0 else None
+    except (OSError, subprocess.SubprocessError):
+        name = None
+    _COMM_CACHE[pid] = (name or None, now)
+    return name or None
+
+
+def pid_runs(pid, exe):
+    """pid is still the program exe: a PID the system gave to another program since is not ours."""
+    if IS_OPENBSD:
+        # liveness uncached, so a program just killed stops counting at once (and a restart is not refused)
+        try:
+            os.kill(pid, 0)
+        except PermissionError:
+            pass
+        except OSError:
+            return False
+        # no /proc on OpenBSD: compare the command name, which is the base name (BO1Zombies-current fits its
+        # 23 characters), so a same-named program of another folder would pass
+        return _pid_comm(pid) == os.path.basename(exe)
+    found = _pid_exe(pid)
+    return found is not None and _same_file(found.removesuffix(" (deleted)"), exe)
+
+
 class LocalServer:
     """The server a profile of this dist folder runs, found again through its state file by a later ZmAdmin."""
 
@@ -189,9 +276,7 @@ class LocalServer:
             return False
         if not self.pid:
             return False
-        exe = _pid_exe(self.pid)
-        # a PID the system gave to another program since: not our server
-        return exe is not None and _same_file(exe.removesuffix(" (deleted)"), self.dist.exe)
+        return pid_runs(self.pid, self.dist.exe)
 
     def start(self, game, port, password):
         if self.running():
