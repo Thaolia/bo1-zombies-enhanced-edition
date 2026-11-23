@@ -117,6 +117,24 @@ console's compositor stretches the frame bilinearly.
   Each pass is one full-screen triangle (`gl_VertexID`, no vertex input) with the constants of `FsrEasuCon` /
   `FsrRcasCon` in a 64-byte block at binding 1. The back buffer `GetFrontBufferData` and screenshots read is still
   the engine's own size.
+- **The 2D at the output size** (`d3d9emu_scene.h`, docs/VULKAN.md step 6.1). The engine calls
+  `Bo1Emu_SceneComplete` at the end of `RB_Draw3D`, once every view's scene, post effects included, is in the back
+  buffer and before the 2D (each view's HUD in `RB_Draw3DCommon`, then the frame's commands). The frontend then:
+  - runs the three steps above into `m_hudTarget`, an output-size colour target made with the back buffer;
+  - until `Present`, sends every pass into the back buffer to `m_hudTarget` instead (`PassTarget`), with the viewport,
+    the scissor rect and the clear rects scaled from the back buffer's size to the output's (`PassViewport`,
+    `PassScissor`), `bo1_pos_fixup` from the scaled viewport, and without the back buffer's depth buffer, whose size
+    no longer matches (`PassDepth`; the 2D does not depth-test);
+  - redirects `StretchRect` from or to the back buffer the same way, rects scaled (the saved-screen blur and flash
+    read the frame so far), and `GetRenderTargetData` of the back buffer gets the frame so far brought back to its
+    size;
+  - presents `m_hudTarget` as it is.
+
+  The HUD and menus over a scene are then drawn at the output size instead of being upscaled with the scene. A frame
+  without a scene (main menu without a world, loading screen, cinematic) is upscaled whole at `Present` as before. A
+  read of the back buffer after such a `Present` (the headless client's screenshot, `GetFrontBufferData`) first gets
+  the presented frame brought back to the back buffer's size, once (`RestorePresentedFrame`), since the back buffer
+  then holds only the scene. Split screen works: every view's scene is done before the first HUD.
 - **Shaders**: `src/gfx_d3d9emu/shaders/fsr1_*.glsl`, GLSL 4.30 ports of the 32-bit paths of `ffx_fsr1.h`
   (`third_party/fidelityfx_fsr1`).
   - EASU reads the source with `textureGather`. RCAS reads it with `texelFetch`, clamped at the edges (HLSL's Load
@@ -130,7 +148,9 @@ console's compositor stretches the frame bilinearly.
     `Blit`, logged once.
 - **Tests**:
   - `d3d9emu_test` checks the calls on the null backend: swapchain size, three shaders, copy, two passes, the
-    presented image, and nothing new on the next frame.
+    presented image, and nothing new on the next frame; after `Bo1Emu_SceneComplete`, the 2D's pass on the
+    output-size target with its viewport and clear rects scaled, a second call doing nothing, that target presented
+    as it is, a screenshot of the last frame bringing it back once, and a frame without a scene upscaled whole.
   - `SDL_VIDEODRIVER=offscreen ./upscale_gl_test [--image in.ppm --out dir]` upscales on GL and checks:
     - a flat image stays flat;
     - rows stay the right way up;

@@ -5,6 +5,7 @@
 #include "d3d9emu.h"
 
 #include "d3d9emu_host.h"
+#include "d3d9emu_scene.h"
 #include "d3d9emu_upscale.h"
 #include "shader_pack.h"
 
@@ -190,6 +191,7 @@ Device::~Device()
     m_backBuffer.reset();
     m_autoDepthStencil.reset();
     m_presentImage.reset();
+    m_hudTarget.reset();
     m_upscaler.reset();
     gb::DestroySwapchain(m_swapchain);
 }
@@ -302,6 +304,14 @@ HRESULT Device::CreateBackBuffer(const D3DPRESENT_PARAMETERS &p)
             return hr;
         m_autoDepthStencil.reset(new Surface(storage, 0, 0, this));
     }
+    if (m_upscale)
+    {
+        hr = CreateStorage(this, D3DRTYPE_SURFACE, m_outputWidth, m_outputHeight, 1, 1, D3DUSAGE_RENDERTARGET,
+                           p.BackBufferFormat, D3DPOOL_DEFAULT, D3DMULTISAMPLE_NONE, storage);
+        if (FAILED(hr))
+            return hr;
+        m_hudTarget.reset(new Surface(storage, 0, 0, this));
+    }
     return D3D_OK;
 }
 
@@ -397,6 +407,8 @@ HRESULT Device::Reset(D3DPRESENT_PARAMETERS *parameters)
     m_backBuffer.reset();
     m_autoDepthStencil.reset();
     m_presentImage.reset();
+    m_hudTarget.reset();
+    m_hudActive = m_hudPresented = false;
     m_window = window;
     if (m_upscaler)
         m_upscaler->ReleaseTargets();
@@ -868,12 +880,75 @@ HRESULT Device::EndScene()
 
 // ---- passes
 
+Surface *Device::PassTarget(Surface *surface) const
+{
+    return m_hudActive && surface && surface == m_backBuffer.get() ? m_hudTarget.get() : surface;
+}
+
+Surface *Device::PassDepth() const
+{
+    const Surface *first = PassTarget(m_renderTargets[0]);
+    // The back buffer's depth buffer has the back buffer's size; the 2D drawn at the output size goes without it.
+    if (m_depthStencil && first && first == m_hudTarget.get() &&
+        (m_depthStencil->Width() != first->Width() || m_depthStencil->Height() != first->Height()))
+        return nullptr;
+    return m_depthStencil;
+}
+
+bool Device::PassOnHud() const
+{
+    return m_hudActive && m_pass.color[0] && m_pass.color[0] == m_hudTarget.get();
+}
+
+int32_t Device::HudX(int64_t x) const
+{
+    const int64_t from = m_backBuffer->Width();
+    return int32_t((x * m_outputWidth + from / 2) / from);
+}
+
+int32_t Device::HudY(int64_t y) const
+{
+    const int64_t from = m_backBuffer->Height();
+    return int32_t((y * m_outputHeight + from / 2) / from);
+}
+
+D3DVIEWPORT9 Device::PassViewport() const
+{
+    if (!PassOnHud())
+        return m_viewport;
+    D3DVIEWPORT9 v = m_viewport;
+    v.X = DWORD(HudX(m_viewport.X));
+    v.Y = DWORD(HudY(m_viewport.Y));
+    v.Width = DWORD(HudX(int64_t(m_viewport.X) + m_viewport.Width)) - v.X;
+    v.Height = DWORD(HudY(int64_t(m_viewport.Y) + m_viewport.Height)) - v.Y;
+    return v;
+}
+
+RECT Device::PassScissor() const
+{
+    if (!PassOnHud())
+        return m_scissor;
+    return {HudX(m_scissor.left), HudY(m_scissor.top), HudX(m_scissor.right), HudY(m_scissor.bottom)};
+}
+
+void Device::RestorePresentedFrame()
+{
+    if (!m_hudPresented)
+        return;
+    m_hudPresented = false;
+    EndPass();
+    Storage &image = m_presentImage ? *m_presentImage : m_backBuffer->GetStorage();
+    const gb::Rect from = {0, 0, m_hudTarget->Width(), m_hudTarget->Height()};
+    const gb::Rect to = {0, 0, image.width, image.height};
+    gb::Blit(m_hudTarget->GetStorage().gpu, 0, 0, from, image.gpu, 0, 0, to, gb::Filter::Linear);
+}
+
 bool Device::TargetsChanged() const
 {
     for (int i = 0; i < gb::MAX_COLOR_TARGETS; ++i)
-        if (m_pass.color[i] != m_renderTargets[i])
+        if (m_pass.color[i] != PassTarget(m_renderTargets[i]))
             return true;
-    return m_pass.depth != m_depthStencil;
+    return m_pass.depth != PassDepth();
 }
 
 bool Device::IsAttachment(const gb::Texture *texture) const
@@ -894,8 +969,12 @@ void Device::PreparePass()
     Pass &p = m_pass;
     p.desc = gb::PassDesc();
     for (int i = 0; i < gb::MAX_COLOR_TARGETS; ++i)
-        Rebind(p.color[i], m_renderTargets[i]);
-    Rebind(p.depth, m_depthStencil);
+    {
+        Rebind(p.color[i], PassTarget(m_renderTargets[i]));
+        if (p.color[i] && p.color[i] == m_backBuffer.get())
+            m_hudPresented = false; // a new frame draws over the old one
+    }
+    Rebind(p.depth, PassDepth());
     // The colour attachments are the targets from the first, up to the first that has no memory (FOURCC_NULL).
     p.width = UINT32_MAX;
     p.height = UINT32_MAX;
@@ -1010,19 +1089,26 @@ HRESULT Device::Clear(DWORD count, CONST D3DRECT *rects, DWORD flags, D3DCOLOR c
     // The cleared area: the viewport, the scissor rect when the test is on, and the rects if any.
     const gb::Rect target = {0, 0, m_pass.width, m_pass.height};
     gb::Rect area;
-    const gb::Rect viewport = {int32_t(m_viewport.X), int32_t(m_viewport.Y), m_viewport.Width, m_viewport.Height};
+    const D3DVIEWPORT9 passViewport = PassViewport();
+    const RECT passScissor = PassScissor();
+    const gb::Rect viewport = {int32_t(passViewport.X), int32_t(passViewport.Y), passViewport.Width,
+                               passViewport.Height};
     if (!Intersect(target, viewport, &area))
         return D3D_OK;
     if (m_renderStates[D3DRS_SCISSORTESTENABLE] &&
-        !Intersect(area, FromRect(m_scissor.left, m_scissor.top, m_scissor.right, m_scissor.bottom), &area))
+        !Intersect(area, FromRect(passScissor.left, passScissor.top, passScissor.right, passScissor.bottom), &area))
         return D3D_OK;
     std::vector<gb::Rect> clearRects;
     if (count && rects)
     {
+        const bool hud = PassOnHud();
         for (DWORD i = 0; i < count; ++i)
         {
             gb::Rect r;
-            if (Intersect(area, FromRect(rects[i].x1, rects[i].y1, rects[i].x2, rects[i].y2), &r))
+            const gb::Rect asked = hud ? FromRect(HudX(rects[i].x1), HudY(rects[i].y1), HudX(rects[i].x2),
+                                                  HudY(rects[i].y2))
+                                       : FromRect(rects[i].x1, rects[i].y1, rects[i].x2, rects[i].y2);
+            if (Intersect(area, asked, &r))
                 clearRects.push_back(r);
         }
     }
@@ -1236,8 +1322,9 @@ bool Device::PrepareDraw(gb::DrawState &state, D3DPRIMITIVETYPE type, const gb::
     // vertices move right and down by just under half a pixel (wined3d's 63/128), so that an edge through a D3D9
     // centre stays on D3D9's side of it whichever way the backend breaks ties.
     const float halfPixel = 63.0f / 128.0f;
-    const float fixup[4] = {2.0f * halfPixel / float(m_viewport.Width ? m_viewport.Width : 1),
-                            -2.0f * halfPixel / float(m_viewport.Height ? m_viewport.Height : 1), 0.0f, 0.0f};
+    const D3DVIEWPORT9 viewport = PassViewport();
+    const float fixup[4] = {2.0f * halfPixel / float(viewport.Width ? viewport.Width : 1),
+                            -2.0f * halfPixel / float(viewport.Height ? viewport.Height : 1), 0.0f, 0.0f};
     if (std::memcmp(m_vertexConstants[256], fixup, sizeof(fixup)))
     {
         std::memcpy(m_vertexConstants[256], fixup, sizeof(fixup));
@@ -1274,11 +1361,12 @@ bool Device::PrepareDraw(gb::DrawState &state, D3DPRIMITIVETYPE type, const gb::
     }
     state.vertexConstants = m_vertexSlice;
     state.pixelConstants = m_pixelSlice;
-    state.viewport = {float(m_viewport.X), float(m_viewport.Y), float(m_viewport.Width), float(m_viewport.Height),
-                      m_viewport.MinZ, m_viewport.MaxZ};
+    state.viewport = {float(viewport.X), float(viewport.Y), float(viewport.Width), float(viewport.Height),
+                      viewport.MinZ, viewport.MaxZ};
     gb::Rect scissor = {0, 0, 0, 0};
+    const RECT passScissor = PassScissor();
     Intersect({0, 0, m_pass.width, m_pass.height},
-              FromRect(m_scissor.left, m_scissor.top, m_scissor.right, m_scissor.bottom), &scissor);
+              FromRect(passScissor.left, passScissor.top, passScissor.right, passScissor.bottom), &scissor);
     state.scissor = scissor;
     state.stencilRef = uint8_t(m_renderStates[D3DRS_STENCILREF]);
     Unpack(m_renderStates[D3DRS_BLENDFACTOR], state.blendConstant);
@@ -1394,6 +1482,31 @@ HRESULT Device::StretchRect(IDirect3DSurface9 *sourceSurface, CONST RECT *source
     Guard guard(DeviceLock());
     Surface *src = SurfaceOf(sourceSurface);
     Surface *dst = SurfaceOf(destinationSurface);
+    // After SceneComplete the back buffer's pixels are the output-size target's: so are the rects.
+    RECT hudSourceRect, hudDestRect;
+    if (src == m_backBuffer.get() && !m_hudActive)
+        RestorePresentedFrame();
+    if (dst == m_backBuffer.get())
+        m_hudPresented = false;
+    if (m_hudActive && src == m_backBuffer.get())
+    {
+        src = m_hudTarget.get();
+        if (sourceRect)
+        {
+            hudSourceRect = {HudX(sourceRect->left), HudY(sourceRect->top), HudX(sourceRect->right),
+                             HudY(sourceRect->bottom)};
+            sourceRect = &hudSourceRect;
+        }
+    }
+    if (m_hudActive && dst == m_backBuffer.get())
+    {
+        dst = m_hudTarget.get();
+        if (destRect)
+        {
+            hudDestRect = {HudX(destRect->left), HudY(destRect->top), HudX(destRect->right), HudY(destRect->bottom)};
+            destRect = &hudDestRect;
+        }
+    }
     Storage &s = src->GetStorage();
     Storage &d = dst->GetStorage();
     if (!s.gpu || !d.gpu || d.multiSample != D3DMULTISAMPLE_NONE || d.format->block)
@@ -1501,6 +1614,16 @@ HRESULT Device::GetRenderTargetData(IDirect3DSurface9 *renderTarget, IDirect3DSu
         src->Height() != dst->Height())
         return D3DERR_INVALIDCALL;
     EndPass();
+    if (src == m_backBuffer.get())
+        RestorePresentedFrame();
+    if (m_hudActive && src == m_backBuffer.get())
+    {
+        // The frame so far is the output-size target's: brought back to the back buffer's size, which the scene no
+        // longer needs.
+        const gb::Rect from = {0, 0, m_hudTarget->Width(), m_hudTarget->Height()};
+        const gb::Rect to = {0, 0, src->Width(), src->Height()};
+        gb::Blit(m_hudTarget->GetStorage().gpu, 0, 0, from, s.gpu, 0, 0, to, gb::Filter::Linear);
+    }
     const gb::Box box = {0, 0, 0, uint16_t(src->Width()), uint16_t(src->Height()), 1};
     gb::ReadTexture(s.gpu, uint8_t(src->Level()), uint8_t(src->Layer()), box, d.Cpu(dst->Layer(), dst->Level()),
                     d.RowPitch(dst->Level()));
@@ -1524,6 +1647,7 @@ HRESULT Device::ReadFrontBuffer(IDirect3DSurface9 *destination)
     Storage &d = dst->GetStorage();
     if (d.format->d3d != D3DFMT_A8R8G8B8 || !d.CpuPool())
         return D3DERR_INVALIDCALL;
+    RestorePresentedFrame();
     Storage &image = m_presentImage ? *m_presentImage : m_backBuffer->GetStorage();
     int32_t originX = 0, originY = 0;
     if (m_parameters.Windowed && !host::ClientOrigin(m_window, &originX, &originY))
@@ -1563,18 +1687,29 @@ HRESULT Device::PresentFrame(DWORD)
     EndPass();
     Storage &back = m_backBuffer->GetStorage();
     gb::Texture *image = back.gpu;
-    if (m_presentImage)
+    if (m_hudActive)
     {
-        const gb::Rect all = {0, 0, back.width, back.height};
-        gb::Blit(back.gpu, 0, 0, all, m_presentImage->gpu, 0, 0, all, gb::Filter::Nearest);
-        image = m_presentImage->gpu;
+        // SceneComplete upscaled the scene and the 2D went on at the output size.
+        image = m_hudTarget->GetStorage().gpu;
+        m_hudActive = false;
+        m_hudPresented = true;
     }
-    if (m_upscale)
+    else
     {
-        if (!m_upscaler)
-            m_upscaler.reset(new Upscaler());
-        image = m_upscaler->Run(image, back.format->format, back.width, back.height, m_outputWidth, m_outputHeight,
-                                m_upscaleSharpness);
+        m_hudPresented = false;
+        if (m_presentImage)
+        {
+            const gb::Rect all = {0, 0, back.width, back.height};
+            gb::Blit(back.gpu, 0, 0, all, m_presentImage->gpu, 0, 0, all, gb::Filter::Nearest);
+            image = m_presentImage->gpu;
+        }
+        if (m_upscale)
+        {
+            if (!m_upscaler)
+                m_upscaler.reset(new Upscaler());
+            image = m_upscaler->Run(image, back.format->format, back.width, back.height, m_outputWidth,
+                                    m_outputHeight, m_upscaleSharpness);
+        }
     }
     gb::Present(m_swapchain, image);
     // Uniform memory starts over with each frame.
@@ -1584,6 +1719,33 @@ HRESULT Device::PresentFrame(DWORD)
     if (m_ex && !host::WindowVisible(m_window))
         return S_PRESENT_OCCLUDED;
     return D3D_OK;
+}
+
+void Device::SceneComplete()
+{
+    Guard guard(DeviceLock());
+    if (!m_upscale || !m_hudTarget || m_hudActive)
+        return;
+    EndPass();
+    Storage &back = m_backBuffer->GetStorage();
+    gb::Texture *image = back.gpu;
+    if (m_presentImage)
+    {
+        const gb::Rect all = {0, 0, back.width, back.height};
+        gb::Blit(back.gpu, 0, 0, all, m_presentImage->gpu, 0, 0, all, gb::Filter::Nearest);
+        image = m_presentImage->gpu;
+    }
+    if (!m_upscaler)
+        m_upscaler.reset(new Upscaler());
+    m_upscaler->Run(image, back.format->format, back.width, back.height, m_outputWidth, m_outputHeight,
+                    m_upscaleSharpness, m_hudTarget->GetStorage().gpu);
+    m_hudActive = true;
+    if (!m_hudLogged)
+    {
+        m_hudLogged = true;
+        Logf("d3d9emu: upscale: the 3D scene is upscaled before the 2D, which is drawn at %ux%u", m_outputWidth,
+             m_outputHeight);
+    }
 }
 
 HRESULT Device::Present(CONST RECT *, CONST RECT *, HWND, CONST RGNDATA *)
@@ -1636,3 +1798,9 @@ HRESULT SwapChain::GetDevice(IDirect3DDevice9 **device)
     return D3D_OK;
 }
 } // namespace d3d9emu
+
+void Bo1Emu_SceneComplete(IDirect3DDevice9 *device)
+{
+    if (device)
+        static_cast<d3d9emu::Device *>(static_cast<IDirect3DDevice9Ex *>(device))->SceneComplete();
+}

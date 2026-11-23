@@ -38,6 +38,12 @@
 #include "r_streamalloc.h"
 #include "r_stream.h"
 #include "rb_resource.h"
+#if !defined(_WIN32) || defined(BO1_WIN_VULKAN)
+#include <gfx_d3d9emu/d3d9emu_scene.h> // mod: the 2D at the upscale output (docs/VULKAN.md, step 6.1)
+#endif
+#if defined(BO1_WIN_VULKAN)
+#include <platform/windows/win_gfxapi.h>
+#endif
 #if !defined(_WIN32)
 #include <platform/load_profile.h>
 // The loading screen's frame interval while a load keeps the render thread busy (15 frames a second)
@@ -5613,6 +5619,14 @@ void __cdecl RB_Draw3D()
                 RB_Draw3DInternal((GfxViewInfo *)viewInfo);
             }
         }
+#if !defined(_WIN32) || defined(BO1_WIN_VULKAN)
+        // mod: every view's scene, post effects included, is in the back buffer and the 2D (RB_Draw3DCommon's view
+        // commands, then the frame's) comes next: the D3D9 frontend upscales the scene here, the 2D stays sharp.
+#if defined(BO1_WIN_VULKAN)
+        if ( Bo1_EmulatedDirect3DActive() )
+#endif
+            Bo1Emu_SceneComplete(dx.device);
+#endif
     }
 }
 

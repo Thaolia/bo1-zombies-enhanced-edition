@@ -163,7 +163,7 @@ Still to do in this step:
 - **NVIDIA and AMD on the user's machines.**
 - `win32-msvc` builds once before the merge.
 
-## Step 6 — Arm ASR (after the Windows port)
+## Step 6 — Arm ASR (after the Windows port) — in progress
 Arm Accuracy Super Resolution (`github.com/arm/accuracy-super-resolution`, generic library, MIT) is FSR 2.2.2
 optimised for mobile GPUs:
 - it takes FSR2's inputs (colour, depth, motion vectors, jitter, optional reactive mask);
@@ -174,6 +174,23 @@ optimised for mobile GPUs:
 
 1. Split the scene from the HUD in the engine: the 3D scene at the render resolution, the 2D at the output resolution.
    This also gives FSR1's variant B (a native-resolution HUD). 2-3 sessions.
+   **Done (2026-11-23), in the frontend rather than in the engine's render targets.** The engine renders as before at
+   the back buffer's size and makes one call, `Bo1Emu_SceneComplete` (`src/gfx_d3d9emu/d3d9emu_scene.h`) at the end
+   of `RB_Draw3D` (`rb_backend.cpp`, under `!_WIN32 || BO1_WIN_VULKAN`, and on win64 only while the emulated
+   Direct3D is the one in use: `tools/codediff.py` identical). There every view's scene, post effects included, is in
+   the back buffer and no 2D has been drawn yet: the HUD of each view comes after, in `RB_Draw3DCommon`. The frontend
+   upscales the scene with FSR 1.0 into an output-size target and draws the rest of the frame there, the engine's
+   back-buffer viewports, scissors, clears and copies scaled (docs/RENDERER.md, "Upscaling"). Frames without a scene
+   are upscaled whole as before. It works on every backend of the frontend: GL, Vulkan and deko3d on the Switch (540p
+   and 480p get a sharp 720p HUD). Checked:
+   - `d3d9emu_test` (the redirected pass, scaled viewport and clear rects, the presented target, the screenshot of the
+     last frame), `gb_gl_test`, `gb_vk_test`;
+   - a headless Kino on win64 Vulkan, 1280x720 to 1920x1080 (`quality`): the log's "the 3D scene is upscaled before
+     the 2D", the HUD in place on the back-buffer screenshot, no validation or device error.
+
+   Still to see on the player's screen: the HUD's sharpness itself (a headless screenshot reads the frame brought
+   back to the back buffer's size), and the Switch on the console. The upscaler ASR will replace sits at this same
+   call, so its inputs (scene colour and depth at the render resolution) are ready there.
 2. Jitter (`ffxmFsr2GetJitterOffset`) in the projection while the temporal upscaler is on. Motion vectors for the
    **camera only**, from the depth and the previous frame's view-projection, in a full-screen pass. A reactive mask
    (`ffxmFsr2ContextGenerateReactiveMask`, or the particles' alpha). Leave the view model out. 2 sessions.

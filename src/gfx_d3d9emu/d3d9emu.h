@@ -882,6 +882,9 @@ public:
     // Open occlusion queries count in every pass begun until they close.
     void QueryOpened(Query *query);
     void QueryClosed(Query *query);
+    // The frame's 3D scene is in the back buffer (d3d9emu_scene.h): while upscaling, it is upscaled into m_hudTarget
+    // now, and the rest of the frame drawn into the back buffer goes there, at the output size.
+    void SceneComplete();
 
 protected:
     IUnknown *Parent() override;
@@ -903,6 +906,19 @@ private:
     void OpenPass();
     bool IsAttachment(const gb::Texture *texture) const;
     bool PrepareDraw(gb::DrawState &state, D3DPRIMITIVETYPE type, const gb::VertexBinding *upStream);
+    // After SceneComplete: the surface a draw into `surface` really targets (m_hudTarget for the back buffer), the
+    // depth buffer that goes with it (none when its size no longer matches), and the engine's back buffer pixels
+    // moved to the target's (x and y scaled from the back buffer's size to the output's).
+    Surface *PassTarget(Surface *surface) const;
+    Surface *PassDepth() const;
+    bool PassOnHud() const;
+    int32_t HudX(int64_t x) const;
+    int32_t HudY(int64_t y) const;
+    D3DVIEWPORT9 PassViewport() const;
+    RECT PassScissor() const;
+    // After a Present of m_hudTarget, a read of the back buffer (a screenshot of the last frame) sees that frame: it is
+    // brought back to the back buffer's size first, once, unless something drew into the back buffer since.
+    void RestorePresentedFrame();
     void BuildPipeline(gb::PipelineDesc &desc, gb::Topology topology) const;
     const gb::Sampler *SamplerFor(uint32_t index, const Storage &texture);
     void Resolve();
@@ -921,6 +937,12 @@ private:
     uint32_t m_outputWidth = 0, m_outputHeight = 0;
     float m_upscaleSharpness = 0.0f;
     std::unique_ptr<Upscaler> m_upscaler;
+    // The output-size target the frame's 2D goes to after SceneComplete (m_hudActive until Present). Made with the back
+    // buffer while upscaling.
+    std::unique_ptr<Surface> m_hudTarget;
+    bool m_hudActive = false;
+    bool m_hudPresented = false; // the last Present showed m_hudTarget, and the back buffer holds only its scene
+    bool m_hudLogged = false;
     std::vector<uint8_t> m_readScratch;      // GetFrontBufferData's copy of the last frame
 
     // D3D9 state

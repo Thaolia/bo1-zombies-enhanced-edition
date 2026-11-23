@@ -198,20 +198,24 @@ void Upscaler::DrawPass(gb::Texture *target, const gb::Pipeline *pipeline, gb::T
 }
 
 gb::Texture *Upscaler::Run(gb::Texture *source, gb::Format format, uint32_t sourceWidth, uint32_t sourceHeight,
-                           uint32_t outputWidth, uint32_t outputHeight, float sharpness)
+                           uint32_t outputWidth, uint32_t outputHeight, float sharpness, gb::Texture *target)
 {
+    const gb::Rect from = {0, 0, sourceWidth, sourceHeight};
+    const gb::Rect to = {0, 0, outputWidth, outputHeight};
     if (!PrepareTargets(format, sourceWidth, sourceHeight, outputWidth, outputHeight))
     {
         WarnOnce("upscale targets", "d3d9emu: upscale: the %ux%u targets could not be made", outputWidth,
                  outputHeight);
-        return source;
+        if (!target)
+            return source;
+        gb::Blit(source, 0, 0, from, target, 0, 0, to, gb::Filter::Linear);
+        return target;
     }
-    const gb::Rect from = {0, 0, sourceWidth, sourceHeight};
-    const gb::Rect to = {0, 0, outputWidth, outputHeight};
+    gb::Texture *output = target ? target : m_output;
     if (!PrepareShaders(format))
     {
-        gb::Blit(source, 0, 0, from, m_output, 0, 0, to, gb::Filter::Linear);
-        return m_output;
+        gb::Blit(source, 0, 0, from, output, 0, 0, to, gb::Filter::Linear);
+        return output;
     }
     if (!m_logged)
     {
@@ -224,7 +228,7 @@ gb::Texture *Upscaler::Run(gb::Texture *source, gb::Format format, uint32_t sour
     Fsr1EasuConstants(constants, float(sourceWidth), float(sourceHeight), float(outputWidth), float(outputHeight));
     DrawPass(m_middle, m_easuPipeline, m_input, outputWidth, outputHeight, constants);
     Fsr1RcasConstants(constants, sharpness);
-    DrawPass(m_output, m_rcasPipeline, m_middle, outputWidth, outputHeight, constants);
-    return m_output;
+    DrawPass(output, m_rcasPipeline, m_middle, outputWidth, outputHeight, constants);
+    return output;
 }
 } // namespace d3d9emu
