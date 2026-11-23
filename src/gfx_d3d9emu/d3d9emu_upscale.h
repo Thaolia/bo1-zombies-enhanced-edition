@@ -24,9 +24,10 @@ public:
     // The image the swapchain shows: `source` (a colour attachment of the back buffer's size and a format Supports
     // accepts) upscaled to the output size, with RCAS at `sharpness` stops below its strongest (0). When FSR 1.0
     // cannot run (no shader for the backend's form, a pipeline that does not build), the source stretched by the
-    // backend's linear blit, logged once. `source` itself only when the targets cannot be made (logged).
+    // backend's linear blit, logged once. `source` itself only when the targets cannot be made (logged). With a
+    // `target` (a colour attachment of the output size and `format`), the result goes there and `target` is returned.
     gb::Texture *Run(gb::Texture *source, gb::Format format, uint32_t sourceWidth, uint32_t sourceHeight,
-                     uint32_t outputWidth, uint32_t outputHeight, float sharpness);
+                     uint32_t outputWidth, uint32_t outputHeight, float sharpness, gb::Texture *target = nullptr);
     // Frees the textures (a device reset changes the sizes); the shaders and pipelines stay.
     void ReleaseTargets();
 

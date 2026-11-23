@@ -13,6 +13,7 @@ their barrier, and the waits at the start and end of a round are shorter.
 - `spawnrate_round_gap` (default 3) - seconds from the end of a round (its last zombie spawned and killed) until the next round
   begins. Retail: 10 s. Above 3 the chalk number still pulses as in retail; at 3 or below it just stays up for the gap.
   0 = no pause. -1 = retail. So last kill to the next spawn: retail 12.5 s, default here about 3 s.
+  Neither applies on Moon, which keeps its own round loop (its No Man's Land and teleporter live in it).
 - `spawnrate_max_zombies N` (default -1 = retail, 24 alive at once) - how many zombies may be alive at once. Clamped to the
   engine's actor limit, 32 unless `+set bo1_mod_maxactors 64` (up to 1024) is on the command line. A faster spawn rate only
   shows while there is room, so with a large mult you may want this up. With `mods/horde` use `horde_max_zombies`.

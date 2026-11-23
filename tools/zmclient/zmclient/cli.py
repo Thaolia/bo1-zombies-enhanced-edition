@@ -11,7 +11,7 @@ from zmadmin.protocol import ProtocolError, query_modinfo
 
 from . import __version__, gamesetup
 from .client import Client
-from .profile import Profile, build_command, fs_game, quote_command, split_on
+from .profile import Profile, build_command, fs_game, launch_env, quote_command, split_on
 
 DESCRIPTION = """ZmClient: launcher for the BO1 zombies client, next to BO1Zombies (a make_dist.sh folder).
 
@@ -137,7 +137,7 @@ def main(argv=None):
         for player in reversed(players):
             client = Client(dist, player)
             try:
-                client.start(commands[player - 1], fs_game(profile, dist.root, server_mods))
+                client.start(commands[player - 1], fs_game(profile, dist.root, server_mods), launch_env(profile))
             except (OSError, RuntimeError) as e:
                 print(f"zmclient: {e}", file=sys.stderr)
                 return 1

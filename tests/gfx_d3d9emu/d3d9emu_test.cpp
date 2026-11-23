@@ -9,8 +9,10 @@
 
 #include <gfx_backend/null/gb_null.h>
 #include <gfx_d3d9emu/d3d9emu_host.h>
+#include <gfx_d3d9emu/d3d9emu_scene.h>
 #include <gfx_d3d9emu/shader_pack.h>
 
+#include <cmath>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
@@ -24,6 +26,7 @@ std::vector<std::string> g_hostLog;
 std::string g_packPath = "d3d9emu_test.pack";
 bool g_visible = true;
 bool g_upscale = false; // the host asks for FSR 1.0 to 640x480
+uint8_t g_temporal = 0;  // and for Arm ASR's shaders (1 to 3) instead
 std::string g_savedPath;
 std::vector<uint8_t> g_saved;
 const HWND kWindow = reinterpret_cast<HWND>(0x1234);
@@ -223,7 +226,7 @@ const char *ShaderPackPath()
 
 bool Upscale(UpscaleSettings *settings)
 {
-    *settings = {640, 480, 0.5f};
+    *settings = {640, 480, 0.5f, g_temporal};
     return g_upscale;
 }
 
@@ -641,6 +644,9 @@ int main(int argc, char **argv)
     Mark();
     CHECK(device->Reset(&pp) == D3D_OK && pp.BackBufferWidth == 320 && pp.BackBufferHeight == 240);
     CHECK(Has("ResizeSwapchain W") && Has(" 640x480"));
+    // the output-size target the 2D goes to after the scene (d3d9emu_scene.h), made last
+    CHECK(Has("BGRA8 RenderTarget 640x480x1"));
+    const std::string hudTarget = LastId("CreateTexture");
     Mark();
     CHECK(device->Present(nullptr, nullptr, nullptr, nullptr) == D3D_OK);
     CHECK(Count("CreateShader") == 3 && Has("vertex b01f5a1000000001") && Has("pixel b01f5a1000000002") &&
@@ -653,6 +659,127 @@ int main(int argc, char **argv)
     Mark();
     CHECK(device->Present(nullptr, nullptr, nullptr, nullptr) == D3D_OK);
     CHECK(!Has("CreateShader") && !Has("CreateTexture") && !Has("GetPipeline P") && Count("Draw P") == 2);
+
+    // ---- the scene upscaled before the 2D (d3d9emu_scene.h): what follows it in the back buffer is drawn into the
+    // output-size target, viewport, scissor and clear rects scaled, without the back buffer's depth buffer, and Present shows it
+    CHECK(device->BeginScene() == D3D_OK);
+    device->SetVertexShader(vs);
+    device->SetPixelShader(ps);
+    device->SetVertexDeclaration(decl);
+    device->SetStreamSource(0, vb, 0, sizeof(Vertex));
+    device->SetIndices(ib);
+    Mark();
+    CHECK(device->DrawIndexedPrimitive(D3DPT_TRIANGLELIST, 0, 0, 4, 0, 2) == D3D_OK);
+    CHECK(Has("viewport=0,0,320x240") && !Has("BeginPass c0=" + hudTarget));
+    Mark();
+    Bo1Emu_SceneComplete(device, nullptr);
+    CHECK(Find("EndPass") < Find("Blit") && Count("Draw P") == 2 && Has("BeginPass c0=" + hudTarget + "/0/0"));
+    const D3DVIEWPORT9 quarter = {80, 60, 160, 120, 0.0f, 1.0f};
+    device->SetViewport(&quarter);
+    Mark();
+    CHECK(device->DrawIndexedPrimitive(D3DPT_TRIANGLELIST, 0, 0, 4, 0, 2) == D3D_OK);
+    CHECK(Has("BeginPass c0=" + hudTarget + "/0/0 640x480") && Has("viewport=160,120,320x240,"));
+    D3DRECT hudClear = {90, 70, 100, 80};
+    Mark();
+    CHECK(device->Clear(1, &hudClear, D3DCLEAR_TARGET, 0, 1.0f, 0) == D3D_OK);
+    CHECK(Has("Clear 180,140,20x20 colour"));
+    Mark();
+    Bo1Emu_SceneComplete(device, nullptr); // once a frame
+    CHECK(!Has("Blit") && !Has("Draw P"));
+    CHECK(device->EndScene() == D3D_OK);
+    Mark();
+    CHECK(device->Present(nullptr, nullptr, nullptr, nullptr) == D3D_OK);
+    CHECK(!Has("Draw P") && !Has("Blit") && Has("Present W") && Has(" " + hudTarget));
+    // a screenshot of the last frame (the headless client's GetRenderTargetData) sees it, brought back once
+    IDirect3DSurface9 *lastFrame = nullptr, *lastFrameCopy = nullptr;
+    D3DSURFACE_DESC lastFrameDesc = {};
+    CHECK(device->GetBackBuffer(0, 0, D3DBACKBUFFER_TYPE_MONO, &lastFrame) == D3D_OK &&
+          lastFrame->GetDesc(&lastFrameDesc) == D3D_OK);
+    CHECK(device->CreateOffscreenPlainSurface(320, 240, lastFrameDesc.Format, D3DPOOL_SYSTEMMEM, &lastFrameCopy,
+                                              nullptr) == D3D_OK);
+    Mark();
+    CHECK(device->GetRenderTargetData(lastFrame, lastFrameCopy) == D3D_OK);
+    CHECK(Has("Blit " + hudTarget + "/0/0 0,0,640x480 -> ") && Has(" 0,0,320x240 linear") &&
+          Find("Blit") < Find("ReadTexture"));
+    Mark();
+    CHECK(device->GetRenderTargetData(lastFrame, lastFrameCopy) == D3D_OK);
+    CHECK(!Has("Blit") && Has("ReadTexture"));
+    lastFrameCopy->Release();
+    lastFrame->Release();
+    Mark();
+    CHECK(device->Present(nullptr, nullptr, nullptr, nullptr) == D3D_OK); // a frame without a scene: as before
+    CHECK(Count("Draw P") == 2 && !Has(" " + hudTarget));
+
+    // ---- the temporal upscaler (d3d9emu_temporal.cpp): the engine's jitter, then at the end of the scene a copy of
+    // the scene and of its depth buffer, the motion pass into RG16F and R32F, TemporalUpscale, the result copied
+    g_temporal = 2;
+    CHECK(device->Reset(&pp) == D3D_OK);
+    const std::string temporalHud = LastId("CreateTexture");
+    float jitterX = 9.0f, jitterY = 9.0f;
+    CHECK(Bo1Emu_TemporalJitter(device, &jitterX, &jitterY) && std::fabs(jitterX) <= 0.5f && std::fabs(jitterY) <= 0.5f);
+    IDirect3DSurface9 *sceneDepth = nullptr;
+    CHECK(device->CreateDepthStencilSurface(320, 240, D3DFMT_D24S8, D3DMULTISAMPLE_NONE, 0, FALSE, &sceneDepth,
+                                            nullptr) == D3D_OK);
+    const std::string sceneDepthId = LastId("CreateTexture");
+    CHECK(device->BeginScene() == D3D_OK);
+    device->SetDepthStencilSurface(sceneDepth);
+    device->SetVertexShader(vs);
+    device->SetPixelShader(ps);
+    device->SetVertexDeclaration(decl);
+    device->SetStreamSource(0, vb, 0, sizeof(Vertex));
+    device->SetIndices(ib);
+    CHECK(device->DrawIndexedPrimitive(D3DPT_TRIANGLELIST, 0, 0, 4, 0, 2) == D3D_OK);
+    Bo1EmuSceneView camera = {};
+    for (int i = 0; i < 4; ++i)
+        camera.viewProjection[i][i] = camera.inverseViewProjection[i][i] = camera.projection[i][i] = 1.0f;
+    camera.projection[2][0] = 2.0f * 0.25f / 320.0f; // a quarter pixel right
+    camera.zNear = 4.0f;
+    camera.tanHalfFovY = 0.6f;
+    Mark();
+    Bo1Emu_SceneComplete(device, &camera);
+    CHECK(Has("Blit " + sceneDepthId + "/0/0 0,0,320x240 -> ") && Has("RG16F RenderTarget sampled 320x240x1") &&
+          Has("R32F RenderTarget sampled 320x240x1") && Has("RGBA8 RenderTarget sampled 640x480x1"));
+    CHECK(Has("TemporalUpscale c=T") && Has("320x240 -> 640x480 jitter=0.25,") && Has("sharpness=0.75 preset=1 reset"));
+    // the scene and its depth copied before, the result after; one draw, the motion pass (no EASU, no RCAS)
+    CHECK(Count("Blit") == 3 && Find("Blit") < Find("TemporalUpscale") && Count("Draw P") == 1 &&
+          Has("Blit T") && Has(" -> " + temporalHud + "/0/0 0,0,640x480"));
+    Mark();
+    CHECK(device->DrawIndexedPrimitive(D3DPT_TRIANGLELIST, 0, 0, 4, 0, 2) == D3D_OK); // the 2D on the output target
+    CHECK(Has("BeginPass c0=" + temporalHud));
+    CHECK(device->EndScene() == D3D_OK);
+    CHECK(device->Present(nullptr, nullptr, nullptr, nullptr) == D3D_OK);
+    CHECK(device->BeginScene() == D3D_OK);
+    CHECK(device->DrawIndexedPrimitive(D3DPT_TRIANGLELIST, 0, 0, 4, 0, 2) == D3D_OK);
+    Mark();
+    Bo1Emu_SceneComplete(device, &camera);
+    CHECK(Has("TemporalUpscale") && !Has(" reset")); // the second frame has a history
+    Mark();
+    Bo1Emu_SceneComplete(device, nullptr); // once a frame: nothing more
+    CHECK(!Has("TemporalUpscale"));
+    CHECK(device->EndScene() == D3D_OK);
+    CHECK(device->Present(nullptr, nullptr, nullptr, nullptr) == D3D_OK);
+    device->SetDepthStencilSurface(nullptr);
+    sceneDepth->Release();
+
+    // ---- native anti-aliasing (docs/VULKAN.md, step 7): an output of the back buffer's own size only with the
+    // temporal upscaler
+    pp.BackBufferWidth = 640;
+    pp.BackBufferHeight = 480;
+    Mark();
+    CHECK(device->Reset(&pp) == D3D_OK);
+    CHECK(Count("BGRA8 RenderTarget 640x480x1") == 2); // the back buffer and the 2D's target
+    float nativeX, nativeY;
+    CHECK(Bo1Emu_TemporalJitter(device, &nativeX, &nativeY));
+    g_temporal = 0;
+    Mark();
+    CHECK(device->Reset(&pp) == D3D_OK);
+    CHECK(Count("BGRA8 RenderTarget 640x480x1") == 1 && HostLogged("no temporal upscaler is asked for"));
+    CHECK(!Bo1Emu_TemporalJitter(device, &nativeX, &nativeY));
+    pp.BackBufferWidth = 320;
+    pp.BackBufferHeight = 240;
+    CHECK(device->Reset(&pp) == D3D_OK); // FSR 1.0 from 320x240 again, its targets made by a frame
+    CHECK(device->Present(nullptr, nullptr, nullptr, nullptr) == D3D_OK);
+
     g_upscale = false;
     Mark();
     CHECK(device->Reset(&pp) == D3D_OK);

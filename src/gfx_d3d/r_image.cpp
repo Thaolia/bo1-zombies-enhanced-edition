@@ -86,9 +86,12 @@ void __cdecl R_GetImageList(ImageList *imageList)
     DB_EnumXAssets(ASSET_TYPE_IMAGE, (void (__cdecl *)(XAssetHeader, void *))R_AddImageToList, imageList, 1);
 }
 
+// 64-bit: the decompiled callback read the list's 4-byte count through a pointer-sized XAssetHeader, with the stack
+// padding after it, and asserted on a garbage count (seen on win64 with r_mod_gfxApi vulkan).
 void __cdecl R_AddImageToList(XAssetHeader header, XAssetHeader *data)
 {
-    if ( (uintptr_t)data->xmodelPieces >= sizeof(((ImageList *)0)->image) / sizeof(GfxImage *)
+    ImageList *imageList = (ImageList *)data;
+    if ( imageList->count >= ARRAY_COUNT(imageList->image)
         && !Assert_MyHandler(
                     "C:\\projects_pc\\cod\\codsrc\\src\\gfx_d3d\\r_image.cpp",
                     225,
@@ -98,7 +101,7 @@ void __cdecl R_AddImageToList(XAssetHeader header, XAssetHeader *data)
     {
         __debugbreak();
     }
-    data[(intptr_t)data->xmodelPieces++ + 1] = header;
+    imageList->image[imageList->count++] = header.image;
 }
 
 void __cdecl R_SumOfUsedImages(Image_MemUsage *usage)

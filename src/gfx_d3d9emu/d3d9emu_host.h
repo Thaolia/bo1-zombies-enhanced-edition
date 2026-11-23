@@ -41,6 +41,9 @@ struct UpscaleSettings
     uint32_t outputWidth;
     uint32_t outputHeight;
     float sharpness;
+    // 0: FSR 1.0. 1 to 3: the temporal upscaler (Arm ASR) with its quality, balanced or performance shaders, where the
+    // backend has it (FSR 1.0 otherwise).
+    uint8_t temporal;
 };
 bool Upscale(UpscaleSettings *settings);
 // Writes a whole file at a path the engine built (D3DXSaveSurfaceToFile's screenshots); false when it cannot.

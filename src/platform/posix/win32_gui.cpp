@@ -115,6 +115,7 @@ struct Layer
     bool videoTried = false;
     bool video = false;
     bool glWindows = false;
+    bool vulkanWindows = false;
     std::thread::id videoThread;
 };
 
@@ -539,6 +540,12 @@ void Bo1_UseGlWindows()
     L().glWindows = true;
 }
 
+void Bo1_UseVulkanWindows()
+{
+    Lock lock(L().lock);
+    L().vulkanWindows = true;
+}
+
 HMONITOR Bo1_DisplayMonitor(int display)
 {
     return reinterpret_cast<HMONITOR>(intptr_t(display) + 1);
@@ -710,6 +717,8 @@ HWND CreateWindowExA(DWORD dwExStyle, LPCSTR lpClassName, LPCSTR lpWindowName, D
                 flags |= SDL_WINDOW_FULLSCREEN_DESKTOP;
             if (L().glWindows)
                 flags |= SDL_WINDOW_OPENGL;
+            if (L().vulkanWindows)
+                flags |= SDL_WINDOW_VULKAN;
             w->sdl = SDL_CreateWindow(w->title.c_str(), X, Y, std::max(nWidth, 1), std::max(nHeight, 1), flags);
             if (!w->sdl)
                 fprintf(stderr, "SDL_CreateWindow: %s\n", SDL_GetError());

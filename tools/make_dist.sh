@@ -314,6 +314,27 @@ build_dksh() {
     echo "$md5" > "$dir/shaders.dksh.from"
 }
 
+# shaders.spv is glslang's compilation of shaders.pack to SPIR-V, for the Vulkan backend (docs/VULKAN.md; win64:
+# r_mod_gfxApi vulkan, Linux: BO1_GFX_BACKEND=vulkan); kept up to date as shaders.dksh is.
+build_spirv() {
+    local dir="$WORK/spirv" md5 glslang
+    glslang="$(command -v glslangValidator)" || die "glslangValidator not found (shaders.spv for Vulkan)"
+    command -v spirv-val > /dev/null || die "spirv-val not found (shaders.spv for Vulkan)"
+    md5="$(cat "$ZONES/shaders.pack" "$ROOT/tools/ffconv/gen/make_spirv_pack.py" "$glslang" | md5sum | cut -d' ' -f1)"
+    if [ -f "$dir/shaders.spv" ] && [ "$(cat "$dir/shaders.spv.from" 2>/dev/null)" = "$md5" ]; then
+        echo "shaders.spv up to date"
+        return
+    fi
+    [ "$BUILD" = 1 ] || die "shaders.spv is missing or older than shaders.pack (run without --no-build)"
+    step "vulkan: compiling shaders.spv with glslang"
+    mkdir -p "$dir"
+    run_logged spirv python3 "$ROOT/tools/ffconv/gen/make_spirv_pack.py" "$ZONES/shaders.pack" "$dir/shaders.spv.tmp" \
+        --jobs "$JOBS"
+    tail -1 "$LOGS/spirv.log"
+    mv "$dir/shaders.spv.tmp" "$dir/shaders.spv"
+    echo "$md5" > "$dir/shaders.spv.from"
+}
+
 need() { [ -e "$1" ] || die "$2 not found: $1 (run without --no-build to build it)"; }
 
 # ZmAdmin (tools/zmadmin, the server's admin console) is built again when one of its files is newer than the binary.
@@ -385,6 +406,9 @@ if wants linux; then
     need "$WORK/linux/Release/BO1Zombies" "the Linux program"
     build_zmadmin linux "$ROOT/build/zmadmin/linux/zmadmin"
     build_zmclient linux "$ROOT/build/zmclient/linux/zmclient"
+fi
+if { wants windows || wants linux; } && [ "$GAME_DATA" = 1 ]; then
+    build_spirv
 fi
 if wants openbsd; then
     [ "$BUILD" = 1 ] && build_openbsd
@@ -604,7 +628,10 @@ package_windows() {
         "$d/switch-tools/"
     rsync -a --delete --exclude "$UPAP_SCRIPT" "$ROOT/mods/" "$d/mods/"
     rsync -a "$ROOT/data/main/" "$d/main/"
-    if [ "$GAME_DATA" = 1 ]; then game_data "$d" video; bo2_data "$d"; dualwield_data "$d"; unlimitedpap_data "$d"; fi
+    if [ "$GAME_DATA" = 1 ]; then
+        game_data "$d" video; bo2_data "$d"; dualwield_data "$d"; unlimitedpap_data "$d"
+        rsync -a "$WORK/spirv/shaders.spv" "$d/"
+    fi
     cat > "$d/Play.bat" << 'EOF'
 @echo off
 rem Black Ops 1 Zombies, 64-bit. "Play.bat" opens the game's menu (Zombies, Solo, a map).
@@ -684,6 +711,9 @@ SWITCH      switch-tools\uam.exe             le compilateur de shaders de deko3d
             shaders.dksh d'un paquet Switch à partir de votre shaders.pack (Python 3 nécessaire) :
             python switch-tools\make_dksh_pack.py shaders.pack shaders.dksh --uam switch-tools\uam.exe
             Copiez ensuite shaders.dksh dans switch\bo1zm\ sur la carte SD, à côté de shaders.pack.
+VULKAN      ZmClient, vue Lancement (F4), « API graphique » : Vulkan au lieu de Direct3D 9 (ou
+            +set r_mod_gfxApi vulkan). Il faut shaders.spv à côté de BO1Zombies.exe ; sans lui, ou sans pilote
+            Vulkan, le jeu reprend Direct3D 9 et l'écrit dans main\console_mp.log (lignes r_mod_gfxApi:).
 WINE        si le jeu plante ou reste sur un écran noir au démarrage sous wine (son xaudio2 de wine), écrivez
             nosnd dans un fichier launch.cfg à côté de BO1Zombies.exe : le jeu démarre alors sans son.
 
@@ -721,6 +751,7 @@ package_linux() {
         dualwield_data "$d"
         unlimitedpap_data "$d"
         cp "$ZONES/shaders.pack" "$d/"
+        rsync -a "$WORK/spirv/shaders.spv" "$d/"
     fi
     cat > "$d/play.sh" << 'EOF'
 #!/bin/bash
