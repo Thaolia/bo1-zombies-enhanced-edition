@@ -123,6 +123,15 @@ spawnrate_install()
 	level.round_spawn_func = ::spawnrate_round_spawning;
 	// retail's own between-round time, to give back at -1 (round_start() reads round_think_func after its 2 s pre-start wait)
 	level.spawnrate_retail_round_time = level.zombie_vars["zombie_between_round_time"];
+	// Moon has its own round loop (maps\zombie_moon::moon_round_think_func): the No Man's Land, its timer and the
+	// teleporter's returns live in it, and replacing it left level.nml_start_time unset (script errors when the
+	// teleporter ends the No Man's Land). It stays: there the spawn speed works through the delay (part 1) and the
+	// second spawner, without spawnrate_start_delay and spawnrate_round_gap. No other retail map sets its own.
+	if ( GetDvar( #"mapname" ) == "zombie_moon" )
+	{
+		spawnrate_log( "zombie_moon keeps its own round loop: spawnrate_start_delay and spawnrate_round_gap do not apply" );
+		return;
+	}
 	level.round_think_func = ::spawnrate_round_think;
 }
 
