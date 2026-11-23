@@ -20,6 +20,7 @@ namespace
 constexpr uint64_t kHashVertex = 0xB01F5A1000000001ull;
 constexpr uint64_t kHashEasu = 0xB01F5A1000000002ull;
 constexpr uint64_t kHashRcas = 0xB01F5A1000000003ull;
+constexpr uint64_t kHashDownsample = 0xB01F5A1000000007ull;
 
 uint32_t FloatBits(float value)
 {
@@ -74,6 +75,7 @@ Upscaler::~Upscaler()
     gb::DestroyShader(m_vertex);
     gb::DestroyShader(m_easu);
     gb::DestroyShader(m_rcas);
+    gb::DestroyShader(m_downsample);
 }
 
 void Upscaler::ReleaseTargets()
@@ -97,12 +99,14 @@ bool Upscaler::PrepareShaders(gb::Format format)
             m_vertex = Create(gb::Stage::Vertex, kHashVertex, upscale_shaders::kGlslVs);
             m_easu = Create(gb::Stage::Pixel, kHashEasu, upscale_shaders::kGlslEasu);
             m_rcas = Create(gb::Stage::Pixel, kHashRcas, upscale_shaders::kGlslRcas);
+            m_downsample = Create(gb::Stage::Pixel, kHashDownsample, upscale_shaders::kGlslDownsample);
             break;
         case ShaderForm::Dksh:
 #if defined(BO1_UPSCALE_HAS_DKSH)
             m_vertex = Create(gb::Stage::Vertex, kHashVertex, upscale_shaders::kDkshVs);
             m_easu = Create(gb::Stage::Pixel, kHashEasu, upscale_shaders::kDkshEasu);
             m_rcas = Create(gb::Stage::Pixel, kHashRcas, upscale_shaders::kDkshRcas);
+            m_downsample = Create(gb::Stage::Pixel, kHashDownsample, upscale_shaders::kDkshDownsample);
 #else
             Logf("d3d9emu: upscale: this build has no DKSH of the FSR 1.0 shaders: stretched instead");
 #endif
@@ -112,6 +116,7 @@ bool Upscaler::PrepareShaders(gb::Format format)
             m_vertex = Create(gb::Stage::Vertex, kHashVertex, upscale_shaders::kSpirvVs);
             m_easu = Create(gb::Stage::Pixel, kHashEasu, upscale_shaders::kSpirvEasu);
             m_rcas = Create(gb::Stage::Pixel, kHashRcas, upscale_shaders::kSpirvRcas);
+            m_downsample = Create(gb::Stage::Pixel, kHashDownsample, upscale_shaders::kSpirvDownsample);
 #else
             Logf("d3d9emu: upscale: this build has no SPIR-V of the FSR 1.0 shaders: stretched instead");
 #endif
@@ -123,23 +128,26 @@ bool Upscaler::PrepareShaders(gb::Format format)
         m_sampler = gb::GetSampler({gb::Filter::Linear, gb::Filter::Linear, gb::MipFilter::None, gb::Address::Clamp,
                                     gb::Address::Clamp, gb::Address::Clamp, 1, false});
     }
-    if (!m_vertex || !m_easu || !m_rcas || !m_sampler)
+    if (!m_vertex || !m_sampler)
         return false;
-    if (m_pipelineFormat != format || !m_easuPipeline || !m_rcasPipeline)
+    if (m_pipelineFormat != format)
     {
         gb::PipelineDesc desc;
         desc.vertex = m_vertex;
         desc.colorCount = 1;
         desc.colorFormats[0] = format;
         desc.pixel = m_easu;
-        m_easuPipeline = gb::GetPipeline(desc);
+        m_easuPipeline = m_easu ? gb::GetPipeline(desc) : nullptr;
         desc.pixel = m_rcas;
-        m_rcasPipeline = gb::GetPipeline(desc);
+        m_rcasPipeline = m_rcas ? gb::GetPipeline(desc) : nullptr;
+        desc.pixel = m_downsample;
+        m_downsamplePipeline = m_downsample ? gb::GetPipeline(desc) : nullptr;
         m_pipelineFormat = format;
-        if (!m_easuPipeline || !m_rcasPipeline)
-            Logf("d3d9emu: upscale: the FSR 1.0 pipelines did not build: stretched instead");
+        if (!m_easuPipeline || !m_rcasPipeline || !m_downsamplePipeline)
+            Logf("d3d9emu: upscale: the %s pipelines did not build: stretched instead",
+                 m_downsamplePipeline ? "FSR 1.0" : "downsample");
     }
-    return m_easuPipeline && m_rcasPipeline;
+    return true;
 }
 
 bool Upscaler::PrepareTargets(gb::Format format, uint32_t sourceWidth, uint32_t sourceHeight, uint32_t outputWidth,
@@ -212,19 +220,33 @@ gb::Texture *Upscaler::Run(gb::Texture *source, gb::Format format, uint32_t sour
         return target;
     }
     gb::Texture *output = target ? target : m_output;
-    if (!PrepareShaders(format))
+    const bool down = outputWidth < sourceWidth && outputHeight < sourceHeight;
+    if (!PrepareShaders(format) || !(down ? m_downsamplePipeline != nullptr : m_easuPipeline && m_rcasPipeline))
     {
         gb::Blit(source, 0, 0, from, output, 0, 0, to, gb::Filter::Linear);
         return output;
     }
-    if (!m_logged)
+    if (!(down ? m_loggedDown : m_logged))
     {
-        m_logged = true;
-        Logf("d3d9emu: upscale: FSR 1.0 from %ux%u to %ux%u, sharpness %.2f", sourceWidth, sourceHeight, outputWidth,
-             outputHeight, double(sharpness));
+        (down ? m_loggedDown : m_logged) = true;
+        if (down)
+            Logf("d3d9emu: upscale: supersampling, %ux%u averaged down to %ux%u", sourceWidth, sourceHeight,
+                 outputWidth, outputHeight);
+        else
+            Logf("d3d9emu: upscale: FSR 1.0 from %ux%u to %ux%u, sharpness %.2f", sourceWidth, sourceHeight,
+                 outputWidth, outputHeight, double(sharpness));
     }
     gb::Blit(source, 0, 0, from, m_input, 0, 0, from, gb::Filter::Nearest);
-    uint32_t constants[16];
+    uint32_t constants[16] = {};
+    if (down)
+    {
+        constants[0] = FloatBits(float(sourceWidth) / float(outputWidth));
+        constants[1] = FloatBits(float(sourceHeight) / float(outputHeight));
+        constants[2] = FloatBits(float(sourceWidth));
+        constants[3] = FloatBits(float(sourceHeight));
+        DrawPass(output, m_downsamplePipeline, m_input, outputWidth, outputHeight, constants);
+        return output;
+    }
     Fsr1EasuConstants(constants, float(sourceWidth), float(sourceHeight), float(outputWidth), float(outputHeight));
     DrawPass(m_middle, m_easuPipeline, m_input, outputWidth, outputHeight, constants);
     Fsr1RcasConstants(constants, sharpness);

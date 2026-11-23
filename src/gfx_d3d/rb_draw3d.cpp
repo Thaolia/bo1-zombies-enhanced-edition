@@ -27,6 +27,12 @@
 #include "r_shade.h"
 #include <win32/win_main.h>
 #include <win32/win_shared.h>
+#if !defined(_WIN32) || defined(BO1_WIN_VULKAN)
+#include <gfx_d3d9emu/d3d9emu_scene.h> // mod: the temporal upscaler's reactive mask (docs/VULKAN.md, step 7)
+#endif
+#if defined(BO1_WIN_VULKAN)
+#include <platform/windows/win_gfxapi.h>
+#endif
 
 float r_cloudArea[4] = { 0.0, 0.0, 1.0e7, 0.0 };
 
@@ -715,6 +721,21 @@ static void RB_ShaderWarming(GfxViewInfo *viewInfo, GfxCmdBuf *cmdBuf)
     Com_Printf(8, "R_ShaderWarming: %d materials, %d passes drawn in %d ms\n", rgp.materialCount, s_shaderWarmingPasses, (int)Sys_Milliseconds() - startMs);
 }
 
+#if !defined(_WIN32) || defined(BO1_WIN_VULKAN)
+// mod: the scene's emissive draws (particles, smoke, glows) go into the scene's target between these two calls: the
+// D3D9 frontend copies it before and after them for the temporal upscaler's reactive mask (docs/VULKAN.md, step 7).
+// Plain views only, as the camera RB_Draw3D hands over.
+static void RB_ModSceneTransparents(const GfxViewInfo *viewInfo, bool done)
+{
+#if defined(BO1_WIN_VULKAN)
+    if ( !Bo1_EmulatedDirect3DActive() )
+        return;
+#endif
+    if ( !viewInfo->isMissileCamera )
+        Bo1Emu_SceneTransparents(dx.device, done);
+}
+#endif
+
 void __cdecl RB_StandardDrawCommands(GfxViewInfo *viewInfo)
 {
   GfxRenderTargetId depthPrepassRT; // [esp+7Fh] [ebp-51h]
@@ -924,7 +945,13 @@ void __cdecl RB_StandardDrawCommands(GfxViewInfo *viewInfo)
 
   {
       PROF_SCOPED("Emissive");
+#if !defined(_WIN32) || defined(BO1_WIN_VULKAN)
+      RB_ModSceneTransparents(viewInfo, false);
+#endif
       R_DrawEmissive(viewInfo, &cmdBuf);
+#if !defined(_WIN32) || defined(BO1_WIN_VULKAN)
+      RB_ModSceneTransparents(viewInfo, true);
+#endif
   }
   RB_BO1GpuMark(5); // p1: bo1_frameperf GPU phase (measurement only)
   

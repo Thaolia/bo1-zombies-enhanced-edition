@@ -888,8 +888,9 @@ public:
     // The frame's 3D scene is in the back buffer (d3d9emu_scene.h): while upscaling, it is upscaled into m_hudTarget
     // now, and the rest of the frame drawn into the back buffer goes there, at the output size.
     void SceneComplete(const Bo1EmuSceneView *view);
-    // Bo1Emu_TemporalJitter (d3d9emu_scene.h)
+    // Bo1Emu_TemporalJitter and Bo1Emu_SceneTransparents (d3d9emu_scene.h)
     bool TemporalJitter(float *x, float *y);
+    void SceneTransparents(bool done);
 
 protected:
     IUnknown *Parent() override;

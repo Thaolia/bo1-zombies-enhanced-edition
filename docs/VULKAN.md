@@ -1,8 +1,8 @@
 # Vulkan backend and upscalers — plan
 
-Status (2026-11-22): step 1 (FSR1) done, checked on the host, on Ryujinx and on the user's console; steps 2 (SPIR-V
-pack) and 3 (Vulkan backend on Linux) done on branch `vulkan`; steps 4 (parity on Linux) and 5 (win64) in
-progress; steps 6-8 planned. Each step updates this file, `docs/RENDERER.md` and `docs/PORTING.md` (phase 9) in the session that does it.
+Status (2026-11-23): steps 1-7 done (FSR1 checked on the console too; Vulkan on Linux and win64; Arm ASR with its
+reactive mask; native AA; SSAA), merged into `switch`. Open: ASR on the Switch (step 6, item 4) and OpenBSD (step 8).
+Each step updates this file, `docs/RENDERER.md` and `docs/PORTING.md` (phase 9) in the session that does it.
 
 ## Goals and constraints
 - A Vulkan backend behind `src/gfx_backend/gfx_backend.h`, opt-in on **Linux**, **win64** and, last of all (after ASR and SSAA), **OpenBSD**.
@@ -206,8 +206,19 @@ optimised for mobile GPUs:
    motion pass, the upscale's inputs and reset flag, the history on the next frame), and Kino headless on the user's
    Iris Xe, 1280x720 to 1920x1080, `asr_quality`: "Arm ASR (quality shaders)" in the log, a clean frame with the
    HUD, 28-43 fps over 110 s against 27-41 with FSR 1.0 in the same test. Not yet: the viewmodel and zombies get
-   the camera's motion (ghosting possible on them), no reactive mask, a split screen falls back to FSR 1.0 on a
-   jittered frame, the mip bias is not lowered; the image in motion is the player's to judge.
+   the camera's motion (ghosting possible on them), a split screen falls back to FSR 1.0 on a jittered frame, the
+   mip bias is not lowered; the image in motion is the player's to judge.
+   **Reactive mask done (2026-11-23)**: `RB_StandardDrawCommands` brackets `R_DrawEmissive` (particles, smoke, glows,
+   muzzle flashes) with `Bo1Emu_SceneTransparents(device, false/true)` (`rb_draw3d.cpp`, guarded, plain views only).
+   The frontend copies the scene's target to RGBA8 before and after those draws and one pass
+   (`shaders/temporal_reactive.glsl`) writes an R8 mask: the largest component's change, minus 0.08, times 2.5, at
+   most 0.9 (FSR 2's advice for blended effects). The 0.08 dead zone is measured: Kino has a full-screen emissive
+   layer that changes every pixel by about 0.06, and without it the whole screen read 0.125 (99 % of the pixels),
+   which would cost the whole image some of its anti-aliasing; with it the median is 0 and the lamp's glow keeps
+   0.5-0.9. A frame without both calls (split screen, missile camera, a multisampled scene) has no mask; the last one
+   is never reused. Checked: `d3d9emu_test` (two copies, the R8 pass, `r=` the mask in the upscale, none on the
+   next frame without the calls), `gb_vk_test` with the mask on the last 4 frames under the validation layers (no new
+   message), and Kino headless on the Iris Xe with the mask blitted over the output for one run (not committed).
    Original plan of this point: jitter (`ffxmFsr2GetJitterOffset`) in the projection while the temporal upscaler is on. Motion vectors for the
    **camera only**, from the depth and the previous frame's view-projection, in a full-screen pass. A reactive mask
    (`ffxmFsr2ContextGenerateReactiveMask`, or the particles' alpha). Leave the view model out. 2 sessions.
@@ -254,7 +265,7 @@ optimised for mobile GPUs:
 Known limit: with camera-only motion vectors, zombies and other animated models may ghost. Per-object motion vectors
 would mean changing every skinned material's generated shaders, which is out of scope.
 
-## Step 7 — SSAA and native AA (rendering above the window's resolution) — native AA done
+## Step 7 — SSAA and native AA (rendering above the window's resolution) — done
 Asked by the user (2026-11-23): let the game render larger than the screen or the window, for image quality on GPUs
 with headroom. Two modes:
 - **SSAA** (supersampling): the inverse of FSR1's render scale. The back buffer is the window's size times a factor above
@@ -270,7 +281,19 @@ with headroom. Two modes:
   temporal upscaler is asked for (`ChooseOutput`; with FSR 1.0 it logs and does nothing). Frames without a scene go
   through FSR 1.0 at 1:1 (RCAS only sharpens). ZmClient: "Natif (anti-aliasing ASR)". `d3d9emu_test` checks both
   cases; Kino headless on the Iris Xe, 1920x1080 native with ASR quality: a clean frame, about 30 fps (the run's
-  cap); `r_init.cpp`, `r_dvars.cpp` identical on 32-bit. The reactive mask is still missing. SSAA is not done.
+  cap); `r_init.cpp`, `r_dvars.cpp` identical on 32-bit. The reactive mask followed (step 6, item 2).
+- **SSAA done (2026-11-23)**: `r_mod_upscale ssaa_1.5x` and `ssaa_2x` (factors 1/1.5 and 1/2 in
+  `R_ModUpscaleSize`: a 1920x1080 window renders 2880x1620 or 3840x2160). `ChooseOutput` takes an output smaller than
+  the back buffer on both axes as supersampling (never with the temporal upscaler, which only enlarges: logged, no
+  jitter); the upscaler averages the scene down in one pass (`shaders/downsample.glsl`): each output pixel is the mean
+  of the source pixels under it, weighted by the part of each it covers, a box filter exact at any ratio (bilinear
+  reads only 4 of the 9 pixels a 1.5x pixel covers). The planned Lanczos was not needed for these two factors. The 2D
+  still goes to the output-size target after `SceneComplete`, so it costs nothing extra. On posix,
+  `BO1_UPSCALE_OUTPUT` smaller than the back buffer does the same. ZmClient: "Suréchantillonnage x1,5 / x2 (SSAA)",
+  the method and sharpness rows greyed. Checked: `d3d9emu_test` (1280x960 to 640x480 in one draw, no jitter, an
+  output larger on one axis only refused), Kino headless on the Iris Xe at `ssaa_2x`: 3840x2160 to 1920x1080, clean
+  edges, crosshair in place, ~30 fps (the run's cap). The Switch start menu does not offer it (the console is
+  fill-rate bound already).
 - Points to check: the engine's render targets sized from vidConfig (post effects, shadow maps) at 2x the window;
   the 2D HUD (rendered at the back buffer's size, so sharp at 2x, but text sizes follow vidConfig); the mouse mapped
   into back buffer pixels (`Bo1_ClientToBackBuffer` already handles any ratio); memory (a 4K back buffer with MSAA);

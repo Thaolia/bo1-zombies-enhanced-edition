@@ -14,6 +14,7 @@ namespace
 {
 constexpr uint64_t kHashVertex = 0xB01F5A1000000004ull;
 constexpr uint64_t kHashMotion = 0xB01F5A1000000005ull;
+constexpr uint64_t kHashReactive = 0xB01F5A1000000006ull;
 
 template <size_t N>
 gb::Shader *Create(gb::Stage stage, uint64_t hash, const unsigned char (&code)[N])
@@ -59,6 +60,7 @@ Temporal::~Temporal()
     ReleaseTargets();
     gb::DestroyShader(m_vertex);
     gb::DestroyShader(m_motion);
+    gb::DestroyShader(m_reactiveShader);
 }
 
 void Temporal::ReleaseTargets()
@@ -71,6 +73,11 @@ void Temporal::ReleaseTargets()
     m_depthFormat = gb::Format::Unknown;
     m_renderWidth = m_renderHeight = m_outputWidth = m_outputHeight = 0;
     m_history = false;
+    ReleaseTexture(m_opaque);
+    ReleaseTexture(m_blended);
+    ReleaseTexture(m_reactive);
+    m_reactiveWidth = m_reactiveHeight = 0;
+    DropReactive();
 }
 
 bool Temporal::Fail(const char *why)
@@ -102,11 +109,13 @@ bool Temporal::PrepareShaders()
         case ShaderForm::Glsl:
             m_vertex = Create(gb::Stage::Vertex, kHashVertex, upscale_shaders::kGlslVs);
             m_motion = Create(gb::Stage::Pixel, kHashMotion, upscale_shaders::kGlslMotion);
+            m_reactiveShader = Create(gb::Stage::Pixel, kHashReactive, upscale_shaders::kGlslReactive);
             break;
         case ShaderForm::Spirv:
 #if defined(BO1_UPSCALE_HAS_SPIRV)
             m_vertex = Create(gb::Stage::Vertex, kHashVertex, upscale_shaders::kSpirvVs);
             m_motion = Create(gb::Stage::Pixel, kHashMotion, upscale_shaders::kSpirvMotion);
+            m_reactiveShader = Create(gb::Stage::Pixel, kHashReactive, upscale_shaders::kSpirvReactive);
 #endif
             break;
         default:
@@ -123,6 +132,15 @@ bool Temporal::PrepareShaders()
             desc.colorFormats[0] = gb::Format::RG16F;
             desc.colorFormats[1] = gb::Format::R32F;
             m_pipeline = gb::GetPipeline(desc);
+        }
+        if (m_vertex && m_reactiveShader)
+        {
+            gb::PipelineDesc desc;
+            desc.vertex = m_vertex;
+            desc.pixel = m_reactiveShader;
+            desc.colorCount = 1;
+            desc.colorFormats[0] = gb::Format::R8;
+            m_reactivePipeline = gb::GetPipeline(desc);
         }
     }
     return m_pipeline && m_sampler;
@@ -169,6 +187,97 @@ bool Temporal::PrepareTargets(gb::Format depthFormat, uint32_t renderWidth, uint
     m_outputWidth = outputWidth;
     m_outputHeight = outputHeight;
     return true;
+}
+
+bool Temporal::PrepareReactive(uint32_t width, uint32_t height)
+{
+    if (m_reactive && m_reactiveWidth == width && m_reactiveHeight == height)
+        return true;
+    const gb::Caps &caps = gb::GetCaps();
+    const uint8_t flags = gb::FORMAT_SAMPLED | gb::FORMAT_COLOR_TARGET;
+    const char *why = nullptr;
+    if (!PrepareShaders() || !m_reactivePipeline)
+        why = "its shader did not build";
+    else if ((caps.formatFlags[int(gb::Format::R8)] & flags) != flags ||
+             (caps.formatFlags[int(gb::Format::RGBA8)] & flags) != flags)
+        why = "a format it needs is missing";
+    if (!why)
+    {
+        ReleaseTexture(m_opaque);
+        ReleaseTexture(m_blended);
+        ReleaseTexture(m_reactive);
+        gb::TextureDesc desc = {};
+        desc.type = gb::TextureType::Tex2D;
+        desc.usage = gb::Usage::RenderTarget;
+        desc.sampled = true;
+        desc.depth = 1;
+        desc.levels = 1;
+        desc.samples = 1;
+        desc.width = uint16_t(width);
+        desc.height = uint16_t(height);
+        desc.format = gb::Format::RGBA8;
+        m_opaque = gb::CreateTexture(desc);
+        m_blended = gb::CreateTexture(desc);
+        desc.format = gb::Format::R8;
+        m_reactive = gb::CreateTexture(desc);
+        if (m_opaque && m_blended && m_reactive)
+        {
+            m_reactiveWidth = width;
+            m_reactiveHeight = height;
+            return true;
+        }
+        why = "its textures could not be made";
+    }
+    ReleaseTexture(m_opaque);
+    ReleaseTexture(m_blended);
+    ReleaseTexture(m_reactive);
+    m_reactiveWidth = m_reactiveHeight = 0;
+    m_reactiveFailed = true;
+    Logf("d3d9emu: upscale: no reactive mask (%s): effects may leave trails", why);
+    return false;
+}
+
+void Temporal::Transparents(bool done, gb::Texture *color, uint32_t level, uint32_t layer, uint32_t width,
+                            uint32_t height)
+{
+    if (m_failed || m_reactiveFailed)
+        return;
+    const gb::Rect all = {0, 0, width, height};
+    if (!done)
+    {
+        m_reactiveReady = false;
+        m_opaqueReady = PrepareReactive(width, height);
+        if (m_opaqueReady)
+            gb::Blit(color, uint8_t(level), uint8_t(layer), all, m_opaque, 0, 0, all, gb::Filter::Nearest);
+        return;
+    }
+    if (!m_opaqueReady || width != m_reactiveWidth || height != m_reactiveHeight)
+        return;
+    m_opaqueReady = false;
+    gb::Blit(color, uint8_t(level), uint8_t(layer), all, m_blended, 0, 0, all, gb::Filter::Nearest);
+    gb::PassDesc pass;
+    pass.colorCount = 1;
+    pass.color[0].texture = m_reactive;
+    pass.color[0].load = gb::LoadOp::DontCare;
+    gb::BeginPass(pass);
+    gb::DrawState state;
+    state.pipeline = m_reactivePipeline;
+    state.textures[0] = {m_opaque, m_sampler};
+    state.textures[1] = {m_blended, m_sampler};
+    // The shaders read no constants, but a draw always carries both blocks (gfx_backend.h).
+    const float unused[4] = {};
+    state.pixelConstants = gb::AllocUniforms(unused, sizeof(unused));
+    state.vertexConstants = state.pixelConstants;
+    state.viewport = {0.0f, 0.0f, float(width), float(height), 0.0f, 1.0f};
+    state.scissor = all;
+    gb::Draw(state, gb::Primitive::TriangleList, 3, 0);
+    gb::EndPass();
+    m_reactiveReady = true;
+    if (!m_reactiveLogged)
+    {
+        m_reactiveLogged = true;
+        Logf("d3d9emu: upscale: reactive mask from the scene's emissive draws, %ux%u", width, height);
+    }
 }
 
 bool Temporal::Run(gb::Texture *color, gb::Texture *depth, gb::Format depthFormat, uint32_t renderWidth,
@@ -233,6 +342,9 @@ bool Temporal::Run(gb::Texture *color, gb::Texture *depth, gb::Format depthForma
     desc.color = m_colorIn;
     desc.depth = m_depthOut;
     desc.motion = m_motionOut;
+    desc.reactive = m_reactiveReady && m_reactiveWidth == renderWidth && m_reactiveHeight == renderHeight
+                        ? m_reactive : nullptr;
+    DropReactive();
     desc.output = m_output;
     desc.renderWidth = uint16_t(renderWidth);
     desc.renderHeight = uint16_t(renderHeight);

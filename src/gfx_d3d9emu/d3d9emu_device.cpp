@@ -265,14 +265,17 @@ void Device::ChooseOutput(const D3DPRESENT_PARAMETERS &p)
     host::UpscaleSettings settings;
     if (!host::Upscale(&settings))
         return;
-    // At 1:1 only the temporal upscaler has something to do (native anti-aliasing, docs/VULKAN.md step 7).
+    // At 1:1 only the temporal upscaler has something to do (native anti-aliasing, docs/VULKAN.md step 7). An output
+    // smaller on both axes is supersampling: the scene is averaged down, without the temporal upscaler, which only
+    // enlarges.
     const bool same = settings.outputWidth == p.BackBufferWidth && settings.outputHeight == p.BackBufferHeight;
-    if (settings.outputWidth < p.BackBufferWidth || settings.outputHeight < p.BackBufferHeight ||
-        (same && !settings.temporal))
+    const bool larger = settings.outputWidth >= p.BackBufferWidth && settings.outputHeight >= p.BackBufferHeight;
+    const bool smaller = settings.outputWidth < p.BackBufferWidth && settings.outputHeight < p.BackBufferHeight;
+    if ((!larger && !smaller) || (same && !settings.temporal))
     {
-        Logf("d3d9emu: upscale: the output %ux%u is not larger than the %ux%u back buffer%s: none",
-             settings.outputWidth, settings.outputHeight, p.BackBufferWidth, p.BackBufferHeight,
-             same ? " and no temporal upscaler is asked for" : "");
+        Logf("d3d9emu: upscale: the output %ux%u is %s the %ux%u back buffer%s: none", settings.outputWidth,
+             settings.outputHeight, same ? "the size of" : "larger on one axis only than", p.BackBufferWidth,
+             p.BackBufferHeight, same ? " and no temporal upscaler is asked for" : "");
         return;
     }
     const FormatInfo *format = FindFormat(p.BackBufferFormat);
@@ -285,7 +288,9 @@ void Device::ChooseOutput(const D3DPRESENT_PARAMETERS &p)
     m_outputWidth = settings.outputWidth;
     m_outputHeight = settings.outputHeight;
     m_upscaleSharpness = settings.sharpness;
-    m_temporalPreset = settings.temporal <= 3 ? settings.temporal : 0;
+    m_temporalPreset = settings.temporal <= 3 && !smaller ? settings.temporal : 0;
+    if (smaller && settings.temporal)
+        Logf("d3d9emu: upscale: supersampling has no temporal upscaler: the scene is averaged down");
 }
 
 HRESULT Device::CreateBackBuffer(const D3DPRESENT_PARAMETERS &p)
@@ -1790,6 +1795,8 @@ void Device::SceneComplete(const Bo1EmuSceneView *view)
                  m_outputHeight);
         }
     }
+    if (m_temporal)
+        m_temporal->DropReactive();
     if (!temporal)
     {
         if (!m_upscaler)
@@ -1801,9 +1808,28 @@ void Device::SceneComplete(const Bo1EmuSceneView *view)
     if (!m_hudLogged)
     {
         m_hudLogged = true;
-        Logf("d3d9emu: upscale: the 3D scene is upscaled before the 2D, which is drawn at %ux%u", m_outputWidth,
+        Logf("d3d9emu: upscale: the 3D scene is scaled before the 2D, which is drawn at %ux%u", m_outputWidth,
              m_outputHeight);
     }
+}
+
+void Device::SceneTransparents(bool done)
+{
+    Guard guard(DeviceLock());
+    if (!m_upscale || !m_temporalPreset || !m_temporal || m_temporal->Failed() || m_hudActive)
+        return;
+    Surface *target = m_renderTargets[0];
+    if (!target || !target->GetStorage().gpu || target->Width() != m_backBuffer->Width() ||
+        target->Height() != m_backBuffer->Height())
+        return;
+    Storage &color = target->GetStorage();
+    if (color.multiSample != D3DMULTISAMPLE_NONE)
+    {
+        WarnOnce("reactive multisampled", "d3d9emu: upscale: no reactive mask on a multisampled scene");
+        return;
+    }
+    EndPass();
+    m_temporal->Transparents(done, color.gpu, target->Level(), target->Layer(), target->Width(), target->Height());
 }
 
 HRESULT Device::Present(CONST RECT *, CONST RECT *, HWND, CONST RGNDATA *)
@@ -1861,6 +1887,12 @@ void Bo1Emu_SceneComplete(IDirect3DDevice9 *device, const Bo1EmuSceneView *view)
 {
     if (device)
         static_cast<d3d9emu::Device *>(static_cast<IDirect3DDevice9Ex *>(device))->SceneComplete(view);
+}
+
+void Bo1Emu_SceneTransparents(IDirect3DDevice9 *device, bool done)
+{
+    if (device)
+        static_cast<d3d9emu::Device *>(static_cast<IDirect3DDevice9Ex *>(device))->SceneTransparents(done);
 }
 
 bool Bo1Emu_TemporalJitter(IDirect3DDevice9 *device, float *x, float *y)

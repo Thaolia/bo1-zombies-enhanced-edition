@@ -108,6 +108,9 @@ console's compositor stretches the frame bilinearly.
   below 720p.
 - **The swapchain takes the output size** (`Device::ChooseOutput`, at creation and `Reset`) when it is larger than the
   back buffer and the backend can sample, filter and render the back buffer's format. Otherwise nothing changes.
+- **Supersampling** (`r_mod_upscale ssaa_*`, docs/VULKAN.md step 7): an output smaller than the back buffer on both
+  axes is averaged down instead, in one pass (`shaders/downsample.glsl`, an area-weighted box filter exact at any
+  ratio), never by the temporal upscaler. An output larger on one axis and smaller on the other is refused.
 - **Present**:
   1. a copy of the back buffer into a sampled texture (the back buffer is not sampled; a multisampled one is resolved
      first, as before);
@@ -165,7 +168,9 @@ console's compositor stretches the frame bilinearly.
 The frontend side is `d3d9emu_temporal.cpp`: the engine jitters the main projection by `Bo1Emu_TemporalJitter`
 (`d3d9emu_scene.h`) and passes its camera to `Bo1Emu_SceneComplete`; the frontend makes the inputs below from the
 scene and its depth buffer (one motion pass, shader `shaders/temporal_motion.glsl`) and draws the 2D after it at the
-output size, as with FSR 1.0. The contract:
+output size, as with FSR 1.0. The engine also brackets the scene's emissive draws with `Bo1Emu_SceneTransparents`:
+the frontend copies the scene's target before and after them and one pass (`shaders/temporal_reactive.glsl`) makes
+the R8 reactive mask from the two copies, given to the next upscale only. The contract:
 
 A contract call outside passes, reported by `Caps::temporalUpscale`: one frame of Arm ASR (FSR 2's inputs). Every
 input is a sampled 2D texture of the render size: the scene colour (RGBA8, not BGRA8), its depth as R32F (0 near, 1

@@ -142,8 +142,11 @@ if(NOT (BO1_PLATFORM STREQUAL "win32" AND NOT BO1_ARCH_64))
                 --macro BO1_UPSCALE ${BO1_UPSCALE_FORMS} "Vs=${BO1_UPSCALE_SHADERS}/fsr1_vs.glsl:vert"
                 "Easu=${BO1_UPSCALE_SHADERS}/fsr1_easu.glsl:frag" "Rcas=${BO1_UPSCALE_SHADERS}/fsr1_rcas.glsl:frag"
                 "Motion=${BO1_UPSCALE_SHADERS}/temporal_motion.glsl:frag"
+                "Reactive=${BO1_UPSCALE_SHADERS}/temporal_reactive.glsl:frag"
+                "Downsample=${BO1_UPSCALE_SHADERS}/downsample.glsl:frag"
         DEPENDS "${BO1_EMBED_SHADERS}" "${BO1_UPSCALE_SHADERS}/fsr1_vs.glsl" "${BO1_UPSCALE_SHADERS}/fsr1_easu.glsl"
                 "${BO1_UPSCALE_SHADERS}/fsr1_rcas.glsl" "${BO1_UPSCALE_SHADERS}/temporal_motion.glsl"
+                "${BO1_UPSCALE_SHADERS}/temporal_reactive.glsl" "${BO1_UPSCALE_SHADERS}/downsample.glsl"
         COMMENT "Embedding the upscaler's shaders"
         VERBATIM)
     list(APPEND GFX_D3D9EMU_FILES "${BO1_UPSCALE_HEADER}")
