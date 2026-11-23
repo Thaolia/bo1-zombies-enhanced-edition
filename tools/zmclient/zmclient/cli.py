@@ -50,7 +50,8 @@ def run_setup(dist, profile, install):
     if not install:
         print("no Black Ops install found in Steam's libraries: pass its folder (--setup DIR)", file=sys.stderr)
         return 1
-    job = gamesetup.Setup(dist.root, install, video=profile["setup_video"], convert=profile["setup_convert"])
+    job = gamesetup.Setup(dist.root, install, video=profile["setup_video"], convert=profile["setup_convert"],
+                          spirv=profile["setup_spirv"])
     job.start()
     shown = 0
 
@@ -66,6 +67,8 @@ def run_setup(dist, profile, install):
     if job.error:
         print(f"setup failed: {job.error}", file=sys.stderr)
         return 1
+    if job.warning:
+        print(f"setup done without Vulkan: {job.warning}", file=sys.stderr)
     profile["steam_install"] = job.install
     profile.save()
     return 0

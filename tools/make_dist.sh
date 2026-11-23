@@ -2,7 +2,8 @@
 # Build the port and package it as ready-to-copy folders and archives, from a source tree where setup.ps1 has copied
 # the game into build/Release (README.md, "Packages"):
 #   windows  BO1Zombies_windows/   the 64-bit client and dedicated server (Play.bat, Server.bat), zmclient.exe,
-#                                  zmadmin.exe and ffconv.exe; switch-tools\ (uam.exe, make_dksh_pack.py)
+#                                  zmadmin.exe, ffconv.exe and glslang.exe (ZmClient compiles shaders.spv with it);
+#                                  switch-tools\ (uam.exe, make_dksh_pack.py)
 #   linux    BO1Zombies_linux/     the Linux client and dedicated server (play.sh, server.sh), zmclient, zmadmin,
 #                                  ffconv.exe
 #   switch   BO1Zombies_switch/    an SD card tree: switch/bo1zm/ with the .nro and its data
@@ -321,7 +322,8 @@ build_spirv() {
     local dir="$WORK/spirv" md5 glslang
     glslang="$(command -v glslangValidator)" || die "glslangValidator not found (shaders.spv for Vulkan)"
     command -v spirv-val > /dev/null || die "spirv-val not found (shaders.spv for Vulkan)"
-    md5="$(cat "$ZONES/shaders.pack" "$ROOT/tools/ffconv/gen/make_spirv_pack.py" "$glslang" | md5sum | cut -d' ' -f1)"
+    md5="$(cat "$ZONES/shaders.pack" "$ROOT/tools/ffconv/gen/make_spirv_pack.py" \
+        "$ROOT/tools/zmclient/zmclient/spirvpack.py" "$glslang" | md5sum | cut -d' ' -f1)"
     if [ -f "$dir/shaders.spv" ] && [ "$(cat "$dir/shaders.spv.from" 2>/dev/null)" = "$md5" ]; then
         echo "shaders.spv up to date"
         return
@@ -368,6 +370,12 @@ build_zmclient() { # <linux|windows|openbsd> <binary>
     run_logged "zmclient-$1" env ZMCLIENT_WORK="$WORK/zmclient" "$ROOT/tools/zmclient/build.sh" "$1"
     tail -1 "$LOGS/zmclient-$1.log"
 }
+
+# glslang.exe, Khronos' 16.6.0 release (the version the builds embed SPIR-V with), goes in the Windows package with its
+# licence: ZmClient compiles the player's shaders.pack to shaders.spv with it (tools/zmclient/zmclient/spirvpack.py).
+# The release CI puts it in build/glslang/windows; a PC has it where the CMake build finds it.
+GLSLANG_WIN="$ROOT/build/glslang/windows/glslang.exe"
+[ -f "$GLSLANG_WIN" ] || GLSLANG_WIN=/mnt/c/SDKs/glslang-16.6.0/bin/glslang.exe
 
 # uam (tools/uam/build.sh) is built again when its build script is newer than the binary.
 UAM_EXE="$ROOT/build/uam/windows/uam.exe"
@@ -584,7 +592,8 @@ data_note() { # <devices word>
         echo "Ce dossier contient vos propres fichiers de jeu : gardez-le pour vos $1, ne le publiez pas."
     else
         echo "Ce dossier ne contient aucun fichier du jeu : avant de jouer, lancez zmclient, vue Installation (F7),"
-        echo "qui les copie depuis votre installation de Call of Duty: Black Ops (Steam) et convertit les zones."
+        echo "qui les copie depuis votre installation de Call of Duty: Black Ops (Steam), convertit les zones et"
+        echo "compile les shaders Vulkan (shaders.spv ; sous Linux, avec glslang-tools installé)."
     fi
 }
 
@@ -626,8 +635,10 @@ package_windows() {
     local d="$OUT/BO1Zombies_windows$SUFFIX"
     step "windows: $d"
     mkdir -p "$d/main"
+    [ -f "$GLSLANG_WIN" ] || die "glslang.exe not found (build/glslang/windows/ or C:\\SDKs\\glslang-16.6.0\\bin)"
     cp "$ROOT/build/win64-msvc/Release/BO1Zombies.exe" "$ROOT/build/zmadmin/windows/zmadmin.exe" \
-        "$ROOT/build/zmclient/windows/zmclient.exe" "$FFCONV_EXE" "$d/"
+        "$ROOT/build/zmclient/windows/zmclient.exe" "$FFCONV_EXE" "$GLSLANG_WIN" "$d/"
+    cp "$ROOT/third_party/glslang/LICENSE.txt" "$d/glslang-LICENSE.txt"
     copy_windows_runtimes "$d"
     mkdir -p "$d/switch-tools"
     cp "$UAM_EXE" "$ROOT/build/uam/windows/uam-LICENSE.txt" "$ROOT/tools/ffconv/gen/make_dksh_pack.py" \
@@ -718,8 +729,11 @@ SWITCH      switch-tools\uam.exe             le compilateur de shaders de deko3d
             python switch-tools\make_dksh_pack.py shaders.pack shaders.dksh --uam switch-tools\uam.exe
             Copiez ensuite shaders.dksh dans switch\bo1zm\ sur la carte SD, à côté de shaders.pack.
 VULKAN      ZmClient, vue Lancement (F4), « API graphique » : Vulkan au lieu de Direct3D 9 (ou
-            +set r_mod_gfxApi vulkan). Il faut shaders.spv à côté de BO1Zombies.exe ; sans lui, ou sans pilote
-            Vulkan, le jeu reprend Direct3D 9 et l'écrit dans main\console_mp.log (lignes r_mod_gfxApi:).
+            +set r_mod_gfxApi vulkan). Il faut shaders.pack et shaders.spv à côté de BO1Zombies.exe ; sans eux, ou
+            sans pilote Vulkan, le jeu reprend Direct3D 9 et l'écrit dans main\console_mp.log (lignes
+            r_mod_gfxApi:). ZmClient, vue Installation (F7), les refait depuis votre jeu : ffconv écrit
+            shaders.pack avec les zones, glslang.exe le compile en shaders.spv (licence : glslang-LICENSE.txt).
+            vk_pipelines.bin, écrit par le jeu, est le cache de votre carte graphique : il se supprime sans risque.
 WINE        si le jeu plante ou reste sur un écran noir au démarrage sous wine (son xaudio2 de wine), écrivez
             nosnd dans un fichier launch.cfg à côté de BO1Zombies.exe : le jeu démarre alors sans son.
 

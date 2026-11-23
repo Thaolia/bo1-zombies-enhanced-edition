@@ -136,6 +136,9 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force out/win64-msvc/Release | Out-Null
           Copy-Item build/win64-msvc/Release/BO1Zombies.exe out/win64-msvc/Release/
+          # the package's glslang.exe, with which ZmClient compiles the player's shaders.spv
+          New-Item -ItemType Directory -Force out/glslang/windows | Out-Null
+          Copy-Item (Get-Command glslang.exe).Source out/glslang/windows/
           $vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath
           $crt = Get-ChildItem "$vs\VC\Redist\MSVC\*\x64\Microsoft.VC14*.CRT" -Directory | Sort-Object FullName | Select-Object -Last 1
           if (-not $crt) { Write-Error "no Visual C++ runtime under $vs"; exit 1 }
@@ -345,7 +348,7 @@ jobs:
           # where make_dist.sh looks for each program
           mkdir -p build/win64-msvc/Release build/zmadmin/windows build/zmclient/windows build/zmadmin/linux \
               build/zmclient/linux build/zmadmin/openbsd build/zmclient/openbsd build/ffconv build/uam/windows \
-              build/uam/linux build/switch_setup/windows \
+              build/uam/linux build/switch_setup/windows build/glslang/windows \
               work/linux/Release work/switch/Release work/switch/romfs work/openbsd-8.0/Release \
               work/openbsd-current/Release runtimes
           cp $A/linux/uam/windows/* build/uam/windows/
@@ -354,6 +357,7 @@ jobs:
           cp $A/windows/win64-msvc/Release/BO1Zombies.exe build/win64-msvc/Release/
           cp $A/windows/zmadmin/windows/zmadmin.exe build/zmadmin/windows/
           cp $A/windows/zmclient/windows/zmclient.exe build/zmclient/windows/
+          cp $A/windows/glslang/windows/glslang.exe build/glslang/windows/
           cp $A/windows/runtimes/*.dll runtimes/
           cp $A/linux/linux/Release/BO1Zombies work/linux/Release/
           cp $A/linux/ffconv/ffconv.exe build/ffconv/

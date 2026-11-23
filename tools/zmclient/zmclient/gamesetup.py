@@ -1,8 +1,10 @@
 """Puts the player's own game files in a package folder, as setup.ps1 does for the development tree.
 
-From the player's Call of Duty: Black Ops install (Steam), it copies localization.txt, main/*.iwd and main/video/, and
+From the player's Call of Duty: Black Ops install (Steam), it copies localization.txt, main/*.iwd and main/video/,
 converts the zombies zones with the package's ffconv (the converter built with this game: its zones match the
-program). A package made by `tools/make_dist.sh --no-game-data` then holds no file of the game.
+program; it also writes shaders.pack, the GLSL the GL and Vulkan renderers read), and compiles shaders.pack to
+shaders.spv for Vulkan with glslang (spirvpack.py: the Windows package's glslang.exe, the system's glslang on Linux).
+A package made by `tools/make_dist.sh --no-game-data` then holds no file of the game.
 
 The install is only read, never changed. The new zones go to a temporary folder and replace zone/ only once ffconv
 succeeded, as make_dist.sh's convert_zones does, so a failed run leaves the old ones in place.
@@ -18,6 +20,8 @@ import threading
 import time
 
 from zmadmin.launcher import IS_OPENBSD, IS_WINDOWS
+
+from . import spirvpack
 
 GAME_FOLDER = "Call of Duty Black Ops"
 MARKER = "zmclient_setup.json"
@@ -120,10 +124,27 @@ class Layout:
         self.video = os.path.join(dist_root, "main", "video")
         self.zone = os.path.join(dist_root, "zone")
         self.shaders_pack = os.path.join(dist_root, "shaders.pack")
+        self.shaders_spv = os.path.join(dist_root, "shaders.spv")
         self.ffconv = os.path.join(dist_root, FFCONV_NAME)
         self.marker = os.path.join(dist_root, "zone", MARKER)
         self.log = os.path.join(dist_root, "main", "zmclient_setup.log")
-        self.needs_pack = not IS_WINDOWS        # the GL renderer reads shaders.pack; D3D9 the zones' own shaders
+        # The GL renderer cannot start without shaders.pack; on Windows only Vulkan reads it (the system's Direct3D 9,
+        # the default, takes the zones' own shaders), and Vulkan falls back to it without shaders.spv.
+        self.needs_pack = not IS_WINDOWS
+
+
+def spirv_state(lay):
+    """(ok, text) of shaders.spv: there and at least as new as shaders.pack, which it is compiled from."""
+    try:
+        spv = os.stat(lay.shaders_spv).st_mtime
+    except OSError:
+        return False, "absent : Vulkan indisponible (le jeu prend le rendu habituel)"
+    try:
+        if os.stat(lay.shaders_pack).st_mtime > spv:
+            return False, "plus ancien que shaders.pack : à refaire (Installer)"
+    except OSError:
+        pass
+    return True, "présent (Vulkan)"
 
 
 def state(dist_root):
@@ -152,15 +173,21 @@ def state(dist_root):
         out["zones"] = (True, f"{len(zones)} zones converties le {when}")
     else:
         out["zones"] = (True, f"{len(zones)} zones (livrées avec le paquet)")
-    if lay.needs_pack:
-        ok = os.path.isfile(lay.shaders_pack)
-        out["pack"] = (ok, "présent" if ok else "absent (vient avec les zones)")
+    ok = os.path.isfile(lay.shaders_pack)
+    out["pack"] = (ok, "présent" if ok else "absent (vient avec les zones)" + ("" if lay.needs_pack else
+                                                                               " ; Vulkan seulement"))
+    out["spirv"] = spirv_state(lay)
     return out
+
+
+OPTIONAL = ("video", "spirv")   # the game starts without them: no cinematics, no Vulkan
 
 
 def ready(dist_root):
     """None when the game can start, else what is missing."""
-    missing = [k for k, (ok, _) in state(dist_root).items() if not ok and k != "video"]
+    lay = Layout(dist_root)
+    missing = [k for k, (ok, _) in state(dist_root).items()
+               if not ok and k not in OPTIONAL and (k != "pack" or lay.needs_pack)]
     names = {"localization": "localization.txt", "iwd": "les .iwd", "zones": "les zones converties",
              "pack": "shaders.pack"}
     return None if not missing else "manque " + ", ".join(names[k] for k in missing)
@@ -227,19 +254,23 @@ def _plan_copies(install, lay, video):
 
 
 class Setup(threading.Thread):
-    """Runs the copy and the conversion; the view reads `phase`, `done_bytes`/`total_bytes`, `zone_at`/`zone_count`,
-    `lines` (the last output lines, `line_count` in all) and, at the end, `error` (None on success)."""
+    """Runs the copy, the conversion and the SPIR-V compilation; the view reads `phase`, `done_bytes`/`total_bytes`,
+    `zone_at`/`zone_count`, `shader_at`/`shader_count`, `lines` (the last output lines, `line_count` in all) and, at
+    the end, `error` (None on success) and `warning` (Vulkan left out, the rest done)."""
 
-    def __init__(self, dist_root, install, video=True, convert=True):
+    def __init__(self, dist_root, install, video=True, convert=True, spirv=True):
         super().__init__(daemon=True)
         self.lay = Layout(dist_root)
         # absolute: ffconv runs from the package folder, where a relative path would point elsewhere
         self.install = os.path.abspath(install)
         self.video = video
         self.convert = convert
+        self.spirv = spirv
         self.phase = "préparation"
         self.done_bytes = self.total_bytes = 0
         self.zone_at = self.zone_count = 0
+        self.shader_at = self.shader_count = 0
+        self.warning = None
         self.lines = []             # the last 200 lines
         self.line_count = 0         # every line noted so far
         self._lines_lock = threading.Lock()
@@ -330,8 +361,54 @@ class Setup(threading.Thread):
             self.note(f"copié {os.path.relpath(dst, lay.root)}")
         if self.convert:
             self._convert()
-        else:
-            self.phase = "terminé"
+            if self.error:
+                return
+        if self.spirv and not spirv_state(lay)[0]:
+            self._compile_spirv()
+        self.phase = "terminé"
+
+    def _compile_spirv(self):
+        """shaders.spv from shaders.pack. A missing glslang or a failure leaves the rest installed: `warning`."""
+        lay = self.lay
+        if not os.path.isfile(lay.shaders_pack):
+            self.warning = "pas de shaders.pack (convertir les zones le fait) : Vulkan indisponible"
+            self.note(self.warning)
+            return
+        glslang = spirvpack.find_glslang(lay.root)
+        if not glslang:
+            self.warning = ("pas de glslang : Vulkan indisponible (Linux : installez glslang-tools, puis Installer "
+                            "à nouveau)")
+            self.note(self.warning)
+            return
+        # shaders.spv is ~3.6 times shaders.pack (478 MB from 133 MB), plus a copy while it replaces the old one
+        need = 8 * os.path.getsize(lay.shaders_pack)
+        free = shutil.disk_usage(lay.root).free
+        if free < need:
+            self.warning = (f"pas assez de place pour shaders.spv ({need >> 20} Mo, {free >> 20} libres) : "
+                            "Vulkan indisponible")
+            self.note(self.warning)
+            return
+        self.phase = "shaders Vulkan"
+        self.note(f"shaders.spv : {glslang}, {os.cpu_count() or 1} à la fois")
+
+        def progress(at, total):
+            self.shader_at, self.shader_count = at, total
+        try:
+            result = spirvpack.build(lay.shaders_pack, lay.shaders_spv, glslang, progress=progress,
+                                     cancelled=lambda: self.cancelled)
+        except (spirvpack.PackError, OSError) as e:
+            self.warning = f"shaders.spv non compilé ({e}) : Vulkan indisponible"
+            self.note(self.warning)
+            return
+        if result is None:
+            self.error = "annulé"
+            return
+        good, size, failures = result
+        self.note(f"shaders.spv : {good} shaders, {size >> 20} Mo, {len(failures)} refusés")
+        for h, stage, err in failures[:20]:
+            self.note(f"  {h:016x}.{spirvpack.STAGES[stage]} : {err}")
+        if failures:
+            self.warning = f"{len(failures)} shaders refusés par glslang : des objets manqueront sous Vulkan"
 
     def _convert(self):
         lay = self.lay
@@ -371,7 +448,7 @@ class Setup(threading.Thread):
             os.replace(lay.zone, old)
         os.replace(os.path.join(new, "zone"), lay.zone)
         pack = os.path.join(new, "shaders.pack")
-        if lay.needs_pack and os.path.isfile(pack):
+        if os.path.isfile(pack):
             os.replace(pack, lay.shaders_pack)
         shutil.rmtree(new, ignore_errors=True)
         shutil.rmtree(old, ignore_errors=True)
@@ -379,4 +456,3 @@ class Setup(threading.Thread):
             json.dump({"ffconv_md5": file_md5(lay.ffconv), "time": time.time(), "install": self.install,
                        "zones": len(produced)}, f)
         self.note(f"{len(produced)} zones en place")
-        self.phase = "terminé"
