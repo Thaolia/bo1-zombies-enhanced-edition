@@ -258,8 +258,24 @@ optimised for mobile GPUs:
    **Asked by the user (2026-11-23). First finding:** uam 1.1.0 (Mesa's GL GLSL front end) rejects every ASR shader
    as written: `GL_EXT_samplerless_texture_functions`, `GL_EXT_shader_explicit_arithmetic_types` (float16_t) and
    separate texture/sampler objects in descriptor sets are Vulkan GLSL only (tried on the 7 passes, preprocessed with
-   `glslangValidator -E`). The work, in order:
-   1. A GL-dialect variant of ASR's GPU glue (`include/gpu/ffxm_core_glsl.h`, `fsr2/ffxm_fsr2_callbacks_glsl.h`,
+   `glslangValidator -E`).
+   **Route found (2026-11-24), replacing item 1 below:** no hand-written GL glue. Each pass goes Vulkan GLSL →
+   glslang (`-V`, `FFXM_HALF=0`, BO1's permutation macros) → SPIR-V → SPIRV-Cross (`--version 450 --no-es
+   --combined-samplers-inherit-bindings`) → GL GLSL 4.50 → uam. All 8 shaders (the vertex shader, 6 fragment passes,
+   the lock and luminance pyramid compute passes) compiled to DKSH this way, the pyramid with
+   `FFXM_SPD_NO_WAVE_OPERATIONS` (SPD's shared-memory path: uam has no `GL_KHR_shader_subgroup_quad`). One step is
+   needed between SPIRV-Cross and uam: GL gives uniform blocks, samplers and images separate binding spaces, and one
+   texture read through several samplers (`r_prepared_input_color`: linear, point and none) becomes several combined
+   samplers on the same Vulkan binding. A script renumbers each class from 0 and writes the table (class, deko3d
+   slot, Vulkan binding, name) the deko3d `FfxmInterface` binds by: accumulate then needs 1 uniform block, 8 to 10
+   samplers and 1 image, within deko3d's per-stage limits (uam refused the raw output: image binding 12 above 8).
+   Permutations: BO1 always sets low-resolution motion vectors and jitter cancellation (`gb_vk.cpp`, the Vulkan
+   context's flags), no HDR, no inverted depth, no FP16, no wave64; only the quality preset (quality, balanced,
+   performance) and the sharpening of the accumulate pass vary, a few dozen DKSH in all. Accumulate: 14.8 KB of code
+   in quality, 12.3 KB in balanced and performance. SPIRV-Cross is Debian's `spirv-cross` package (not yet a build
+   dependency; the generated GL GLSL may be committed with its generator instead, decided when the generator is
+   written). The work, in order:
+   1. (Superseded by the route above.) A GL-dialect variant of ASR's GPU glue (`include/gpu/ffxm_core_glsl.h`, `fsr2/ffxm_fsr2_callbacks_glsl.h`,
       the passes' resource declarations) in `src/gfx_backend/deko3d/asr/`, never editing `third_party/arm_asr`:
       combined samplers at deko3d's per-stage bindings, `FFXM_HALF 0` (the 32-bit paths; uam has no float16 type),
       quad operations replaced where uam lacks `GL_KHR_shader_subgroup_quad`, images with explicit formats.

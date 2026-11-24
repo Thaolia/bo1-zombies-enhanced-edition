@@ -1,7 +1,7 @@
 #pragma once
 // Per-thread CPU use on the console (switch_perf.cpp): every thread the Win32 shim knows samples its own CPU ticks and
-// core when it sleeps or waits (win32_threads.cpp), and the main thread logs a "perf:" line every 5 s. No libnx
-// types here: the shim includes this next to its Win32 headers.
+// core when it sleeps or waits (win32_threads.cpp), and the main thread logs a "perf:" line every 5 s, with the CPU,
+// GPU and memory clocks and the dock mode. No libnx types here: the shim includes this next to its Win32 headers.
 
 #ifdef __cplusplus
 extern "C" {
