@@ -425,6 +425,22 @@ else()
         set_source_files_properties("${SRC_DIR}/gfx_backend/gb_backend.cpp" PROPERTIES COMPILE_DEFINITIONS
             "$<$<BOOL:$<TARGET_PROPERTY:BO1_GB_GL>>:BO1_GB_GL>;$<$<BOOL:$<TARGET_PROPERTY:BO1_GB_DEKO3D>>:BO1_GB_DEKO3D>")
         target_link_libraries(BO1Zombies PRIVATE deko3d)
+        # Arm ASR's passes for deko3d (docs/VULKAN.md, step 6, item 4): GL GLSL that tools/asr/make_asr_gl.py made from
+        # third_party/arm_asr (committed, so this needs only uam), compiled to DKSH here.
+        set(BO1_ASR_DK_DIR "${SRC_DIR}/gfx_backend/deko3d/asr")
+        include("${BO1_ASR_DK_DIR}/asr_shaders.cmake")
+        set(BO1_ASR_DK_HEADER "${CMAKE_BINARY_DIR}/generated/asr_dksh.h")
+        set(BO1_ASR_DK_FILES ${BO1_ASR_DK_SHADERS})
+        list(TRANSFORM BO1_ASR_DK_FILES REPLACE "^[^=]*=(.*):[a-z]+$" "\\1")
+        add_custom_command(
+            OUTPUT "${BO1_ASR_DK_HEADER}"
+            COMMAND "${BO1_PYTHON3}" "${BO1_EMBED_SHADERS}" "${BO1_ASR_DK_HEADER}" --namespace gb::deko3d::asr
+                    --macro BO1_ASR --uam "${BO1_UAM}" ${BO1_ASR_DK_SHADERS}
+            DEPENDS "${BO1_EMBED_SHADERS}" "${BO1_ASR_DK_DIR}/asr_shaders.cmake" ${BO1_ASR_DK_FILES}
+            COMMENT "Compiling Arm ASR's passes for deko3d"
+            VERBATIM)
+        add_custom_target(bo1_asr_dksh DEPENDS "${BO1_ASR_DK_HEADER}")
+        add_dependencies(BO1Zombies bo1_asr_dksh)
         # D3DXSaveSurfaceToFileA's image encoders (third_party/stb), for that one file, as on posix.
         set_source_files_properties("${SRC_DIR}/gfx_d3d9emu/d3dx9emu.cpp" PROPERTIES
                                     COMPILE_OPTIONS "-isystem;${CMAKE_CURRENT_SOURCE_DIR}/third_party/stb")
