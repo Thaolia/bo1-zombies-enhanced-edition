@@ -757,6 +757,15 @@ class ConfigFile(unittest.TestCase):
         self.assertNotIn("r_mode", BY_NAME)
         self.assertIsNotNone(validate("anything", 'a"b')[1])
 
+    def test_quit_from_pause_menu(self):
+        # on by default in the game: the row only ever writes it, here to turn it off
+        self.assertEqual(BY_NAME["bo1_quitOnDisconnect"][2], "bool")
+        self.assertIsNotNone(validate("bo1_quitOnDisconnect", "2")[1])
+        self.assertEqual(self.cfg.value("bo1_quitOnDisconnect"), "")
+        self.cfg.save(self.cfg.changes({"bo1_quitOnDisconnect": "0"}))
+        self.assertIn('seta bo1_quitOnDisconnect "0"', self.read().splitlines())
+        self.assertEqual(self.cfg.value("bo1_quitOnDisconnect"), "0")
+
     def test_missing_file(self):
         cfg = GameConfig(os.path.join(self.tmp.name, "nothing"))
         cfg.load()

@@ -46,6 +46,9 @@ SETTINGS = [
     ("cg_subtitles", "Sous-titres", "bool", None, "1 : sous-titres des dialogues."),
     ("cg_drawFPS", "Compteur FPS du jeu", "choice", ("Off", "Simple", "SimpleRanges", "Verbose"),
      "Le compteur d'origine du jeu (le compteur du portage est dans Lancement, F4)."),
+    ("bo1_quitOnDisconnect", "Quitter le jeu depuis le menu pause", "bool", None,
+     "1 (défaut) : « Quitter » dans le menu pause (Échap, Start) ferme le jeu ; 0 : retour au menu principal de BO1. "
+     "Un game over ne ferme jamais le jeu."),
 ]
 BY_NAME = {s[0]: s for s in SETTINGS}
 PICMIP_FAMILY = ("r_picmip", "r_picmip_bump", "r_picmip_spec")
