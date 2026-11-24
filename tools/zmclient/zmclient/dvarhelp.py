@@ -35,8 +35,9 @@ KNOWN = {
         "0 : celui du jeu ; 65 à 120 : plus large. Gardé dans players/bo1_shared.cfg (la vue Config du jeu a aussi ce "
         "réglage)."),
     "bo1_quitOnDisconnect": (
-        "Quitter le jeu en quittant un serveur",
-        "1 : la commande disconnect (« Quitter » du menu pause) ferme le jeu au lieu de revenir au menu."),
+        "Quitter le jeu depuis le menu pause",
+        "1 (défaut, toutes les plateformes) : la commande disconnect (« Quitter » du menu pause) ferme le jeu au lieu "
+        "de revenir au menu. La vue Config du jeu a aussi ce réglage."),
     "bo1_autoquit": (
         "Quitter tout seul après N ms",
         "Le jeu se ferme N millisecondes après son démarrage (0 : jamais). Pour des tests chronométrés."),

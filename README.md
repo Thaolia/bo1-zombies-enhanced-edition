@@ -177,8 +177,10 @@ On the console the game starts in a text menu, where you choose:
 (handy on an emulator). `docs/ARCHITECTURE.md` lists the files.
 
 In a game, leaving it from the pause menu (Start, then the leave game entry) closes the application cleanly and goes
-back to the homebrew menu, rather than to BO1's main menu (`bo1_quitOnDisconnect`, on by default on the console only).
-HOME still suspends the game as usual.
+back to the homebrew menu, rather than to BO1's main menu (`bo1_quitOnDisconnect`). HOME still suspends the game as
+usual. The PC builds do the same since 2026-11-24 (Escape, then the leave game entry, closes the game); to get BO1's
+main menu back, turn off "Quitter le jeu depuis le menu pause" in ZmClient's *Config du jeu* view (F5), which writes
+`seta bo1_quitOnDisconnect "0"` to `players/config.cfg`. A game over never closes the game.
 
 No game data is distributed. A converter run on your own PC (`tools/ffconv`) turns your Steam install's
 fastfiles into the 64-bit format the port loads, and translates their shaders to GLSL:

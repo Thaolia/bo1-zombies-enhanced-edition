@@ -4102,14 +4102,11 @@ void __cdecl CL_InitOnceForAllClients()
     cl_allowWanConnect = _Dvar_RegisterBool("cl_allowWanConnect", 0, 0,
         "zombies: let connect reach addresses beyond the LAN");
     cl_shownuments = _Dvar_RegisterBool("cl_shownuments", 0, 0, "Show the number of entities");
-    // zombies: the console has no use for BO1's main menu (its start menu chose the game), so leaving a game from the
-    // pause menu (popup_leavegame: exec "disconnect") closes the application instead of loading the front end, back to
-    // the homebrew menu. A game that ends by itself (game over) still goes back to the main menu
-#if defined(__SWITCH__)
+    // zombies: leaving a game from the pause menu (popup_leavegame: exec "disconnect") closes the game instead of
+    // loading BO1's main menu, on every platform (the console's start menu, ZmClient on PC chose the game). A game over
+    // never runs disconnect (solo: missionfailed restarts the level; online: exitlevel rotates the map). ZmClient's
+    // Config view writes 0 to config.cfg for players who want the main menu back
     bo1_quitOnDisconnect = _Dvar_RegisterBool("bo1_quitOnDisconnect", 1, 0,
-#else
-    bo1_quitOnDisconnect = _Dvar_RegisterBool("bo1_quitOnDisconnect", 0, 0,
-#endif
         "zombies: the disconnect command quits the game once a connected client has left");
     cl_showServerCommands = _Dvar_RegisterBool(
                                                         "cl_showServerCommands",
@@ -4521,8 +4518,10 @@ void __cdecl CL_Disconnect_f()
         if ( CL_GetLocalClientConnectionState(localClientNum) )
         {
             // set before the disconnect: leaving a listen server ends the level and loads the front end
-            // (Com_LoadFrontEnd) inside CL_DisconnectLocalClient, where the quit replaces that load
-            if ( bo1_quitOnDisconnect && bo1_quitOnDisconnect->current.enabled )
+            // (Com_LoadFrontEnd) inside CL_DisconnectLocalClient, where the quit replaces that load. Only from a game:
+            // escape on the "connecting" popup (statusinfo_onEscArg) also runs disconnect, and must go back to the menu
+            if ( bo1_quitOnDisconnect && bo1_quitOnDisconnect->current.enabled
+                 && CL_GetLocalClientConnectionState(localClientNum) == CA_ACTIVE )
                 cl_quitAtFrontEnd = true;
             CL_DisconnectLocalClient(localClientNum);
         }

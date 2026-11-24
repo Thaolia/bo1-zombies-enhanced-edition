@@ -202,8 +202,11 @@ vide `skip_menu` dans le même dossier, le jeu démarre sans menu, sur `launch.c
 pratique sur un émulateur.
 
 En partie, quitter depuis le menu pause (Start, puis l'entrée qui quitte la partie) ferme proprement l'application et
-ramène au menu homebrew, au lieu du menu principal de BO1 (`bo1_quitOnDisconnect`, actif par défaut sur la console
-seulement). HOME met toujours le jeu en pause comme d'habitude.
+ramène au menu homebrew, au lieu du menu principal de BO1 (`bo1_quitOnDisconnect`). HOME met toujours le jeu en pause
+comme d'habitude. Les versions PC font de même depuis le 2026-11-24 (Échap, puis l'entrée qui quitte la partie, ferme
+le jeu) ; pour retrouver le menu principal de BO1, désactiver « Quitter le jeu depuis le menu pause » dans la vue
+*Config du jeu* de ZmClient (F5), qui écrit `seta bo1_quitOnDisconnect "0"` dans `players/config.cfg`. Un game over ne
+ferme jamais le jeu.
 
 #### Build PC d'origine
 Les instructions upstream (Windows, MSVC x86, D3D9) sont dans `README.md`, `setup.ps1` et `Play.bat`.
