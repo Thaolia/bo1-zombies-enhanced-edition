@@ -272,9 +272,17 @@ optimised for mobile GPUs:
    Permutations: BO1 always sets low-resolution motion vectors and jitter cancellation (`gb_vk.cpp`, the Vulkan
    context's flags), no HDR, no inverted depth, no FP16, no wave64; only the quality preset (quality, balanced,
    performance) and the sharpening of the accumulate pass vary, a few dozen DKSH in all. Accumulate: 14.8 KB of code
-   in quality, 12.3 KB in balanced and performance. SPIRV-Cross is Debian's `spirv-cross` package (not yet a build
-   dependency; the generated GL GLSL may be committed with its generator instead, decided when the generator is
-   written). The work, in order:
+   in quality, 12.3 KB in balanced and performance. SPIRV-Cross is Debian's `spirv-cross` package.
+   **Generator done (2026-11-24):** `tools/asr/make_asr_gl.py` writes the GL GLSL of every permutation BO1 uses into
+   `src/gfx_backend/deko3d/asr/` (27 permutations, 14 distinct shaders, committed: the Switch build and the CI need
+   only uam, and glslang plus SPIRV-Cross only to regenerate after an Arm ASR update), with `asr_table.h`, its own
+   reflection per shader: for each uniform block, texture, image and render target, Arm's resource name, the deko3d
+   slot, the Vulkan binding and, for a texture, its sampler (none, point clamp, linear clamp). Arm's prebuilt
+   reflection is per 16-bit permutation and lists other resources (its accumulate reads `r_input_motion_vectors`,
+   ours `r_dilated_motion_vectors` in performance), so the deko3d `FfxmInterface` fills `FfxmPipelineState` from this
+   table. The Switch build compiles the 14 to DKSH (`asr_dksh.h`, target `bo1_asr_dksh`, `tools/embed_shaders.py`
+   now takes `comp`). Two runs of the generator write the same bytes. Next: the `FfxmInterface` (item 2 below).
+   The work, in order:
    1. (Superseded by the route above.) A GL-dialect variant of ASR's GPU glue (`include/gpu/ffxm_core_glsl.h`, `fsr2/ffxm_fsr2_callbacks_glsl.h`,
       the passes' resource declarations) in `src/gfx_backend/deko3d/asr/`, never editing `third_party/arm_asr`:
       combined samplers at deko3d's per-stage bindings, `FFXM_HALF 0` (the 32-bit paths; uam has no float16 type),
