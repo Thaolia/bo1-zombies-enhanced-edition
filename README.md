@@ -158,8 +158,9 @@ On the console the game starts in a text menu, where you choose:
   Pack-a-Punch (mods/unlimitedpap, when its script is on the SD card) and the faster spawns (mods/spawnrate: 2 to 10
   times, with or without the sprint to the barriers);
 - the renderer (deko3d or OpenGL), the resolution (720p, or 540p / 480p for more frames, 540p advised online: the console scales the image to the
-  screen; below 720p, **FSR 1.0** can upscale it to 720p instead, sharper than the console's stretch, with five
-  sharpness levels), the frame-rate cap, shadows, the props' distance (normal, reduced or short: `r_lodScaleRigid`
+  screen; below 720p, **FSR 1.0** or **Arm ASR** (temporal, quality, balanced or performance shaders, deko3d only)
+  can upscale it to 720p or 1080p (for the dock) instead, sharper than the console's stretch, with five sharpness
+  levels), the frame-rate cap, shadows, the props' distance (normal, reduced or short: `r_lodScaleRigid`
   1, 1.5 or 2, scenery objects drawn simpler and less far for more frames on the native BO2 maps), texture filtering
   and the FPS/battery counter;
 - the speedrun info (`bo1_runinfo`, also a ZmClient launch setting): the settings that change a run (mods, god mode,

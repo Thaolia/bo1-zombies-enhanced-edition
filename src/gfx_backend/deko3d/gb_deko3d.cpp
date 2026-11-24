@@ -13,12 +13,17 @@
 #include "../gb_common.h"
 #include "gb_deko3d.h"
 
+#include "asr/asr_table.h" // Arm ASR's passes: their deko3d slots (tools/asr/make_asr_gl.py)
+#include "asr_dksh.h"      // and their DKSH, which the build compiled (CMakeLists.txt, bo1_asr_dksh)
+#include <host/ffxm_fsr2.h>
+
 #include <malloc.h>
 
 #include <algorithm>
 #include <cstdarg>
 #include <cstdio>
 #include <cstring>
+#include <cwchar>
 #include <iterator>
 #include <map>
 #include <string>
@@ -663,6 +668,7 @@ void FillCaps()
     s_caps.maxTextureSize = 16384;
     s_caps.maxSamples = 1;
     s_caps.memoryBytes = 0;
+    s_caps.temporalUpscale = true; // Arm ASR (TemporalUpscale); a failure is logged and falls back to FSR 1.0
     for (int f = 1; f < static_cast<int>(Format::Count); ++f)
     {
         const Format fmt = static_cast<Format>(f);
@@ -714,6 +720,17 @@ DkMemBlock s_passCapMem = nullptr;
 std::vector<PassCap> s_passCaps;
 uint32_t s_passCapNext = 0;
 bool s_passCapPending = false;
+// The traced frame (deko3d_debug) reads back the centre texel of every ASR texture after its dispatch, to find the pass
+// where the values go wrong: copied after the jobs, logged once the frame's fence has passed (Present).
+struct AsrProbe
+{
+    char name[40];
+    DkImageFormat format;
+    uint32_t offset;
+};
+std::vector<AsrProbe> s_asrProbes;
+DkMemBlock s_asrProbeMem = nullptr;
+constexpr uint32_t kAsrProbeStride = 256, kAsrProbeCap = 64;
 const Texture *s_passColor0 = nullptr;
 
 // Dumps go out as hex lines between "IMG WxH label" and "IMGEND label", downscaled 4x unless cropped, to both logs:
@@ -889,6 +906,40 @@ void BeginFrame(Swapchain *s)
         dkCmdBufReportCounter(s->cmd, DkCounter_Timestamp, s_timerGpu + slot * 32);
     s->recording = true;
 }
+
+constexpr uint32_t kDkshMagic = 0x48534B44, kProgHeaderSize = 64;
+
+// The scratch (local) memory per warp a DKSH's programs need: the program header's per_warp_scratch_sz.
+uint32_t DkshScratchPerWarp(const unsigned char *dksh, uint32_t size)
+{
+    uint32_t hdr[6];
+    if (size < sizeof(hdr))
+        return 0;
+    std::memcpy(hdr, dksh, sizeof(hdr));
+    const uint32_t controlSize = hdr[2], programsOff = hdr[4], programs = hdr[5];
+    if (hdr[0] != kDkshMagic || controlSize > size)
+        return 0;
+    uint32_t most = 0;
+    for (uint32_t p = 0; p < programs && programsOff + kProgHeaderSize * (p + 1) <= controlSize; ++p)
+    {
+        uint32_t prog[6];
+        std::memcpy(prog, dksh + programsOff + kProgHeaderSize * p, sizeof(prog));
+        most = std::max(most, prog[5]);
+    }
+    return most;
+}
+
+// The most Arm ASR's shaders need. The queue's scratch must hold it: deko3d checks it when a compute shader is bound
+// (DkResult_OutOfMemory abort: the lock pass needs 6656 bytes a warp, the default queue has 2048), and never for a
+// graphics shader, which would then overrun it (the previous-depth pass needs 4096).
+uint32_t AsrScratchPerWarp()
+{
+    uint32_t most = 0;
+#define BO1_ASR_SCRATCH(i) most = std::max(most, DkshScratchPerWarp(asr::kDkshAsrS##i, sizeof(asr::kDkshAsrS##i)));
+    BO1_ASR_DKSH_LIST(BO1_ASR_SCRATCH)
+#undef BO1_ASR_SCRATCH
+    return most;
+}
 } // namespace
 
 bool Init()
@@ -913,6 +964,11 @@ bool Init()
         queueMaker.flags |= DkQueueFlags_DisableZcull;
     }
     Log("Zcull %s", (queueMaker.flags & DkQueueFlags_DisableZcull) ? "off (no_zcull)" : "on");
+    const uint32_t scratch = AlignUp(AsrScratchPerWarp(), DK_PER_WARP_SCRATCH_MEM_ALIGNMENT);
+    if (scratch > queueMaker.perWarpScratchMemorySize)
+        queueMaker.perWarpScratchMemorySize = scratch;
+    Log("scratch memory %u bytes a warp (Arm ASR's shaders need %u)", queueMaker.perWarpScratchMemorySize,
+        AsrScratchPerWarp());
     s_queue = dkQueueCreate(&queueMaker);
     if (!s_queue)
     {
@@ -1292,7 +1348,6 @@ void ReadAttrMask(Stage stage, const char *code, uint32_t size, uint64_t mask[2]
 // 64-byte program headers {type, entrypoint, num_gprs, constbuf1 offset, constbuf1 size, ...}; then the code section,
 // with each program's 0x50-byte Maxwell header at its entrypoint followed by groups of one control word (21 bits per
 // instruction: stall, yield, write barrier, read barrier, wait mask, reuse) and three instructions.
-constexpr uint32_t kDkshMagic = 0x48534B44, kProgHeaderSize = 64;
 
 // uam schedules differently from the nvc0 compiler of the GL path (Mesa 20.1): it dual-issues an ALU instruction with
 // the next TEX/IPA/MUFU/branch (stall 0 + yield), where Mesa's canDualIssue is "TODO: return false", and it decides
@@ -1319,7 +1374,10 @@ uint32_t UseMesaSchedule(uint8_t *dksh, uint32_t size)
         uint32_t end = codeSize;
         if (prog[4] && prog[3] > prog[1])
             end = std::min(end, prog[3]);
-        for (uint32_t at = prog[1] + 0x50; at + 32 <= end; at += 32)
+        // A graphics program starts with its 0x50-byte Maxwell header; a compute program (type 5) has none, and
+        // skipping 0x50 bytes there would read its instructions as control words and rewrite them.
+        const uint32_t header = prog[0] == 5 ? 0 : 0x50;
+        for (uint32_t at = prog[1] + header; at + 32 <= end; at += 32)
         {
             uint64_t control;
             std::memcpy(&control, dksh + controlSize + at, sizeof(control));
@@ -2192,6 +2250,23 @@ void Present(gb::Swapchain *swapchain, gb::Texture *image)
         s_passCaps.clear();
         s_passCapNext = 0;
     }
+    if (!s_asrProbes.empty() && !s_frameTrace)
+    {
+        if (dkFenceWait(&s->fences[s->slot], 2000000000) == DkResult_Success)
+        {
+            const uint8_t *base = static_cast<const uint8_t *>(dkMemBlockGetCpuAddr(s_asrProbeMem));
+            for (const AsrProbe &p : s_asrProbes)
+            {
+                char hex[40];
+                for (int b = 0; b < 16; ++b)
+                    snprintf(hex + 2 * b, 3, "%02x", base[p.offset + b]);
+                Log("asr probe %-36s fmt %3d centre %s", p.name[0] ? p.name : "(unnamed)", int(p.format), hex);
+            }
+        }
+        else
+            Log("asr probe: fence wait failed");
+        s_asrProbes.clear();
+    }
 }
 
 void WaitIdle()
@@ -2258,10 +2333,875 @@ void Blit(gb::Texture *srcHandle, uint8_t srcLevel, uint8_t srcLayer, const Rect
 }
 void ReadTexture(gb::Texture *, uint8_t, uint8_t, const Box &, void *, uint32_t) {}
 
-// No temporal upscaler on the console yet (docs/VULKAN.md, step 6.4): Caps::temporalUpscale stays false.
-bool TemporalUpscale(const TemporalUpscaleDesc &)
+// ---- Arm ASR (TemporalUpscale; docs/VULKAN.md, step 6, item 4)
+//
+// Arm's FSR2 component drives the upscale through an FfxmInterface, the 15 callbacks Arm's Vulkan backend has in
+// third_party/arm_asr/src/backends/vk/ffxm_vk.cpp. This is the same interface on deko3d. The shaders are the GL GLSL
+// tools/asr/make_asr_gl.py made from ASR's passes, compiled to DKSH by the build (asr_dksh.h), and asr_table.h says
+// which deko3d slot each of their resources takes. The jobs are recorded into the frame's command buffer, a full
+// barrier after each: ASR's passes read what the previous one wrote, and its resource states are not tracked.
+namespace
 {
+struct AsrCode
+{
+    const unsigned char *data;
+    uint32_t size;
+};
+#define BO1_ASR_CODE(i) {asr::kDkshAsrS##i, uint32_t(sizeof(asr::kDkshAsrS##i))},
+const AsrCode kAsrCode[] = {BO1_ASR_DKSH_LIST(BO1_ASR_CODE)};
+#undef BO1_ASR_CODE
+constexpr size_t kAsrShaderCount = sizeof(asr::kShaders) / sizeof(asr::kShaders[0]);
+static_assert(sizeof(kAsrCode) / sizeof(kAsrCode[0]) == kAsrShaderCount, "asr_table.h and asr_dksh.h disagree");
+
+// The vertex shader every fragment pass draws its full-screen triangle with: the permutation of pass 255.
+uint16_t AsrVertexShader()
+{
+    for (const asr::Permutation &p : asr::kPermutations)
+        if (p.pass == 255)
+            return p.shader;
+    return uint16_t(kAsrShaderCount);
+}
+
+DkShader s_asrShaders[kAsrShaderCount];
+uint8_t s_asrShaderState[kAsrShaderCount]; // 0 not made yet, 1 valid, 2 failed
+
+const DkShader *AsrShader(uint16_t index)
+{
+    if (index >= kAsrShaderCount)
+        return nullptr;
+    if (!s_asrShaderState[index])
+    {
+        std::vector<uint8_t> dksh(kAsrCode[index].data, kAsrCode[index].data + kAsrCode[index].size);
+        UseMesaSchedule(dksh.data(), uint32_t(dksh.size())); // uam's dual issue miscomputes on the console
+        DkMemBlock block;
+        uint32_t offset;
+        s_asrShaderState[index] = 2;
+        if (PlaceCode(dksh.data(), uint32_t(dksh.size()), &block, &offset))
+        {
+            DkShaderMaker maker;
+            dkShaderMakerDefaults(&maker, block, offset);
+            dkShaderInitialize(&s_asrShaders[index], &maker);
+            if (dkShaderIsValid(&s_asrShaders[index]))
+                s_asrShaderState[index] = 1;
+        }
+        if (s_asrShaderState[index] != 1)
+            Log("Arm ASR: shader %u is not valid", unsigned(index));
+    }
+    return s_asrShaderState[index] == 1 ? &s_asrShaders[index] : nullptr;
+}
+
+// What ASR asks for: textures in these formats (no buffer but the upload ones that carry a texture's first contents).
+DkImageFormat AsrDkFormat(arm::FfxmSurfaceFormat format)
+{
+    switch (format)
+    {
+    case arm::FFXM_SURFACE_FORMAT_R32G32B32A32_FLOAT: return DkImageFormat_RGBA32_Float;
+    case arm::FFXM_SURFACE_FORMAT_R16G16B16A16_FLOAT: return DkImageFormat_RGBA16_Float;
+    case arm::FFXM_SURFACE_FORMAT_R32G32_FLOAT: return DkImageFormat_RG32_Float;
+    case arm::FFXM_SURFACE_FORMAT_R32_UINT: return DkImageFormat_R32_Uint;
+    case arm::FFXM_SURFACE_FORMAT_R8G8B8A8_UNORM: return DkImageFormat_RGBA8_Unorm;
+    case arm::FFXM_SURFACE_FORMAT_R11G11B10_FLOAT: return DkImageFormat_RG11B10_Float;
+    case arm::FFXM_SURFACE_FORMAT_R16G16_FLOAT: return DkImageFormat_RG16_Float;
+    case arm::FFXM_SURFACE_FORMAT_R16_FLOAT: return DkImageFormat_R16_Float;
+    case arm::FFXM_SURFACE_FORMAT_R16_UNORM: return DkImageFormat_R16_Unorm;
+    case arm::FFXM_SURFACE_FORMAT_R16_SNORM: return DkImageFormat_R16_Snorm;
+    case arm::FFXM_SURFACE_FORMAT_R8_UNORM: return DkImageFormat_R8_Unorm;
+    case arm::FFXM_SURFACE_FORMAT_R8_SNORM: return DkImageFormat_R8_Snorm;
+    case arm::FFXM_SURFACE_FORMAT_R8G8_UNORM: return DkImageFormat_RG8_Unorm;
+    case arm::FFXM_SURFACE_FORMAT_R32_FLOAT: return DkImageFormat_R32_Float;
+    default: return DkImageFormat(0);
+    }
+}
+
+// The formats a clear may target: ASR clears through a render target binding, and a texture is made renderable only in
+// one of the colour formats every Maxwell render target takes (a format deko3d refuses would abort in the release lib).
+bool AsrRenderable(DkImageFormat format)
+{
+    switch (format)
+    {
+    case DkImageFormat_RGBA32_Float:
+    case DkImageFormat_RGBA16_Float:
+    case DkImageFormat_RG32_Float:
+    case DkImageFormat_R32_Float:
+    case DkImageFormat_RG16_Float:
+    case DkImageFormat_R16_Float:
+    case DkImageFormat_RG11B10_Float:
+    case DkImageFormat_RGBA8_Unorm:
+    case DkImageFormat_RG8_Unorm:
+    case DkImageFormat_R8_Unorm:
+    case DkImageFormat_R32_Uint:
+        return true;
+    default:
+        return false;
+    }
+}
+
+// Every resource ASR knows, by FfxmResourceInternal index. Index 0 is the null resource (an absent reactive mask);
+// the textures ASR creates follow, then the frame's registered inputs, dropped at the end of each dispatch.
+struct AsrResource
+{
+    arm::FfxmResourceDescription desc = {};
+    bool live = false;
+    Texture *external = nullptr; // a registered engine texture
+    Range mem;                   // owned: the image, or an upload buffer
+    DkImage image = {};
+    DkImageLayout layout = {};
+    DkImageFormat format = DkImageFormat(0);
+    bool renderable = false;
+    DkGpuAddr buffer = 0; // upload buffers
+    uint32_t srvId = 0;   // image descriptor sampled through
+    uint32_t uavId[16] = {}; // image descriptor of each level, for load/store
+    char name[40] = {};      // ASR's name for it (the traced frame's probes)
+};
+std::vector<AsrResource> s_asrRes;
+
+
+// Image descriptors for ASR's textures: a range of the pool taken once. Ids are handed out in order and never reused:
+// a context is made again only when the sizes or the preset change, and a frame still on the GPU may read the old ones.
+constexpr uint32_t kAsrDescIds = 1024;
+uint32_t s_asrDescBase = 0, s_asrDescNext = 0;
+
+uint32_t AsrDescriptor(const DkImage *image, uint32_t mip, bool loadStore, bool allLevels)
+{
+    if (!s_asrDescBase)
+    {
+        if (s_imgNext + kAsrDescIds > kImgPoolCap)
+            return 0;
+        s_asrDescBase = s_imgNext;
+        s_imgNext += kAsrDescIds;
+    }
+    if (s_asrDescNext >= kAsrDescIds)
+        return 0;
+    const uint32_t id = s_asrDescBase + s_asrDescNext++;
+    DkImageView view;
+    dkImageViewDefaults(&view, image);
+    if (!allLevels)
+    {
+        view.mipLevelOffset = uint8_t(mip);
+        view.mipLevelCount = 1;
+    }
+    dkImageDescriptorInitialize(reinterpret_cast<DkImageDescriptor *>(s_imgPoolCpu) + id, &view, loadStore, false);
+    return id;
+}
+
+// The pipeline behind an FfxmPipelineState: the shader of each stage and where each of the job's resources goes.
+struct AsrTextureSlot
+{
+    uint8_t slot, resource, sampler; // deko3d texture slot, index in the job's srvTextures, sampler kind
+};
+struct AsrPipeline
+{
+    uint16_t shader = 0;
+    bool compute = false;
+    std::vector<AsrTextureSlot> textures;
+};
+
+struct AsrJob
+{
+    arm::FfxmGpuJobDescription job;
+};
+std::vector<AsrJob> s_asrJobs;
+
+AsrResource *AsrGet(arm::FfxmResourceInternal r)
+{
+    return r.internalIndex > 0 && size_t(r.internalIndex) < s_asrRes.size() && s_asrRes[r.internalIndex].live
+               ? &s_asrRes[r.internalIndex]
+               : nullptr;
+}
+
+void AsrName(wchar_t *out, const char *name)
+{
+    size_t i = 0;
+    for (; name[i] && i + 1 < 64; ++i)
+        out[i] = wchar_t(name[i]);
+    out[i] = 0;
+}
+
+uint32_t AsrGetSdkVersion(arm::FfxmInterface *)
+{
+    return FFXM_SDK_MAKE_VERSION(FFXM_SDK_VERSION_MAJOR, FFXM_SDK_VERSION_MINOR, FFXM_SDK_VERSION_PATCH);
+}
+
+arm::FfxmErrorCode AsrCreateBackendContext(arm::FfxmInterface *, arm::FfxmUInt32 *effectContextId)
+{
+    s_asrRes.clear();
+    s_asrRes.emplace_back(); // the null resource
+    s_asrJobs.clear();
+    *effectContextId = 0;
+    return arm::FFXM_OK;
+}
+
+arm::FfxmErrorCode AsrGetDeviceCapabilities(arm::FfxmInterface *, arm::FfxmDeviceCapabilities *caps)
+{
+    caps->minimumSupportedShaderModel = arm::FFXM_SHADER_MODEL_5_1;
+    caps->waveLaneCountMin = 32;
+    caps->waveLaneCountMax = 32;
+    caps->fp16Supported = false; // the DKSH are the 32-bit variants
+    caps->raytracingSupported = false;
+    return arm::FFXM_OK;
+}
+
+void AsrFree(AsrResource &r)
+{
+    if (r.mem.mem)
+        FreeLater(r.mem); // a frame the GPU runs may still read it
+    r = AsrResource();
+}
+
+arm::FfxmErrorCode AsrDestroyBackendContext(arm::FfxmInterface *, arm::FfxmUInt32)
+{
+    for (AsrResource &r : s_asrRes)
+        if (r.live && !r.external)
+            AsrFree(r);
+    s_asrRes.clear();
+    s_asrJobs.clear();
+    return arm::FFXM_OK;
+}
+
+arm::FfxmErrorCode AsrCreateResource(arm::FfxmInterface *iface, const arm::FfxmCreateResourceDescription *create,
+                                     arm::FfxmUInt32, arm::FfxmResourceInternal *out)
+{
+    AsrResource r;
+    r.desc = create->resourceDescription;
+    r.live = true;
+    for (size_t i = 0; create->name && create->name[i] && i + 1 < sizeof(r.name); ++i)
+        r.name[i] = create->name[i] < 128 ? char(create->name[i]) : '?';
+    if (create->resourceDescription.type == arm::FFXM_RESOURCE_TYPE_BUFFER)
+    {
+        // Only upload buffers: the first contents of a texture, copied by a job.
+        if (create->heapType != arm::FFXM_HEAP_TYPE_UPLOAD)
+            return arm::FFXM_ERROR_BACKEND_API_ERROR;
+        r.mem = Allocate(s_dataPool, create->resourceDescription.width, DK_MEMBLOCK_ALIGNMENT);
+        if (!r.mem.mem)
+            return arm::FFXM_ERROR_OUT_OF_MEMORY;
+        r.buffer = dkMemBlockGetGpuAddr(r.mem.mem) + r.mem.offset;
+        if (create->initData)
+            std::memcpy(static_cast<uint8_t *>(dkMemBlockGetCpuAddr(r.mem.mem)) + r.mem.offset, create->initData,
+                        std::min<size_t>(create->initDataSize, create->resourceDescription.width));
+        out->internalIndex = int32_t(s_asrRes.size());
+        s_asrRes.push_back(r);
+        return arm::FFXM_OK;
+    }
+    if (create->resourceDescription.type != arm::FFXM_RESOURCE_TYPE_TEXTURE2D)
+        return arm::FFXM_ERROR_BACKEND_API_ERROR;
+    r.format = AsrDkFormat(create->resourceDescription.format);
+    // The balanced and performance shaders render a signed reactive history in R8_SNORM, a format left out of the
+    // renderable ones; shaders only see floats in -1..1 there, which R16F keeps (it is never a storage image or
+    // uploaded).
+    if (r.format == DkImageFormat_R8_Snorm && (r.desc.usage & arm::FFXM_RESOURCE_USAGE_RENDERTARGET) &&
+        !create->initData && !(r.desc.usage & arm::FFXM_RESOURCE_USAGE_UAV))
+        r.format = DkImageFormat_R16_Float;
+    if (!r.format)
+    {
+        Log("Arm ASR: texture format %d has no deko3d equivalent", int(create->resourceDescription.format));
+        return arm::FFXM_ERROR_BACKEND_API_ERROR;
+    }
+    uint32_t mips = r.desc.mipCount;
+    if (!mips)
+        for (uint32_t size = std::max(r.desc.width, r.desc.height); size; size >>= 1)
+            ++mips;
+    mips = std::min<uint32_t>(mips, 16);
+    r.desc.mipCount = mips;
+    const bool uav = (r.desc.usage & arm::FFXM_RESOURCE_USAGE_UAV) != 0;
+    r.renderable = AsrRenderable(r.format);
+    if ((r.desc.usage & arm::FFXM_RESOURCE_USAGE_RENDERTARGET) && !r.renderable)
+    {
+        Log("Arm ASR: render target format %d is not renderable here", int(create->resourceDescription.format));
+        return arm::FFXM_ERROR_BACKEND_API_ERROR;
+    }
+    DkImageLayoutMaker lm;
+    dkImageLayoutMakerDefaults(&lm, s_device);
+    lm.type = DkImageType_2D;
+    lm.flags = (r.renderable ? DkImageFlags_UsageRender : 0u) | (uav ? DkImageFlags_UsageLoadStore : 0u);
+    lm.format = r.format;
+    lm.dimensions[0] = r.desc.width;
+    lm.dimensions[1] = r.desc.height;
+    lm.dimensions[2] = 1;
+    lm.mipLevels = mips;
+    dkImageLayoutInitialize(&r.layout, &lm);
+    r.mem = Allocate(s_imagePool, uint32_t(dkImageLayoutGetSize(&r.layout)), dkImageLayoutGetAlignment(&r.layout));
+    if (!r.mem.mem)
+        return arm::FFXM_ERROR_OUT_OF_MEMORY;
+    dkImageInitialize(&r.image, &r.layout, r.mem.mem, r.mem.offset);
+    const int32_t index = int32_t(s_asrRes.size());
+    s_asrRes.push_back(r);
+    AsrResource &stored = s_asrRes.back(); // the descriptors point at the stored DkImage
+    stored.srvId = AsrDescriptor(&stored.image, 0, false, true);
+    bool described = stored.srvId != 0;
+    if (uav)
+        for (uint32_t m = 0; m < mips; ++m)
+            described = described && (stored.uavId[m] = AsrDescriptor(&stored.image, m, true, false)) != 0;
+    if (!described)
+    {
+        Log("Arm ASR: no image descriptor left");
+        AsrFree(stored);
+        return arm::FFXM_ERROR_OUT_OF_MEMORY;
+    }
+    out->internalIndex = index;
+    if (create->initData)
+    {
+        // Through an upload buffer and a copy job, as Arm's Vulkan backend does: the copy is recorded with the jobs.
+        arm::FfxmCreateResourceDescription upload = {};
+        upload.heapType = arm::FFXM_HEAP_TYPE_UPLOAD;
+        upload.resourceDescription.type = arm::FFXM_RESOURCE_TYPE_BUFFER;
+        upload.resourceDescription.width = create->initDataSize;
+        upload.initData = create->initData;
+        upload.initDataSize = create->initDataSize;
+        arm::FfxmResourceInternal source;
+        const arm::FfxmErrorCode e = AsrCreateResource(iface, &upload, 0, &source);
+        if (e != arm::FFXM_OK)
+            return e;
+        arm::FfxmGpuJobDescription copy = {arm::FFXM_GPU_JOB_COPY};
+        copy.copyJobDescriptor.src = source;
+        copy.copyJobDescriptor.dst = *out;
+        s_asrJobs.push_back({copy});
+    }
+    return arm::FFXM_OK;
+}
+
+arm::FfxmErrorCode AsrDestroyResource(arm::FfxmInterface *, arm::FfxmResourceInternal resource)
+{
+    if (AsrResource *r = AsrGet(resource); r && !r->external)
+        AsrFree(*r);
+    return arm::FFXM_OK;
+}
+
+arm::FfxmErrorCode AsrRegisterResource(arm::FfxmInterface *, const arm::FfxmResource *in, arm::FfxmUInt32,
+                                       arm::FfxmResourceInternal *out)
+{
+    if (!in->resource)
+    {
+        out->internalIndex = 0;
+        return arm::FFXM_OK;
+    }
+    AsrResource r;
+    r.live = true;
+    r.external = static_cast<Texture *>(in->resource);
+    r.desc = in->description;
+    r.format = r.external->dkFormat;
+    r.renderable = true; // the engine's render targets
+    r.srvId = uint32_t(r.external->descId);
+    for (size_t i = 0; in->name[i] && i + 1 < sizeof(r.name); ++i)
+        r.name[i] = in->name[i] < 128 ? char(in->name[i]) : '?';
+    out->internalIndex = int32_t(s_asrRes.size());
+    s_asrRes.push_back(r);
+    return arm::FFXM_OK;
+}
+
+arm::FfxmResource AsrGetResource(arm::FfxmInterface *, arm::FfxmResourceInternal resource)
+{
+    arm::FfxmResource out = {};
+    if (const AsrResource *r = AsrGet(resource))
+    {
+        out.resource = r->external ? static_cast<void *>(r->external) : const_cast<DkImage *>(&r->image);
+        out.description = r->desc;
+    }
+    return out;
+}
+
+arm::FfxmErrorCode AsrUnregisterResources(arm::FfxmInterface *, arm::FfxmCommandList, arm::FfxmUInt32)
+{
+    while (s_asrRes.size() > 1 && s_asrRes.back().external)
+        s_asrRes.pop_back();
+    return arm::FFXM_OK;
+}
+
+arm::FfxmResourceDescription AsrGetResourceDescription(arm::FfxmInterface *, arm::FfxmResourceInternal resource)
+{
+    const AsrResource *r = AsrGet(resource);
+    return r ? r->desc : arm::FfxmResourceDescription{};
+}
+
+arm::FfxmErrorCode AsrCreatePipeline(arm::FfxmInterface *, arm::FfxmEffect, arm::FfxmPass pass,
+                                     arm::FfxmShaderQuality, uint32_t permutationOptions,
+                                     const arm::FfxmPipelineDescription *, arm::FfxmUInt32,
+                                     arm::FfxmPipelineState *out)
+{
+    if ((permutationOptions & asr::kFixedFlags) != asr::kFixedFlags)
+    {
+        Log("Arm ASR: permutation 0x%x lacks the flags the shaders were made with (0x%x)", permutationOptions,
+            asr::kFixedFlags);
+        return arm::FFXM_ERROR_BACKEND_API_ERROR;
+    }
+    const uint32_t varied = permutationOptions & asr::kVariedFlags;
+    const asr::Permutation *found = nullptr;
+    for (const asr::Permutation &p : asr::kPermutations)
+        if (p.pass == uint32_t(pass) && p.flags == varied)
+            found = &p;
+    if (!found || !AsrShader(found->shader))
+    {
+        Log("Arm ASR: no shader for pass %d, flags 0x%x", int(pass), permutationOptions);
+        return arm::FFXM_ERROR_BACKEND_API_ERROR;
+    }
+    const asr::Shader &shader = asr::kShaders[found->shader];
+    AsrPipeline *pipeline = new AsrPipeline();
+    pipeline->shader = found->shader;
+    pipeline->compute = shader.stage == 2;
+    *out = arm::FfxmPipelineState();
+    out->pipeline = pipeline;
+    // The job's arrays follow these bindings, in this order: one texture per name, even when the shader reads it
+    // through several samplers (several deko3d slots).
+    for (uint8_t i = 0; i < shader.srvCount; ++i)
+    {
+        const asr::Binding &b = shader.srv[i];
+        wchar_t name[64];
+        AsrName(name, b.name);
+        uint32_t resource = 0;
+        while (resource < out->srvTextureCount && wcscmp(name, out->srvTextureBindings[resource].name))
+            ++resource;
+        if (resource == out->srvTextureCount)
+        {
+            arm::FfxmResourceBinding &binding = out->srvTextureBindings[out->srvTextureCount++];
+            binding.slotIndex = b.vkBinding;
+            binding.bindCount = 1;
+            std::memcpy(binding.name, name, sizeof(name));
+        }
+        pipeline->textures.push_back({b.slot, uint8_t(resource), b.sampler});
+    }
+    for (uint8_t i = 0; i < shader.uavCount; ++i)
+    {
+        arm::FfxmResourceBinding &binding = out->uavTextureBindings[out->uavTextureCount++];
+        binding.slotIndex = shader.uav[i].slot;
+        binding.bindCount = 1;
+        AsrName(binding.name, shader.uav[i].name);
+    }
+    for (uint8_t i = 0; i < shader.rtCount; ++i)
+    {
+        arm::FfxmResourceBinding &binding = out->rtBindings[out->rtCount++];
+        binding.slotIndex = shader.rt[i].slot;
+        binding.bindCount = 1;
+        AsrName(binding.name, shader.rt[i].name);
+    }
+    for (uint8_t i = 0; i < shader.cbvCount; ++i)
+    {
+        arm::FfxmResourceBinding &binding = out->constantBufferBindings[out->constCount++];
+        binding.slotIndex = shader.cbv[i].slot;
+        binding.bindCount = 1;
+        AsrName(binding.name, shader.cbv[i].name);
+    }
+    if (!pipeline->compute && !AsrShader(AsrVertexShader()))
+        return arm::FFXM_ERROR_BACKEND_API_ERROR;
+    return arm::FFXM_OK;
+}
+
+arm::FfxmErrorCode AsrDestroyPipeline(arm::FfxmInterface *, arm::FfxmPipelineState *pipeline, arm::FfxmUInt32)
+{
+    if (pipeline)
+    {
+        delete static_cast<AsrPipeline *>(pipeline->pipeline);
+        pipeline->pipeline = nullptr;
+    }
+    return arm::FFXM_OK;
+}
+
+arm::FfxmErrorCode AsrScheduleGpuJob(arm::FfxmInterface *, const arm::FfxmGpuJobDescription *job)
+{
+    s_asrJobs.push_back({*job}); // a fragment job points at its pipeline state, which the context keeps
+    return arm::FFXM_OK;
+}
+
+// The uniform blocks, textures and images of one job's stage.
+bool AsrBindResources(DkCmdBuf cmd, DkStage stage, const arm::FfxmPipelineState &state, const AsrPipeline &pipeline,
+                      const arm::FfxmResourceInternal *srv, const arm::FfxmResourceInternal *uav,
+                      const uint32_t *uavMips, const arm::FfxmConstantBuffer *cbs)
+{
+    for (uint32_t i = 0; i < state.constCount; ++i)
+    {
+        const uint32_t bytes = cbs[i].num32BitEntries * 4u;
+        const UniformSlice slice = AllocUniforms(cbs[i].data, bytes);
+        if (!slice.buffer)
+            return false;
+        dkCmdBufBindUniformBuffer(cmd, stage, state.constantBufferBindings[i].slotIndex, s_uboGpu + slice.offset,
+                                  AlignUp(bytes, DK_UNIFORM_BUF_ALIGNMENT));
+    }
+    static const SamplerDesc kPoint = {Filter::Nearest, Filter::Nearest, MipFilter::Nearest, Address::Clamp,
+                                       Address::Clamp, Address::Clamp, 1, false};
+    static const SamplerDesc kLinear = {Filter::Linear, Filter::Linear, MipFilter::Linear, Address::Clamp,
+                                        Address::Clamp, Address::Clamp, 1, false};
+    const int samplers[3] = {static_cast<const Sampler *>(deko3d::GetSampler(kPoint))->descId,
+                             static_cast<const Sampler *>(deko3d::GetSampler(kPoint))->descId,
+                             static_cast<const Sampler *>(deko3d::GetSampler(kLinear))->descId};
+    DkResHandle textures[32] = {};
+    uint32_t textureCount = 0;
+    for (const AsrTextureSlot &t : pipeline.textures)
+    {
+        const AsrResource *r = AsrGet(srv[t.resource]);
+        textures[t.slot] = dkMakeTextureHandle(r ? r->srvId : 0, samplers[t.sampler]);
+        textureCount = std::max<uint32_t>(textureCount, t.slot + 1u);
+    }
+    if (textureCount)
+        dkCmdBufBindTextures(cmd, stage, 0, textures, textureCount);
+    DkResHandle images[8] = {};
+    uint32_t imageCount = 0;
+    for (uint32_t i = 0; i < state.uavTextureCount; ++i)
+    {
+        const AsrResource *r = AsrGet(uav[i]);
+        const uint32_t mip = uavMips ? uavMips[i] : 0;
+        if (!r || r->external || mip >= 16 || !r->uavId[mip])
+        {
+            Log("Arm ASR: image %u of the job has no load/store view", unsigned(i));
+            return false;
+        }
+        const uint32_t slot = state.uavTextureBindings[i].slotIndex;
+        images[slot] = dkMakeImageHandle(r->uavId[mip]);
+        imageCount = std::max(imageCount, slot + 1);
+    }
+    if (imageCount)
+        dkCmdBufBindImages(cmd, stage, 0, images, imageCount);
+    return true;
+}
+
+void AsrBindTarget(DkCmdBuf cmd, const DkImage *image, uint32_t mip, uint32_t width, uint32_t height)
+{
+    DkImageView view;
+    dkImageViewDefaults(&view, image);
+    view.mipLevelOffset = uint8_t(mip);
+    view.mipLevelCount = 1;
+    const DkImageView *views[1] = {&view};
+    dkCmdBufBindRenderTargets(cmd, views, 1, nullptr);
+    const DkViewport viewport = {0.0f, 0.0f, float(width), float(height), 0.0f, 1.0f};
+    const DkScissor scissor = {0, 0, width, height};
+    dkCmdBufSetViewports(cmd, 0, &viewport, 1);
+    dkCmdBufSetScissors(cmd, 0, &scissor, 1); // deko3d always scissors
+}
+
+const DkImage *AsrImage(const AsrResource &r)
+{
+    return r.external ? &r.external->image : &r.image;
+}
+
+bool AsrRecord(DkCmdBuf cmd, const arm::FfxmGpuJobDescription &job)
+{
+    switch (job.jobType)
+    {
+    case arm::FFXM_GPU_JOB_COPY:
+    {
+        const AsrResource *src = AsrGet(job.copyJobDescriptor.src), *dst = AsrGet(job.copyJobDescriptor.dst);
+        if (!src || !dst)
+            return false;
+        DkImageView to;
+        dkImageViewDefaults(&to, AsrImage(*dst));
+        const DkImageRect rect = {0, 0, 0, dst->desc.width, dst->desc.height, 1};
+        if (src->buffer)
+        {
+            const DkCopyBuf from = {src->buffer, 0, 0}; // tightly packed rows
+            dkCmdBufCopyBufferToImage(cmd, &from, &to, &rect, 0);
+        }
+        else
+        {
+            DkImageView from;
+            dkImageViewDefaults(&from, AsrImage(*src));
+            dkCmdBufCopyImage(cmd, &from, &rect, &to, &rect, 0);
+        }
+        return true;
+    }
+    case arm::FFXM_GPU_JOB_CLEAR_FLOAT:
+    {
+        const AsrResource *r = AsrGet(job.clearJobDescriptor.target);
+        if (!r || !r->renderable)
+        {
+            static bool logged = false;
+            if (!logged)
+                Log("Arm ASR: a clear's target is not renderable: left as it is");
+            logged = true;
+            return true;
+        }
+        const float *c = job.clearJobDescriptor.color;
+        const uint32_t mips = r->external ? 1 : std::max<uint32_t>(r->desc.mipCount, 1);
+        for (uint32_t m = 0; m < mips; ++m)
+        {
+            AsrBindTarget(cmd, AsrImage(*r), m, std::max(r->desc.width >> m, 1u), std::max(r->desc.height >> m, 1u));
+            dkCmdBufClearColorFloat(cmd, 0, DkColorMask_RGBA, c[0], c[1], c[2], c[3]);
+        }
+        return true;
+    }
+    case arm::FFXM_GPU_JOB_COMPUTE:
+    {
+        const arm::FfxmComputeJobDescription &d = job.computeJobDescriptor;
+        const AsrPipeline *pipeline = static_cast<const AsrPipeline *>(d.pipeline.pipeline);
+        const DkShader *shader = pipeline ? AsrShader(pipeline->shader) : nullptr;
+        if (!shader)
+            return false;
+        dkCmdBufBindShaders(cmd, DkStageFlag_Compute, &shader, 1);
+        if (!AsrBindResources(cmd, DkStage_Compute, d.pipeline, *pipeline, d.srvTextures, d.uavTextures,
+                              d.uavTextureMips, d.cbs))
+            return false;
+        dkCmdBufDispatchCompute(cmd, d.dimensions[0], d.dimensions[1], d.dimensions[2]);
+        return true;
+    }
+    case arm::FFXM_GPU_JOB_FRAGMENT:
+    {
+        const arm::FfxmFragmentJobDescription &d = job.fragmentJobDescription;
+        const AsrPipeline *pipeline = d.pipeline ? static_cast<const AsrPipeline *>(d.pipeline->pipeline) : nullptr;
+        const DkShader *pixel = pipeline ? AsrShader(pipeline->shader) : nullptr;
+        const DkShader *vertex = AsrShader(AsrVertexShader());
+        if (!pixel || !vertex)
+            return false;
+        DkImageView views[8];
+        const DkImageView *bound[8] = {};
+        uint32_t count = 0;
+        for (uint32_t i = 0; i < d.pipeline->rtCount && i < 8; ++i)
+        {
+            const AsrResource *r = AsrGet(d.rtTextures[i]);
+            if (!r)
+                return false;
+            const uint32_t slot = d.pipeline->rtBindings[i].slotIndex;
+            if (slot >= 8)
+                return false;
+            dkImageViewDefaults(&views[slot], AsrImage(*r));
+            bound[slot] = &views[slot];
+            count = std::max(count, slot + 1);
+        }
+        for (uint32_t i = 0; i < count; ++i)
+            if (!bound[i])
+                return false; // the outputs are at consecutive locations from 0
+        dkCmdBufBindRenderTargets(cmd, bound, count, nullptr);
+        const DkViewport viewport = {0.0f, 0.0f, float(d.viewport[0]), float(d.viewport[1]), 0.0f, 1.0f};
+        const DkScissor scissor = {0, 0, d.viewport[0], d.viewport[1]};
+        dkCmdBufSetViewports(cmd, 0, &viewport, 1);
+        dkCmdBufSetScissors(cmd, 0, &scissor, 1);
+        const DkShader *shaders[2] = {vertex, pixel};
+        dkCmdBufBindShaders(cmd, DkStageFlag_GraphicsMask, shaders, 2);
+        DkRasterizerState raster;
+        dkRasterizerStateDefaults(&raster);
+        raster.cullMode = DkFace_None;
+        dkCmdBufBindRasterizerState(cmd, &raster);
+        DkColorState color;
+        dkColorStateDefaults(&color);
+        dkCmdBufBindColorState(cmd, &color);
+        DkColorWriteState write;
+        dkColorWriteStateDefaults(&write);
+        dkCmdBufBindColorWriteState(cmd, &write);
+        DkDepthStencilState depth;
+        dkDepthStencilStateDefaults(&depth);
+        depth.depthTestEnable = false;
+        depth.depthWriteEnable = false;
+        dkCmdBufBindDepthStencilState(cmd, &depth);
+        dkCmdBufBindVtxAttribState(cmd, nullptr, 0);
+        dkCmdBufBindVtxBufferState(cmd, nullptr, 0);
+        if (!AsrBindResources(cmd, DkStage_Fragment, *d.pipeline, *pipeline, d.srvTextures, d.uavTextures,
+                              d.uavTextureMips, d.cbs))
+            return false;
+        dkCmdBufDraw(cmd, DkPrimitive_Triangles, 3, 1, 0, 0);
+        return true;
+    }
+    }
     return false;
+}
+
+arm::FfxmErrorCode AsrExecuteGpuJobs(arm::FfxmInterface *, arm::FfxmCommandList commandList)
+{
+    DkCmdBuf cmd = static_cast<DkCmdBuf>(commandList);
+    // Descriptors written from the CPU since the frame began (new textures) and the engine's targets just rendered.
+    dkCmdBufBarrier(cmd, DkBarrier_Full, DkInvalidateFlags_Image | DkInvalidateFlags_Descriptors);
+    bool ok = true;
+    for (const AsrJob &j : s_asrJobs)
+    {
+        if (s_frameTrace)
+        {
+            const arm::FfxmGpuJobDescription &g = j.job;
+            const AsrPipeline *pl = g.jobType == arm::FFXM_GPU_JOB_COMPUTE
+                                        ? static_cast<const AsrPipeline *>(g.computeJobDescriptor.pipeline.pipeline)
+                                    : g.jobType == arm::FFXM_GPU_JOB_FRAGMENT && g.fragmentJobDescription.pipeline
+                                        ? static_cast<const AsrPipeline *>(g.fragmentJobDescription.pipeline->pipeline)
+                                        : nullptr;
+            Log("trace asr job type %d shader %d%s", int(g.jobType), pl ? int(pl->shader) : -1,
+                g.jobType == arm::FFXM_GPU_JOB_COMPUTE
+                    ? (" dispatch " + std::to_string(g.computeJobDescriptor.dimensions[0]) + "x" +
+                       std::to_string(g.computeJobDescriptor.dimensions[1]))
+                          .c_str()
+                    : "");
+        }
+        if (!AsrRecord(cmd, j.job))
+        {
+            ok = false;
+            Log("Arm ASR: job of type %d not recorded", int(j.job.jobType));
+            break;
+        }
+        dkCmdBufBarrier(cmd, DkBarrier_Full, DkInvalidateFlags_Image);
+    }
+    if (s_frameTrace && ok)
+    {
+        if (!s_asrProbeMem)
+            s_asrProbeMem = MakeBlock(kAsrProbeStride * kAsrProbeCap, DkMemBlockFlags_CpuUncached | DkMemBlockFlags_GpuCached);
+        s_asrProbes.clear();
+        for (size_t i = 1; s_asrProbeMem && i < s_asrRes.size() && s_asrProbes.size() < kAsrProbeCap; ++i)
+        {
+            const AsrResource &r = s_asrRes[i];
+            if (!r.live || r.buffer || !r.desc.width)
+                continue;
+            AsrProbe probe = {};
+            std::memcpy(probe.name, r.name, sizeof(probe.name));
+            probe.format = r.format;
+            probe.offset = uint32_t(s_asrProbes.size()) * kAsrProbeStride;
+            DkImageView view;
+            dkImageViewDefaults(&view, AsrImage(r));
+            view.mipLevelCount = 1;
+            const DkImageRect texel = {r.desc.width / 2, r.desc.height / 2, 0, 1, 1, 1};
+            const DkCopyBuf to = {dkMemBlockGetGpuAddr(s_asrProbeMem) + probe.offset, 0, 0};
+            dkCmdBufCopyImageToBuffer(cmd, &view, &texel, &to, 0);
+            s_asrProbes.push_back(probe);
+        }
+        dkCmdBufBarrier(cmd, DkBarrier_Full, 0);
+    }
+    s_asrJobs.clear();
+    InvalidateBound(); // the engine's next draw binds its own state again
+    return ok ? arm::FFXM_OK : arm::FFXM_ERROR_BACKEND_API_ERROR;
+}
+
+// One context per render size, output size, preset and depth kind, as the Vulkan backend keeps.
+arm::FfxmInterface s_asrInterface = {};
+arm::FfxmFsr2Context s_asrContext = {};
+bool s_asrContextReady = false, s_asrFailed = false;
+uint32_t s_asrKey[6] = {};
+uint64_t s_asrScratch[64]; // the component only checks that a backend has scratch memory
+
+bool AsrFail(const char *what, arm::FfxmErrorCode code)
+{
+    s_asrFailed = true;
+    Log("Arm ASR: %s failed (0x%x): no temporal upscaling", what, unsigned(code));
+    return false;
+}
+
+void AsrMessage(arm::FfxmMsgType type, const wchar_t *message)
+{
+    char text[256];
+    size_t n = 0;
+    for (; message && message[n] && n + 1 < sizeof(text); ++n)
+        text[n] = message[n] < 128 ? char(message[n]) : '?';
+    text[n] = 0;
+    Log("Arm ASR %s: %s", type == arm::FFXM_MESSAGE_TYPE_ERROR ? "error" : "warning", text);
+}
+
+arm::FfxmSurfaceFormat AsrFormat(Format format)
+{
+    switch (format)
+    {
+    case Format::RGBA8: return arm::FFXM_SURFACE_FORMAT_R8G8B8A8_UNORM;
+    case Format::RGBA16F: return arm::FFXM_SURFACE_FORMAT_R16G16B16A16_FLOAT;
+    case Format::RG16F: return arm::FFXM_SURFACE_FORMAT_R16G16_FLOAT;
+    case Format::R32F: return arm::FFXM_SURFACE_FORMAT_R32_FLOAT;
+    case Format::R8: return arm::FFXM_SURFACE_FORMAT_R8_UNORM;
+    default: return arm::FFXM_SURFACE_FORMAT_UNKNOWN;
+    }
+}
+
+arm::FfxmResource AsrInput(gb::Texture *handle, bool output)
+{
+    arm::FfxmResource r = {};
+    Texture *t = static_cast<Texture *>(handle);
+    if (!t)
+        return r;
+    r.resource = t;
+    r.description.type = arm::FFXM_RESOURCE_TYPE_TEXTURE2D;
+    r.description.format = AsrFormat(t->desc.format);
+    r.description.width = t->desc.width;
+    r.description.height = t->desc.height;
+    r.description.depth = 1;
+    r.description.mipCount = 1;
+    r.description.flags = arm::FFXM_RESOURCE_FLAGS_NONE;
+    r.description.usage = output ? arm::FFXM_RESOURCE_USAGE_RENDERTARGET : arm::FFXM_RESOURCE_USAGE_READ_ONLY;
+    r.state = output ? arm::FFXM_RESOURCE_STATE_UNORDERED_ACCESS : arm::FFXM_RESOURCE_STATE_GENERIC_READ;
+    return r;
+}
+
+bool AsrContext(const TemporalUpscaleDesc &desc)
+{
+    if (!s_asrInterface.fpCreateBackendContext)
+    {
+        arm::FfxmInterface &i = s_asrInterface;
+        i.fpGetSDKVersion = AsrGetSdkVersion;
+        i.fpCreateBackendContext = AsrCreateBackendContext;
+        i.fpGetDeviceCapabilities = AsrGetDeviceCapabilities;
+        i.fpDestroyBackendContext = AsrDestroyBackendContext;
+        i.fpCreateResource = AsrCreateResource;
+        i.fpRegisterResource = AsrRegisterResource;
+        i.fpGetResource = AsrGetResource;
+        i.fpUnregisterResources = AsrUnregisterResources;
+        i.fpGetResourceDescription = AsrGetResourceDescription;
+        i.fpDestroyResource = AsrDestroyResource;
+        i.fpCreateComputePipeline = AsrCreatePipeline;
+        i.fpCreateGraphicsPipeline = AsrCreatePipeline;
+        i.fpDestroyPipeline = AsrDestroyPipeline;
+        i.fpScheduleGpuJob = AsrScheduleGpuJob;
+        i.fpExecuteGpuJobs = AsrExecuteGpuJobs;
+        i.scratchBuffer = s_asrScratch;
+        i.scratchBufferSize = sizeof(s_asrScratch);
+        i.device = s_device;
+    }
+    const bool infinite = !(desc.cameraFar < 1e30f);
+    const uint32_t key[6] = {desc.renderWidth, desc.renderHeight, desc.outputWidth, desc.outputHeight,
+                             uint32_t(desc.preset), infinite ? 1u : 0u};
+    if (s_asrContextReady && !std::memcmp(key, s_asrKey, sizeof(key)))
+        return true;
+    if (s_asrContextReady)
+    {
+        arm::ffxmFsr2ContextDestroy(&s_asrContext); // its memory goes once the GPU is past this frame (FreeLater)
+        s_asrContextReady = false;
+    }
+    arm::FfxmFsr2ContextDescription cd = {};
+    cd.qualityMode = desc.preset == UpscalePreset::Performance ? arm::FFXM_FSR2_SHADER_QUALITY_MODE_PERFORMANCE
+                     : desc.preset == UpscalePreset::Balanced  ? arm::FFXM_FSR2_SHADER_QUALITY_MODE_BALANCED
+                                                               : arm::FFXM_FSR2_SHADER_QUALITY_MODE_QUALITY;
+    // The flags asr_table.h's shaders were made with (kFixedFlags): low-resolution motion vectors, jitter cancellation.
+    // No auto exposure: the engine's scene is already in display colours, and the luminance pyramid's exposure came out
+    // as -1 here (Ryujinx), which turned every prepared colour black; ASR then reads its default exposure, 1.
+    cd.flags = arm::FFXM_FSR2_ENABLE_MOTION_VECTORS_JITTER_CANCELLATION |
+               (infinite ? arm::FFXM_FSR2_ENABLE_DEPTH_INFINITE : 0);
+    cd.maxRenderSize = {desc.renderWidth, desc.renderHeight};
+    cd.displaySize = {desc.outputWidth, desc.outputHeight};
+    cd.backendInterface = s_asrInterface;
+    cd.fpMessage = AsrMessage;
+    const arm::FfxmErrorCode e = arm::ffxmFsr2ContextCreate(&s_asrContext, &cd);
+    if (e != arm::FFXM_OK)
+        return AsrFail("ffxmFsr2ContextCreate", e);
+    s_asrContextReady = true;
+    std::memcpy(s_asrKey, key, sizeof(key));
+    Log("Arm ASR from %ux%u to %ux%u, %s shaders", desc.renderWidth, desc.renderHeight, desc.outputWidth,
+        desc.outputHeight, desc.preset == UpscalePreset::Performance ? "performance"
+                           : desc.preset == UpscalePreset::Balanced  ? "balanced"
+                                                                     : "quality");
+    return true;
+}
+} // namespace
+
+bool TemporalUpscale(const TemporalUpscaleDesc &desc)
+{
+    Swapchain *s = s_swapchain;
+    if (!s || s_asrFailed || !desc.color || !desc.depth || !desc.motion || !desc.output)
+        return false;
+    for (gb::Texture *input : {desc.color, desc.depth, desc.motion, desc.reactive, desc.output})
+        if (input && AsrFormat(static_cast<Texture *>(input)->desc.format) == arm::FFXM_SURFACE_FORMAT_UNKNOWN)
+        {
+            Log("TemporalUpscale: a texture's format has no Arm ASR equivalent");
+            return false;
+        }
+    BeginFrame(s);
+    if (!AsrContext(desc))
+        return false;
+    arm::FfxmFsr2DispatchDescription d = {};
+    d.commandList = s->cmd;
+    d.color = AsrInput(desc.color, false);
+    d.depth = AsrInput(desc.depth, false);
+    d.motionVectors = AsrInput(desc.motion, false);
+    d.reactive = AsrInput(desc.reactive, false);
+    d.output = AsrInput(desc.output, true);
+    d.jitterOffset = {desc.jitterX, desc.jitterY};
+    d.motionVectorScale = {1.0f, 1.0f}; // already in render pixels
+    d.renderSize = {desc.renderWidth, desc.renderHeight};
+    d.enableSharpening = desc.sharpness > 0.0f;
+    d.sharpness = std::min(std::max(desc.sharpness, 0.0f), 1.0f);
+    d.frameTimeDelta = desc.frameMs;
+    d.preExposure = 1.0f;
+    d.reset = desc.reset;
+    d.cameraNear = desc.cameraNear;
+    d.cameraFar = desc.cameraFar;
+    d.cameraFovAngleVertical = desc.verticalFov;
+    d.viewSpaceToMetersFactor = 0.0254f; // the engine's units are inches
+    const arm::FfxmErrorCode e = arm::ffxmFsr2ContextDispatch(&s_asrContext, &d);
+    if (e != arm::FFXM_OK)
+        return AsrFail("ffxmFsr2ContextDispatch", e);
+    return true;
 }
 
 // Queries are not yet backed by GPU counters. They must still report a *ready* result: the engine's GetData spin

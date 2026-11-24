@@ -33,7 +33,7 @@ layout(binding = 1, std140) uniform cbSPD_t
     uvec2 renderSize;
 } cbSPD;
 
-layout(binding = 0, rgba32f) uniform image2D rw_auto_exposure;
+layout(binding = 0, rg16f) uniform image2D rw_auto_exposure;
 layout(binding = 1, r16f) uniform coherent image2D rw_img_mip_5;
 layout(binding = 2, r16f) uniform coherent image2D rw_img_mip_shading_change;
 layout(binding = 3, r32ui) uniform coherent uimage2D rw_spd_global_atomic;

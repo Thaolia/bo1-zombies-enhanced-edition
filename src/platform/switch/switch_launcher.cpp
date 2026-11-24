@@ -129,6 +129,7 @@ enum Item
     ITEM_BACKEND,
     ITEM_RESOLUTION,
     ITEM_FSR,
+    ITEM_UPSCALE_OUTPUT,
     ITEM_FSR_SHARPNESS,
     ITEM_MAXFPS,
     ITEM_SHADOWS,
@@ -205,15 +206,16 @@ const ItemInfo kItems[ITEM_COUNT] = {
     {VIEW_MAIN, 17, "Depart", "A: points, atouts et mods de la partie solo (hit marker, PaP illimite...)."},
     {VIEW_MAIN, 19, "Rendu", "deko3d: le plus rapide. OpenGL: l'ancien chemin, plus lent."},
     {VIEW_MAIN, 20, "Resolution", "720p: celle de l'ecran. 540p, 480p: image moins nette, plus de FPS (en ligne)."},
-    {VIEW_MAIN, 21, "  FSR 1.0", "Oui: en 540p/480p, AMD FSR 1.0 agrandit l'image en 720p, plus nette qu'etiree."},
-    {VIEW_MAIN, 22, "  Nettete FSR", "Accentuation de l'image agrandie par FSR. Maximale: la plus nette."},
-    {VIEW_MAIN, 23, "Limite de FPS", "30: plus stable et plus econome en batterie. 60: plus fluide."},
-    {VIEW_MAIN, 24, "Ombres", "Ombres dynamiques. Les couper fait gagner des FPS."},
-    {VIEW_MAIN, 25, "Distance des props", "Objets du decor dessines moins loin et plus simples: plus de FPS (TranZit)."},
-    {VIEW_MAIN, 26, "Filtre de texture", "Nettete des textures au loin. 16x: le plus net. Bilineaire: le plus leger."},
-    {VIEW_MAIN, 27, "Compteur FPS", "Compteur de FPS et de batterie en haut a droite."},
-    {VIEW_MAIN, 28, "Touches manette", "A: choisir le bouton de chaque action du jeu (tirer, viser, sauter...)."},
-    {VIEW_MAIN, 29, "Manettes", "A: ecran de la Switch pour connecter ou changer de manette."},
+    {VIEW_MAIN, 21, "  Agrandissement", "FSR 1.0: image par image. ASR: accumule les images, plus net, plus couteux."},
+    {VIEW_MAIN, 22, "  Sortie", "Taille de l'image agrandie. 1080p: pour la TV (dock), l'ecran est en 720p."},
+    {VIEW_MAIN, 23, "  Nettete", "Accentuation de l'image agrandie. Maximale: la plus nette."},
+    {VIEW_MAIN, 24, "Limite de FPS", "30: plus stable et plus econome en batterie. 60: plus fluide."},
+    {VIEW_MAIN, 25, "Ombres", "Ombres dynamiques. Les couper fait gagner des FPS."},
+    {VIEW_MAIN, 26, "Distance des props", "Objets du decor dessines moins loin et plus simples: plus de FPS (TranZit)."},
+    {VIEW_MAIN, 27, "Filtre de texture", "Nettete des textures au loin. 16x: le plus net. Bilineaire: le plus leger."},
+    {VIEW_MAIN, 28, "Compteur FPS", "Compteur de FPS et de batterie en haut a droite."},
+    {VIEW_MAIN, 29, "Touches manette", "A: choisir le bouton de chaque action du jeu (tirer, viser, sauter...)."},
+    {VIEW_MAIN, 30, "Manettes", "A: ecran de la Switch pour connecter ou changer de manette."},
     {VIEW_MAIN, 38, "DEMARRER", "Lance la partie avec ces reglages (aussi: bouton +)."},
     {VIEW_SERVER, 7, "Connexion", "Activee: la partie rejoint ce serveur au lieu d'une partie solo."},
     {VIEW_SERVER, 8, "Adresse IP", "A: l'adresse IP du PC qui fait tourner le serveur (Server.bat, Server.sh)."},
@@ -289,11 +291,11 @@ bool Selectable(const LauncherSettings &s, View view, int item)
         return s.unlimitedPapInstalled;
     if (item == ITEM_KIT_RUSH)
         return s.spawnRate > 0;
-    // FSR 1.0 upscales to the screen's 720p: nothing to do at 720p.
+    // The upscalers take a frame below 720p to the output size: nothing to do at 720p.
     if (item == ITEM_FSR)
         return s.height < 720;
-    if (item == ITEM_FSR_SHARPNESS)
-        return s.height < 720 && s.fsr1;
+    if (item == ITEM_UPSCALE_OUTPUT || item == ITEM_FSR_SHARPNESS)
+        return s.height < 720 && s.upscaler > 0;
     return true;
 }
 
@@ -385,7 +387,9 @@ std::string ValueText(const LauncherSettings &s, int item)
     case ITEM_RESOLUTION:
         return s.height == 480 ? "480p" : s.height == 540 ? "540p" : "720p";
     case ITEM_FSR:
-        return s.height < 720 ? YesNo(s.fsr1) : "Inutile en 720p";
+        return s.height < 720 ? kLauncherUpscalers[s.upscaler].label : "Inutile en 720p";
+    case ITEM_UPSCALE_OUTPUT:
+        return s.output == 1080 ? "1080p (dock)" : "720p";
     case ITEM_FSR_SHARPNESS:
         return kLauncherFsrSharpness[s.fsrSharpness].label;
     case ITEM_MAXFPS:
@@ -530,7 +534,10 @@ void Change(LauncherSettings *s, int item, int dir)
         break;
     }
     case ITEM_FSR:
-        s->fsr1 = !s->fsr1;
+        s->upscaler = (s->upscaler + dir + kLauncherUpscalerCount) % kLauncherUpscalerCount;
+        break;
+    case ITEM_UPSCALE_OUTPUT:
+        s->output = s->output == 1080 ? 720 : 1080;
         break;
     case ITEM_FSR_SHARPNESS:
         s->fsrSharpness = (s->fsrSharpness + dir + kLauncherFsrSharpnessCount) % kLauncherFsrSharpnessCount;

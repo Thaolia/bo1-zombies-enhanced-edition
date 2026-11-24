@@ -281,7 +281,37 @@ optimised for mobile GPUs:
    reflection is per 16-bit permutation and lists other resources (its accumulate reads `r_input_motion_vectors`,
    ours `r_dilated_motion_vectors` in performance), so the deko3d `FfxmInterface` fills `FfxmPipelineState` from this
    table. The Switch build compiles the 14 to DKSH (`asr_dksh.h`, target `bo1_asr_dksh`, `tools/embed_shaders.py`
-   now takes `comp`). Two runs of the generator write the same bytes. Next: the `FfxmInterface` (item 2 below).
+   now takes `comp`). Two runs of the generator write the same bytes.
+   **`FfxmInterface` done, runs on Ryujinx (2026-11-24):** `gb_deko3d.cpp`, the 15 callbacks over the backend's own
+   pieces: ASR's textures in the image pool (render usage only in colour formats every Maxwell target takes, load/store
+   for its UAVs), image descriptors from a range of 1024 taken once, one per level for load/store; its upload buffers
+   in the data pool; pipelines filled from `asr_table.h` (one job texture per name, a deko3d slot per sampler); the
+   jobs recorded into the frame's command buffer with a full barrier after each (copy, clear through a render target
+   binding, compute dispatch, full-screen triangle with ASR's vertex shader), constants through the uniform ring,
+   samplers point clamp and linear clamp (as Arm's). `Caps::temporalUpscale` is set; the frontend's temporal pass
+   (motion vectors, reactive mask) got its DKSH case. Found on the way, each in one Ryujinx run:
+   - the lock pass needs 6656 bytes of scratch a warp, the previous-depth pass 4096; the default queue has 2048.
+     deko3d checks it when a compute shader is bound (`DkResult_OutOfMemory` abort, 2359-0003) and never for a
+     graphics shader, which would overrun it. `Init` sizes the queue's scratch from the DKSH program headers.
+   - `UseMesaSchedule` skipped a 0x50-byte program header that only graphics programs have: on the two compute
+     shaders it rewrote instructions as control words (Ryujinx then died translating them). Fixed for type 5.
+   - Arm's GLSL declares `rw_auto_exposure` `rgba32f`, the component creates it RG16F: Maxwell stores through the
+     shader's format and wrote -1 and 65504. The generator declares it `rg16f`. The exposure still came out -1, so
+     ASR runs without auto exposure on deko3d (default exposure 1: the scene is in display colours); why the
+     luminance pyramid's exposure is wrong here is open (SPD's shared-memory path, or Ryujinx).
+   Kino on Ryujinx, 960x540 to 1280x720, quality shaders: the right image (game over screen, lobby) for 5 minutes,
+   no fault, 18-21 fps (Ryujinx's own speed, not the console's). The traced frame (`deko3d_debug`) logs ASR's jobs and
+   reads back the centre texel of each of its textures (`asr probe` lines), which located the last two bugs.
+   - the balanced and performance shaders render a reactive history in R8_SNORM, kept out of the renderable formats:
+     the context failed and the frontend fell back to FSR 1.0. Stored as R16F (only floats in -1..1 go through it).
+   - at 854x480 Ryujinx's GPU command stream broke a few seconds into ASR (`IndexOutOfRangeException` in
+     `LoadMmeInstructionRam`); 856x480, 960x540 and every output ran. 854 is no multiple of ASR's 8x8 compute groups,
+     whose stores past the right edge Vulkan drops. The start menu renders 856x480 at 480p with ASR (FSR 1.0 keeps
+     854); whether the console drops them is not known.
+   Ryujinx, Kino, 4-5 minutes each, no fault: quality 960x540 to 1280x720 and to 1920x1080, performance 960x540 to
+   1280x720 and 856x480 to 1920x1080.
+   The start menu offers it: "Agrandissement" (none, FSR 1.0, ASR quality, balanced, performance) and "Sortie"
+   (720p, 1080p for the dock) below 720p. Next: the console's cost (item 3).
    The work, in order:
    1. (Superseded by the route above.) A GL-dialect variant of ASR's GPU glue (`include/gpu/ffxm_core_glsl.h`, `fsr2/ffxm_fsr2_callbacks_glsl.h`,
       the passes' resource declarations) in `src/gfx_backend/deko3d/asr/`, never editing `third_party/arm_asr`:

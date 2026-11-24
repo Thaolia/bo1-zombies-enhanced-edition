@@ -36,7 +36,7 @@ bool SameSettings(const LauncherSettings &a, const LauncherSettings &b)
            a.texFilter == b.texFilter && a.startPoints == b.startPoints && a.startPerks == b.startPerks &&
            a.startPower == b.startPower && a.startPap == b.startPap && a.farRespawn == b.farRespawn && a.lanAuto == b.lanAuto && a.joinBo2Weapons == b.joinBo2Weapons && a.dualWield == b.dualWield &&
            a.joinDualWield == b.joinDualWield && a.runInfo == b.runInfo && a.height == b.height &&
-           a.fsr1 == b.fsr1 && a.fsrSharpness == b.fsrSharpness &&
+           a.upscaler == b.upscaler && a.output == b.output && a.fsrSharpness == b.fsrSharpness &&
            a.hitmarker == b.hitmarker && a.unlimitedPap == b.unlimitedPap && a.spawnRate == b.spawnRate &&
            a.spawnRush == b.spawnRush && a.serverPassword == b.serverPassword && a.joinDetectMods == b.joinDetectMods &&
            std::memcmp(&a.pad, &b.pad, sizeof(a.pad)) == 0;
@@ -329,30 +329,55 @@ int main()
               Launcher_ParseSettings("spawnrate=7\n").spawnRate == 0,
           "a solo game stacks hitmarker, unlimitedpap (with its script on the SD card) and spawnrate, not on Dead Ops "
           "Arcade nor on a join; menu.cfg keeps them");
-    // FSR 1.0: off by default, only below 720p, the output always the screen's 1280x720
+    // The upscalers: off by default, only below 720p, to 1280x720 unless 1080p is chosen
     LauncherSettings fsr;
     fsr.height = 540;
-    fsr.fsr1 = true;
+    fsr.upscaler = 1;
     fsr.fsrSharpness = 2;
     const std::vector<std::string> fsrEnv = Launcher_UpscaleEnvironment(fsr);
     Check(fsrEnv.size() == 3 && fsrEnv[0] == "BO1_UPSCALE=fsr1" && fsrEnv[1] == "BO1_UPSCALE_OUTPUT=1280x720" &&
               fsrEnv[2] == "BO1_UPSCALE_SHARPNESS=0.5",
           "FSR 1.0 at 540p asks the renderer for 1280x720 at the chosen sharpness");
     Check(SameSettings(Launcher_ParseSettings(Launcher_FormatSettings(fsr)), fsr) &&
-              Launcher_FormatSettings(fsr).find("fsr1=1\nfsr_sharpness=medium\n") != std::string::npos,
-          "menu.cfg keeps FSR 1.0 and its sharpness");
+              Launcher_FormatSettings(fsr).find("upscaler=fsr1\noutput=720\nfsr_sharpness=medium\n") !=
+                  std::string::npos,
+          "menu.cfg keeps the upscaler, its output and its sharpness");
     LauncherSettings fsr720 = fsr;
     fsr720.height = 720;
     LauncherSettings fsrOff = fsr;
-    fsrOff.fsr1 = false;
-    Check(!defaults.fsr1 && defaults.fsrSharpness == 1 && Launcher_UpscaleEnvironment(defaults).empty() &&
+    fsrOff.upscaler = 0;
+    Check(!defaults.upscaler && defaults.output == 720 && defaults.fsrSharpness == 1 &&
+              Launcher_UpscaleEnvironment(defaults).empty() &&
               Launcher_UpscaleEnvironment(fsr720).empty() && Launcher_UpscaleEnvironment(fsrOff).empty(),
-          "no upscale by default, at 720p or with FSR 1.0 off");
+          "no upscale by default, at 720p or with the upscaler off");
+    LauncherSettings asr = fsr;
+    asr.height = 480;
+    asr.upscaler = 3;
+    asr.output = 1080;
+    const std::vector<std::string> asrEnv = Launcher_UpscaleEnvironment(asr);
+    Check(asrEnv.size() == 3 && asrEnv[0] == "BO1_UPSCALE=asr_balanced" && asrEnv[1] == "BO1_UPSCALE_OUTPUT=1920x1080",
+          "Arm ASR's balanced shaders at 480p to 1080p");
+    asr.upscaler = 2;
+    Check(Launcher_UpscaleEnvironment(asr)[0] == "BO1_UPSCALE=asr" &&
+              SameSettings(Launcher_ParseSettings(Launcher_FormatSettings(asr)), asr),
+          "Arm ASR's quality shaders are the renderer's plain asr; menu.cfg keeps ASR and 1080p");
+    Check(Launcher_BuildLaunchLine(asr, "").find("r_customMode 856x480") != std::string::npos &&
+              Launcher_BuildLaunchLine(fsr720, "").find("r_customMode 1280x720") != std::string::npos,
+          "Arm ASR at 480p renders 856 wide (a multiple of its 8x8 groups)");
+    LauncherSettings fsr480 = fsr;
+    fsr480.height = 480;
+    Check(Launcher_BuildLaunchLine(fsr480, "").find("r_customMode 854x480") != std::string::npos,
+          "FSR 1.0 at 480p keeps 854x480");
+    Check(Launcher_ParseSettings("fsr1=1\n").upscaler == 1 && Launcher_ParseSettings("fsr1=0\n").upscaler == 0 &&
+              Launcher_ParseSettings("fsr1=1\nupscaler=asr_performance\n").upscaler == 4 &&
+              Launcher_ParseSettings("upscaler=dlss\noutput=1440\n").upscaler == 0 &&
+              Launcher_ParseSettings("output=1440\n").output == 720,
+          "a menu.cfg from before the upscaler choice keeps its FSR 1.0; unknown values keep the defaults");
     Check(Launcher_ParseSettings("fsr1=1\nfsr_sharpness=extreme\n").fsrSharpness == 1 &&
               Launcher_ParseSettings("fsr1=1\nfsr_sharpness=max\n").fsrSharpness == 0,
           "an unknown FSR sharpness keeps the default");
     Check(Launcher_BuildLaunchLine(fsr, "") == Launcher_BuildLaunchLine(fsrOff, ""),
-          "FSR 1.0 leaves the engine's launch line alone (the renderer reads it)");
+          "the upscalers leave the engine's launch line alone (the renderer reads them)");
 
     LauncherSettings run;
     run.runInfo = 2;

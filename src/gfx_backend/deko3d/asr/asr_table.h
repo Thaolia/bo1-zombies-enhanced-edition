@@ -87,7 +87,7 @@ inline constexpr Shader kShaders[] = {
     {1, {0, 0, 0}, kS8Cbv, kS8Srv, kS8Uav, kS8Rt, 1, 8, 1, 3}, // ffxm_fsr2_accumulate_pass_fs_2cae4c117fcb.glsl
     {1, {0, 0, 0}, kS9Cbv, kS9Srv, kS9Uav, kS9Rt, 1, 8, 1, 3}, // ffxm_fsr2_accumulate_pass_fs_433ba2f15388.glsl
     {1, {0, 0, 0}, kS10Cbv, kS10Srv, nullptr, kS10Rt, 2, 2, 0, 1}, // ffxm_fsr2_rcas_pass_fs_8d0e57884e09.glsl
-    {2, {256, 1, 1}, kS11Cbv, kS11Srv, kS11Uav, nullptr, 2, 1, 4, 0}, // ffxm_fsr2_compute_luminance_pyramid_pass_279b8bf0db5e.glsl
+    {2, {256, 1, 1}, kS11Cbv, kS11Srv, kS11Uav, nullptr, 2, 1, 4, 0}, // ffxm_fsr2_compute_luminance_pyramid_pass_ce636090d6cb.glsl
     {1, {0, 0, 0}, kS12Cbv, kS12Srv, nullptr, kS12Rt, 2, 2, 0, 1}, // ffxm_fsr2_autogen_reactive_pass_fs_2725490085d2.glsl
     {0, {0, 0, 0}, kS13Cbv, nullptr, nullptr, nullptr, 1, 0, 0, 0}, // ffxm_fsr2_vs_36a187af203b.glsl
 };

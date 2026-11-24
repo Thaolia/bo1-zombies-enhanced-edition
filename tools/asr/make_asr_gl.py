@@ -56,6 +56,12 @@ FIXED_FLAGS = LOW_RES_MOTION_VECTORS | JITTER_MOTION_VECTORS
 VARIED_FLAGS = ENABLE_SHARPENING | APPLY_BALANCED_OPT | APPLY_PERFORMANCE_OPT
 QUALITIES = [0, APPLY_BALANCED_OPT, APPLY_BALANCED_OPT | APPLY_PERFORMANCE_OPT]  # quality, balanced, performance
 
+# Storage images whose GLSL format must be the texture's own. Arm's ffxm_fsr2_callbacks_glsl.h declares rw_auto_exposure
+# rgba32f (FFXM_UAV_RG_QUALIFIER) while ffxm_fsr2.cpp creates FSR2_AutoExposure R16G16_FLOAT (formatRG16FWorkaround,
+# GLES aside): desktop GPUs store through the view's format, Maxwell through the shader's, and wrote -1 and 65504 into
+# it (exposure -1: every prepared colour black). The other images' declarations match their textures.
+IMAGE_FORMATS = {'rw_auto_exposure': 'rg16f'}
+
 # sampler kinds in the table: what the deko3d slot's sampler descriptor must be
 SAMPLER_KINDS = {'SPIRV_Cross_DummySampler': 0, 's_PointClamp': 1, 's_LinearClamp': 2}
 
@@ -120,6 +126,9 @@ def translate(glslang, spirv_cross, source, stage, flags, tmp):
         table[kind].append((slot,) + entry)
         return f'layout(binding = {slot}{rest}){decl}'
 
+    for image, fmt in IMAGE_FORMATS.items():
+        glsl = re.sub(r'(layout\(binding = \d+, )\w+(\) uniform (?:coherent |writeonly |readonly )*image2D ' + image + ';)',
+                          r'\g<1>' + fmt + r'\g<2>', glsl)
     glsl = DECL.sub(renumber, glsl)
     table['rt'] = sorted((int(loc), name, int(loc), 0) for loc, name in OUTPUT.findall(glsl)) if stage == 'frag' else []
     group = re.search(r'local_size_x = (\d+), local_size_y = (\d+), local_size_z = (\d+)', glsl)

@@ -49,8 +49,18 @@ struct LauncherPropDistance
 };
 extern const LauncherPropDistance kLauncherPropDistances[];
 extern const int kLauncherPropDistanceCount;
-// "Nettete FSR": RCAS's strength after FSR 1.0's upscale (docs/RENDERER.md, "Upscaling"), in AMD's stops below the
-// strongest (0).
+// "Agrandissement": below 720p, the upscaler that takes the frame to the output size (docs/RENDERER.md, "Upscaling";
+// docs/VULKAN.md, step 6): none (the console's stretch), AMD FSR 1.0, or Arm ASR with its quality, balanced or
+// performance shaders (temporal: deko3d only; the renderer falls back to FSR 1.0 where it cannot).
+struct LauncherUpscaler
+{
+    const char *key;   // menu.cfg value
+    const char *label; // menu text
+    const char *mode;  // BO1_UPSCALE (posix_d3d9host.cpp), null for none
+};
+extern const LauncherUpscaler kLauncherUpscalers[];
+extern const int kLauncherUpscalerCount;
+// "Nettete": the sharpening after the upscale, in AMD's RCAS stops below the strongest (0); ASR gets 1 - stops / 2.
 struct LauncherFsrSharpness
 {
     const char *key;   // menu.cfg value
@@ -138,8 +148,10 @@ struct LauncherSettings
     bool spawnRush = true;         // mods/spawnrate's spawnrate_rush: zombies sprint to their barrier
     LauncherBackend backend = LAUNCHER_BACKEND_DEKO3D;
     int height = 720; // 720, 540 or 480: the game's frame (r_customMode), which the console scales to the screen
-    // Below 720p, the frame upscaled to 1280x720 by AMD FSR 1.0 in the renderer instead of the console's stretch.
-    bool fsr1 = false;
+    // Below 720p, the frame upscaled in the renderer instead of the console's stretch: index in kLauncherUpscalers
+    // (0: none), to `output` lines (720 or 1080; 1080p is for the dock, the console's own screen is 720p).
+    int upscaler = 0;
+    int output = 720;
     int fsrSharpness = 1; // index in kLauncherFsrSharpness
     int maxFps = 60;  // 30 or 60
     bool shadows = true;
@@ -182,7 +194,7 @@ std::vector<std::string> Launcher_ServerModFiles(const std::string &fsMods, cons
 std::string Launcher_StartPerkList(const LauncherSettings &s);
 
 // The variables the renderer's upscaler reads (src/platform/posix/posix_d3d9host.cpp), as name=value, which
-// switch_main.cpp sets before the engine starts: none without FSR 1.0 or at 720p.
+// switch_main.cpp sets before the engine starts: none without an upscaler or at 720p.
 std::vector<std::string> Launcher_UpscaleEnvironment(const LauncherSettings &s);
 
 // "host:port", the address cl_autoConnect gets.

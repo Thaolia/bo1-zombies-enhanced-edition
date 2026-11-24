@@ -11,7 +11,7 @@ set(BO1_ASR_DK_SHADERS
     "AsrS8=${BO1_ASR_DK_DIR}/ffxm_fsr2_accumulate_pass_fs_2cae4c117fcb.glsl:frag"
     "AsrS9=${BO1_ASR_DK_DIR}/ffxm_fsr2_accumulate_pass_fs_433ba2f15388.glsl:frag"
     "AsrS10=${BO1_ASR_DK_DIR}/ffxm_fsr2_rcas_pass_fs_8d0e57884e09.glsl:frag"
-    "AsrS11=${BO1_ASR_DK_DIR}/ffxm_fsr2_compute_luminance_pyramid_pass_279b8bf0db5e.glsl:comp"
+    "AsrS11=${BO1_ASR_DK_DIR}/ffxm_fsr2_compute_luminance_pyramid_pass_ce636090d6cb.glsl:comp"
     "AsrS12=${BO1_ASR_DK_DIR}/ffxm_fsr2_autogen_reactive_pass_fs_2725490085d2.glsl:frag"
     "AsrS13=${BO1_ASR_DK_DIR}/ffxm_fsr2_vs_36a187af203b.glsl:vert"
 )

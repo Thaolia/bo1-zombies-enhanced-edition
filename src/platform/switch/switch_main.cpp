@@ -178,7 +178,7 @@ void ApplyPadLayout(const LauncherSettings &settings)
     BootLog("pad layout: %s", changed.c_str());
 }
 
-// FSR 1.0 for the renderer's Present (posix_d3d9host.cpp reads the variables at the device's creation).
+// The renderer's upscaler, FSR 1.0 or Arm ASR (posix_d3d9host.cpp reads the variables at the device's creation).
 void ApplyUpscale(const LauncherSettings &settings)
 {
     const std::vector<std::string> environment = Launcher_UpscaleEnvironment(settings);
@@ -189,7 +189,7 @@ void ApplyUpscale(const LauncherSettings &settings)
         BootLog("upscale -> %s", assignment.c_str());
     }
     if (environment.empty())
-        BootLog("upscale: none (%dp%s)", settings.height, settings.fsr1 ? ", FSR 1.0 only below 720p" : "");
+        BootLog("upscale: none (%dp%s)", settings.height, settings.upscaler ? ", upscalers only below 720p" : "");
 }
 
 // The dispatcher reads BO1_GFX_BACKEND; without it the default applies (GL when it gets a context).
