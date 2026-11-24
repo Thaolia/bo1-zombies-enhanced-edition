@@ -45,7 +45,7 @@ Version anglaise : `README.md`. La référence complète et détaillée se trouv
 | Windows 64 bits | jouable | le renderer D3D9 d'origine ; `Play.bat`, `zmclient.exe` |
 | Windows 32 bits | build de référence | la disposition du jeu d'origine ; `Play.bat offline` sans Steam |
 | Linux x86-64 | en cours | client OpenGL 4.3, serveur dédié et client sans affichage ; pas encore de son ni de manette |
-| OpenBSD/amd64 | compile | compilé depuis Linux ; pas encore lancé sur une vraie machine |
+| OpenBSD/amd64 | fonctionne | compilé depuis Linux ; joué sur une vraie machine avec ZmClient (OpenGL) |
 | Nintendo Switch 1 | homebrew jouable | `.nro` pour Atmosphère, deko3d ou OpenGL, menu de démarrage sur la console |
 
 ## Pour commencer
@@ -234,7 +234,7 @@ bo1_headless 1` pour le serveur dédié (et `+set bo1_headless_client 1` pour le
 d'OpenGL dans le log. Les zones converties avant le 2026-10-24 ont besoin d'un nouveau `shaders.pack` (relancer
 `ffconv`).
 
-Sur OpenBSD/amd64, le même build posix compile aussi (pas encore lancé sur une machine OpenBSD ici). Il se compile
+Sur OpenBSD/amd64, le même build posix fonctionne aussi (joué sur une vraie machine OpenBSD, depuis ZmClient). Il se compile
 en croisé depuis Linux avec une chaîne clang/lld pour OpenBSD dont le sysroot contient les sets officiels et le paquet
 `sdl2` : passe son fichier CMake (`-DCMAKE_TOOLCHAIN_FILE=...`) et `-DSDL2_DIR=<sysroot>/usr/local/lib/cmake/SDL2`.
 Les différences d'OS sont sous `#if defined(__OpenBSD__)` dans `src/platform/posix` (sysctl au lieu de `/proc`,

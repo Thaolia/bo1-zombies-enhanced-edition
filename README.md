@@ -43,7 +43,7 @@ French version: `README.fr.md`. The full, detailed reference is [below](#detaile
 | Windows 64-bit | playable | the original D3D9 renderer; `Play.bat`, `zmclient.exe` |
 | Windows 32-bit | reference build | the retail layout; `Play.bat offline` without Steam |
 | Linux x86-64 | work in progress | OpenGL 4.3 client, dedicated server and headless client; no sound or gamepad yet |
-| OpenBSD/amd64 | compiles | cross-built from Linux; not yet run on a real machine |
+| OpenBSD/amd64 | runs | cross-built from Linux; played on a real machine with ZmClient (OpenGL) |
 | Nintendo Switch 1 | playable homebrew | `.nro` for Atmosphère, deko3d or OpenGL, start menu on the console |
 
 ## Getting started
@@ -210,7 +210,7 @@ folder> +devmap zombie_theater` for the windowed client, with `+set bo1_headless
 `BO1_GL_DEBUG=1` logs OpenGL's debug messages. Converted zones from before 2026-10-24 need a new `shaders.pack`
 (`ffconv` again).
 
-On OpenBSD/amd64 the same posix build compiles as well (not yet run on an OpenBSD machine here). It cross-compiles
+On OpenBSD/amd64 the same posix build runs as well (played on a real OpenBSD machine, from ZmClient). It cross-compiles
 from Linux with an OpenBSD clang/lld toolchain whose sysroot holds the official sets and the `sdl2` package: pass that
 toolchain's CMake file (`-DCMAKE_TOOLCHAIN_FILE=...`) and `-DSDL2_DIR=<sysroot>/usr/local/lib/cmake/SDL2`. The OS
 differences are under `#if defined(__OpenBSD__)` in `src/platform/posix` (sysctl instead of `/proc`, `funopen`,

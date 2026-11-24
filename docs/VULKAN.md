@@ -6,8 +6,10 @@ ZmClient makes the Vulkan files from the player's own game (2026-11-23): its Ins
 wraps: both write the same bytes). The Windows package carries Khronos' `glslang.exe` 16.6.0 and its licence
 (`third_party/glslang`); on Linux ZmClient uses the system's glslang.
 
-Status (2026-11-23): steps 1-7 done (FSR1 checked on the console too; Vulkan on Linux and win64; Arm ASR with its
-reactive mask; native AA; SSAA), merged into `switch`. Open: ASR on the Switch (step 6, item 4) and OpenBSD (step 8).
+Status (2026-11-24): steps 1-3 and 7 done; step 5 done but for two checks (Kino's cyan glow, NVIDIA and AMD); step 6
+done on PC (Arm ASR with its reactive mask), all merged into `switch`. Open: step 4 (GL/Vulkan parity screenshots on
+Linux, never run), ASR on the Switch (step 6, item 4, started 2026-11-24) and Vulkan on OpenBSD (step 8). The OpenBSD
+build itself (GL) ran on the user's machine on 2026-11-24 (`6ae8bd5`, started from ZmClient).
 Each step updates this file, `docs/RENDERER.md` and `docs/PORTING.md` (phase 9) in the session that does it.
 
 ## Goals and constraints
@@ -103,13 +105,13 @@ Described in `docs/RENDERER.md`, "The Vulkan backend". In short:
     deliberate misuse in a separate program proved the messages reach the log);
   - `d3d9emu_test`, `upscale_gl_test`, `launcher_config_test`.
 
-## Step 4 — Parity on Linux
+## Step 4 — Parity on Linux — not done
 - GL against Vulkan screenshots: main menu, Kino, Five, one imported BSP map. Explain every difference.
 - FSR1 on Vulkan.
 - The usual posix gate: a headless run against win64, paths and numbers masked.
 - Estimate: 1-2 sessions.
 
-## Step 5 — win64: the emulated frontend and Vulkan, native D3D9 by default — in progress
+## Step 5 — win64: the emulated frontend and Vulkan, native D3D9 by default — done, two checks open
 Done on branch `vulkan` (2026-11-22):
 - CMake: the shader headers (`upscale_shaders.h`, `vk_shaders.h`) are generated in one block shared by posix, the
   Switch and win64; 32-bit Windows needs neither Python nor glslang. Under `if(BO1_ARCH_64 AND BO1_VULKAN)` on win32
@@ -162,17 +164,16 @@ Done on branch `vulkan` (2026-11-22):
   `r_init.cpp`, `r_dvars.cpp`, `win_input.cpp` identical. Checked on the Iris Xe: a 1920x1080 borderless window renders
   1280x720 (`quality`) and FSR 1.0 upscales it, steady at the test's 30 fps cap.
 
-Still to do in this step:
-- FSR1 on win64 on the player's screen: the mouse in the menus and the image itself (a headless run's screenshot reads
-  the back buffer, not the upscaled output).
-- `shaders.spv` for players: the install's conversion (ZmClient's Installation view, `ffconv`) must also make the
-  SPIR-V pack, with a redistributable glslang/spirv-val in the Windows package, and the pack compressed (477.6 MB).
+Done since (2026-11-23): FSR 1.0 and Arm ASR played by the user on their Iris Xe (Moon, 50-60 fps with vsync);
+`shaders.spv` for players, compiled by ZmClient's Installation view with the glslang 16.6.0 the Windows and Linux
+packages carry (top of this file; the pack is not compressed); `win32-msvc` built before each merge.
+
+Still open:
 - The cyan glow of Kino's ticket counter (lobby, left arch) is missing on Vulkan and GL alike, present with native D3D9
   (and with D3D9 run on the same exe): a frontend difference older than Vulkan, to explain.
 - **NVIDIA and AMD on the user's machines.**
-- `win32-msvc` builds once before the merge.
 
-## Step 6 — Arm ASR (after the Windows port) — in progress
+## Step 6 — Arm ASR (after the Windows port) — done on PC; the Switch (item 4) in progress
 Arm Accuracy Super Resolution (`github.com/arm/accuracy-super-resolution`, generic library, MIT) is FSR 2.2.2
 optimised for mobile GPUs:
 - it takes FSR2's inputs (colour, depth, motion vectors, jitter, optional reactive mask);
@@ -318,6 +319,8 @@ with headroom. Two modes:
 - Estimate: 1-2 sessions for SSAA, 1 for native AA once ASR works.
 
 ## Step 8 — OpenBSD (last, after ASR and SSAA)
+The OpenBSD build without Vulkan ran on the user's machine on 2026-11-24 (`6ae8bd5`, GL, started from ZmClient; a
+shader warming phase at start was their only remark). This step only adds the Vulkan backend to it.
 - Cross-build with `BO1_VULKAN` (`~/cross-pkg-openbsd`, mirror `/home/james/build/bo1-openbsd`). volk loads
   `libvulkan.so` at run time and the headers are vendored: no new build dependency.
 - Packaging is unchanged apart from a README line.
