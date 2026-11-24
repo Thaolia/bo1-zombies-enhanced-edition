@@ -1,7 +1,7 @@
 """shaders.spv from shaders.pack: the GLSL ffconv wrote, compiled to Vulkan SPIR-V by glslang (docs/VULKAN.md, step 2).
 
 tools/make_dist.sh runs it through tools/ffconv/gen/make_spirv_pack.py; ZmClient runs it after converting the
-player's zones (gamesetup.py), with the glslang.exe the Windows package carries or the system's glslang on Linux.
+player's zones (gamesetup.py), with the glslang the Windows and Linux packages carry, else the system's.
 
 Reads the BO1GLSL1 pack and writes a BO1SPRV1 pack with the same header/entry layout (src/gfx_d3d9emu/shader_pack.h),
 each payload a SPIR-V module followed by one NUL byte for the pack's NUL-termination check, as make_dksh_pack.py does.
@@ -170,8 +170,8 @@ def build(glsl_pack, spirv_pack, glslang, spirv_val=None, jobs=None, progress=No
 
 
 def find_glslang(dist_root):
-    """The glslang a package uses: the one beside the program (the Windows package carries glslang.exe), else the
-    system's (Linux: the glslang-tools package). None when there is none."""
+    """The glslang a package uses: the one beside the program (the Windows and Linux packages carry Khronos'
+    release), else the system's (Linux: the glslang-tools package). None when there is none."""
     names = ('glslang.exe',) if os.name == 'nt' else ('glslang', 'glslangValidator')
     for name in names:
         path = os.path.join(dist_root, name)

@@ -376,6 +376,10 @@ build_zmclient() { # <linux|windows|openbsd> <binary>
 # The release CI puts it in build/glslang/windows; a PC has it where the CMake build finds it.
 GLSLANG_WIN="$ROOT/build/glslang/windows/glslang.exe"
 [ -f "$GLSLANG_WIN" ] || GLSLANG_WIN=/mnt/c/SDKs/glslang-16.6.0/bin/glslang.exe
+# The Linux package carries the same release's Linux glslang, so a player needs no glslang-tools (whose version varies
+# with the distribution). The release CI puts it in build/glslang/linux (tools/ci/install_glslang.sh); without it the
+# package is made without, and ZmClient falls back on the system's glslang.
+GLSLANG_LINUX="$ROOT/build/glslang/linux/glslang"
 
 # uam (tools/uam/build.sh) is built again when its build script is newer than the binary.
 UAM_EXE="$ROOT/build/uam/windows/uam.exe"
@@ -593,7 +597,7 @@ data_note() { # <devices word>
     else
         echo "Ce dossier ne contient aucun fichier du jeu : avant de jouer, lancez zmclient, vue Installation (F7),"
         echo "qui les copie depuis votre installation de Call of Duty: Black Ops (Steam), convertit les zones et"
-        echo "compile les shaders Vulkan (shaders.spv ; sous Linux, avec glslang-tools installé)."
+        echo "compile les shaders Vulkan (shaders.spv, avec le glslang du paquet)."
     fi
 }
 
@@ -763,6 +767,14 @@ package_linux() {
     mkdir -p "$d/main"
     cp "$WORK/linux/Release/BO1Zombies" "$ROOT/build/zmadmin/linux/zmadmin" "$ROOT/build/zmclient/linux/zmclient" \
         "$FFCONV_EXE" "$d/"
+    if [ -f "$GLSLANG_LINUX" ]; then
+        cp "$GLSLANG_LINUX" "$d/glslang"
+        chmod +x "$d/glslang"
+        cp "$ROOT/third_party/glslang/LICENSE.txt" "$d/glslang-LICENSE.txt"
+    else
+        rm -f "$d/glslang" "$d/glslang-LICENSE.txt"
+        echo "no build/glslang/linux/glslang (tools/ci/install_glslang.sh): the package relies on the system's glslang"
+    fi
     rsync -a --delete --exclude "$UPAP_SCRIPT" "$ROOT/mods/" "$d/mods/"
     rsync -a "$ROOT/data/main/" "$d/main/"
     if [ "$GAME_DATA" = 1 ]; then

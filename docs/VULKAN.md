@@ -118,7 +118,8 @@ Done on branch `vulkan` (2026-11-22):
   `win32-msvc` builds none of it. Windows has no glslang: the Khronos release 16.6.0 (`glslang.exe`, the same version
   as WSL's, so the same SPIR-V) unpacked in `C:\SDKs\glslang-16.6.0`, which `find_program` looks in.
   The release workflow installs the same release in its Windows, Linux and OpenBSD jobs (`tools/ci/install_glslang.sh`,
-  SHA-256 checked; Ubuntu 24.04's `glslang-tools` is 14.0).
+  SHA-256 checked; Ubuntu 24.04's `glslang-tools` is 14.0), and both the Windows and the Linux packages carry it
+  (`glslang.exe`, `glslang`, with `glslang-LICENSE.txt`) for ZmClient's `shaders.spv`.
 - MSVC portability of the frontend and the backends: `BO1_PRINTF_FORMAT` instead of `__attribute__((format))`,
   `std::countr_zero`/`std::countl_zero` instead of `__builtin_ctz`/`__builtin_clz`, `__FUNCSIG__` for `Unemulated`'s
   name, `NOMINMAX` on these files, `#undef DrawState` (winuser.h's macro renamed `gb::DrawState`), a no-op

@@ -220,8 +220,8 @@ VIEW_HELP = {
         "Installation : les fichiers du jeu, depuis votre installation de Call of Duty: Black Ops (Steam).",
         "Copie localization.txt, main/*.iwd et main/video/, puis convertit les zones zombies avec le ffconv du "
         "paquet (environ 6 minutes ; il écrit aussi shaders.pack), puis compile shaders.pack en shaders.spv pour "
-        "Vulkan avec glslang (5 à 15 minutes selon le processeur ; glslang.exe est dans le paquet Windows, sous "
-        "Linux installez glslang-tools). Votre installation n'est jamais modifiée.",
+        "Vulkan avec glslang (5 à 15 minutes selon le processeur ; glslang est dans les paquets Windows et "
+        "Linux, sinon celui du système : glslang-tools). Votre installation n'est jamais modifiée.",
         "c           choisir l'installation : trouvée dans les bibliothèques Steam, en parcourant les dossiers "
         "(flèches, Entrée pour ouvrir, Retour arrière pour remonter, Espace pour choisir ; une installation est "
         "marquée « Black Ops »), ou en tapant le chemin",

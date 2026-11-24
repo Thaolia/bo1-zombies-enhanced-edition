@@ -190,7 +190,12 @@ jobs:
       - name: Collect
         run: |
           mkdir -p out/linux/Release out/ffconv out/zmadmin/linux out/zmclient/linux out/zmadmin/openbsd \
-              out/zmclient/openbsd out/uam/windows out/uam/linux
+              out/zmclient/openbsd out/uam/windows out/uam/linux out/glslang/linux
+          # the package's glslang (tools/ci/install_glslang.sh), with which ZmClient compiles the player's shaders.spv
+          glslang="$(readlink -f "$(command -v glslang || command -v glslangValidator)")"
+          "$glslang" --version | head -n 1 | grep -q '16\.6\.0' || { echo "not glslang 16.6.0: $glslang"; exit 1; }
+          ldd "$glslang" || true
+          cp "$glslang" out/glslang/linux/glslang
           cp build/uam/windows/uam.exe build/uam/windows/uam-LICENSE.txt out/uam/windows/
           cp build/uam/linux/uam build/uam/linux/uam-LICENSE.txt out/uam/linux/
           cp build/linux/Release/BO1Zombies out/linux/Release/
@@ -348,7 +353,7 @@ jobs:
           # where make_dist.sh looks for each program
           mkdir -p build/win64-msvc/Release build/zmadmin/windows build/zmclient/windows build/zmadmin/linux \
               build/zmclient/linux build/zmadmin/openbsd build/zmclient/openbsd build/ffconv build/uam/windows \
-              build/uam/linux build/switch_setup/windows build/glslang/windows \
+              build/uam/linux build/switch_setup/windows build/glslang/windows build/glslang/linux \
               work/linux/Release work/switch/Release work/switch/romfs work/openbsd-8.0/Release \
               work/openbsd-current/Release runtimes
           cp $A/linux/uam/windows/* build/uam/windows/
@@ -358,6 +363,7 @@ jobs:
           cp $A/windows/zmadmin/windows/zmadmin.exe build/zmadmin/windows/
           cp $A/windows/zmclient/windows/zmclient.exe build/zmclient/windows/
           cp $A/windows/glslang/windows/glslang.exe build/glslang/windows/
+          cp $A/linux/glslang/linux/glslang build/glslang/linux/
           cp $A/windows/runtimes/*.dll runtimes/
           cp $A/linux/linux/Release/BO1Zombies work/linux/Release/
           cp $A/linux/ffconv/ffconv.exe build/ffconv/
@@ -375,7 +381,7 @@ jobs:
           cabextract -q -d runtimes -F d3dx9_43.dll $A/dxsdk/Redist/Jun2010_d3dx9_43_x64.cab
           cabextract -q -d runtimes -F xinput1_3.dll $A/dxsdk/Redist/APR2007_xinput_x64.cab
           chmod +x work/linux/Release/BO1Zombies build/zmadmin/linux/zmadmin build/zmclient/linux/zmclient \
-              build/zmadmin/openbsd/zmadmin build/zmclient/openbsd/zmclient build/uam/linux/uam
+              build/zmadmin/openbsd/zmadmin build/zmclient/openbsd/zmclient build/uam/linux/uam build/glslang/linux/glslang
           # artifacts are newer than the checkout, so --no-build takes them as up to date
           touch build/*/*/* build/ffconv/ffconv.exe
           ls -l runtimes
@@ -410,7 +416,8 @@ jobs:
 
             **No file of the game is included.** You need your own copy of Call of Duty: Black Ops.
             - Windows and Linux: run `zmclient`, Installation view (F7): it copies the game files from your install
-              and converts the zones.
+              and converts the zones, then compiles the Vulkan shaders (`shaders.spv`) with the `glslang` both
+              packages carry (Khronos' 16.6.0 release, licence in `glslang-LICENSE.txt`).
             - Switch: the `.nro`, `mods/` and the tools that complete the SD card folder from your install:
               `Setup-Switch.bat` on Windows, `./setup_switch.sh <install>` on Linux (wine for ffconv, python3);
               then copy `switch/` to the SD card's root. See `BO1Zombies_switch_nodata/LISEZMOI.txt`.
