@@ -16,7 +16,8 @@ KNOWN = {
         "Préchauffe les shaders au chargement (long)",
         "1 : au premier rendu d'une map, le jeu dessine une fois chaque passe éclairée pour que le pilote compile ses "
         "shaders d'avance (moins de saccades ensuite). L'image se fige longtemps à ce moment (2 minutes et plus sur un "
-        "portable). 0 par défaut."),
+        "portable). 0 par défaut ; la vue Lancement a cette option (« Préchauffage des shaders ») et la donne à chaque "
+        "lancement."),
     "bo1_frameperf": (
         "Profileur : log des images plus lentes que N ms",
         "« set bo1_frameperf 200 » : le jeu écrit une ligne BO1_FRAMEHITCH pour chaque image de plus de 200 ms et une "

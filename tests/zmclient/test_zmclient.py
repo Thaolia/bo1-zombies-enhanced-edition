@@ -193,6 +193,16 @@ class CommandLine(unittest.TestCase):
         p["window"], p["window_size"] = "fullscreen", "big"
         self.assertIn("résolution : LARGEURxHAUTEUR, ex. 1280x720", P.problems(p, "/g"))
 
+    def test_shader_warming(self):
+        # always given, so an old config.cfg's archived 1 never freezes the first frame unless the player wants it
+        p = P.Profile()
+        p["join_host"] = "10.0.0.5"
+        for mode in ("solo", "join", "host"):
+            p["mode"] = mode
+            self.assertIn("+set r_shaderWarming 0", " ".join(P.build_command(p, "x", "/g")))
+        p["mode"], p["shader_warming"] = "solo", True
+        self.assertIn("+set r_shaderWarming 1", " ".join(P.build_command(p, "x", "/g")))
+
     def test_refusals(self):
         p = P.Profile()
         p["extra"] = [{"on": True, "text": "set a 1 +set b 2"}]
