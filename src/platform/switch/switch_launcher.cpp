@@ -206,7 +206,7 @@ const ItemInfo kItems[ITEM_COUNT] = {
     {VIEW_MAIN, 17, "Depart", "A: points, atouts et mods de la partie solo (hit marker, PaP illimite...)."},
     {VIEW_MAIN, 19, "Rendu", "deko3d: le plus rapide. OpenGL: l'ancien chemin, plus lent."},
     {VIEW_MAIN, 20, "Resolution", "720p: celle de l'ecran. 540p, 480p: image moins nette, plus de FPS (en ligne)."},
-    {VIEW_MAIN, 21, "  Agrandissement", "FSR 1.0: image par image. ASR: accumule les images, plus net, bien plus couteux."},
+    {VIEW_MAIN, 21, "  Agrandissement", "FSR 1.0: image par image. ASR: accumule les images, plus net, plus couteux."},
     {VIEW_MAIN, 22, "  Sortie", "Taille de l'image agrandie. 1080p: pour la TV (dock), l'ecran est en 720p."},
     {VIEW_MAIN, 23, "  Nettete", "Accentuation de l'image agrandie par FSR 1.0. Maximale: la plus nette."},
     {VIEW_MAIN, 24, "Limite de FPS", "30: plus stable et plus econome en batterie. 60: plus fluide."},
@@ -216,14 +216,14 @@ const ItemInfo kItems[ITEM_COUNT] = {
     {VIEW_MAIN, 28, "Compteur FPS", "Compteur de FPS et de batterie en haut a droite."},
     {VIEW_MAIN, 29, "Touches manette", "A: choisir le bouton de chaque action du jeu (tirer, viser, sauter...)."},
     {VIEW_MAIN, 30, "Manettes", "A: ecran de la Switch pour connecter ou changer de manette."},
-    {VIEW_MAIN, 38, "DEMARRER", "Lance la partie avec ces reglages (aussi: bouton +)."},
+    {VIEW_MAIN, 39, "DEMARRER", "Lance la partie avec ces reglages (aussi: bouton +)."},
     {VIEW_SERVER, 7, "Connexion", "Activee: la partie rejoint ce serveur au lieu d'une partie solo."},
     {VIEW_SERVER, 8, "Adresse IP", "A: l'adresse IP du PC qui fait tourner le serveur (Server.bat, Server.sh)."},
     {VIEW_SERVER, 9, "Port", "A: le port UDP du serveur, 3074 par defaut."},
     {VIEW_SERVER, 10, "Mot de passe", "A: le mot de passe joueur du serveur (g_password), vide s'il n'en a pas."},
     {VIEW_SERVER, 11, "Nom du joueur", "A: votre nom sur le serveur (lettres, chiffres, _ - .), vide: celui du jeu."},
     {VIEW_SERVER, 12, "Mods auto", "Oui: au demarrage, demande au serveur ses mods et sa carte, et les charge."},
-    {VIEW_SERVER, 13, "Armes BO2", "Oui: charge vos armes Black Ops II (mods/bo2weapons), si le serveur ne dit rien."},
+    {VIEW_SERVER, 13, "Armes BO2", "Oui: vos armes Black Ops II (mods/bo2weapons), si le serveur ne dit rien."},
     {VIEW_SERVER, 14, "Armes doublees", "Oui: charge les armes doublees (mods/dualwield), si le serveur ne dit rien."},
     {VIEW_SERVER, 16, "Recherche auto", "Oui: cherche les serveurs du reseau local a l'ouverture de cet ecran."},
     {VIEW_SERVER, 17, "Chercher maintenant", "A: cherche les serveurs du reseau local (une seconde)."},
@@ -238,7 +238,7 @@ const ItemInfo kItems[ITEM_COUNT] = {
     {VIEW_PAD, 23, "Reinitialiser", "A: remet les touches du jeu d'origine."},
     {VIEW_PAD, 25, "RETOUR", "Revient au menu (aussi: bouton B)."},
     {VIEW_KIT, 6, "Points de depart", "Gauche/Droite: les points a l'arrivee sur la map, au lieu des 500 du jeu."},
-    {VIEW_KIT, 7, "Courant", "Oui: le courant de la map est mis des l'arrivee (portes, atouts, Pack-a-Punch)."},
+    {VIEW_KIT, 7, "Courant", "Oui: courant mis des l'arrivee sur la map (portes, atouts, Pack-a-Punch)."},
     {VIEW_KIT, 8, "Pack-a-Punch", "Oui: un Pack-a-Punch toujours allume au point de depart des joueurs."},
 #define KIT_PERK(row) {VIEW_KIT, row, nullptr, "Gauche/Droite ou A: atout gratuit a l'arrivee, si la map a sa machine."}
     KIT_PERK(9), KIT_PERK(10), KIT_PERK(11), KIT_PERK(12), KIT_PERK(13), KIT_PERK(14), KIT_PERK(15), KIT_PERK(16),
@@ -246,7 +246,7 @@ const ItemInfo kItems[ITEM_COUNT] = {
     {VIEW_KIT, 17, "Zombies eloignes", "Gauche/Droite: un zombie plus loin que ca de tous et non vu est remplace."},
     {VIEW_KIT, 18, "Armes doublees", "Oui: le Pack-a-Punch double Ray Gun et Thundergun (et PPSh) (mods/dualwield)."},
     {VIEW_KIT, 19, "Hit marker", "Oui: un X au centre de l'ecran a chaque zombie touche (mods/hitmarker)."},
-    {VIEW_KIT, 20, "Pack-a-Punch illimite", "Oui: repack sans fin, prix et degats doubles a chaque fois (mods/unlimitedpap)."},
+    {VIEW_KIT, 20, "Pack-a-Punch illimite", "Oui: repack sans fin, prix et degats doubles chaque fois (mods/unlimitedpap)."},
     {VIEW_KIT, 21, "Apparition zombies", "Gauche/Droite: zombies qui sortent plus vite, pauses courtes (mods/spawnrate)."},
     {VIEW_KIT, 22, "  Sprint aux barricades", "Oui: chaque zombie court jusqu'a sa barricade, puis reprend sa vitesse."},
     {VIEW_KIT, 23, "RETOUR", "Revient au menu (aussi: bouton B)."},
@@ -254,15 +254,16 @@ const ItemInfo kItems[ITEM_COUNT] = {
 static_assert(ITEM_KIT_PERK_LAST - ITEM_KIT_PERK_FIRST + 1 == 8, "one kit line per kLauncherPerks entry");
 static_assert(sizeof(kItems) / sizeof(kItems[0]) == ITEM_COUNT, "one kItems line per Item");
 const int kGraphicsHeaderRow = 18;
-const int kControllerFirstRow = 30;
+const int kControllerFirstRow = 31; // below Manettes (row 30)
 const int kControllerMaxRows = 8; // handheld + players 1-7: the rows up to DEMARRER
 const int kPadInfoRow = 28;
 const int kNetInfoRow = 26;
 const int kKitInfoRow = 25;
-const int kHelpRow = 39;
-const int kStatusRow = 40;
-const int kAsrWarnRow = 41;
-const int kFooterRow = 42;
+// The console is 80 x 45: a help or status line holds 78 characters from column 3, and the footer ends on row 45.
+const int kHelpRow = 40;
+const int kStatusRow = 41;
+const int kAsrWarnRow = 42;
+const int kFooterRow = 43;
 
 // The last LAN search's servers (lan_browser.h), and whether one ran since the server view opened.
 std::vector<LanServer> s_found;
