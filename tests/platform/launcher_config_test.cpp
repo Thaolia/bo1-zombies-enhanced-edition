@@ -376,6 +376,10 @@ int main()
     Check(Launcher_ParseSettings("fsr1=1\nfsr_sharpness=extreme\n").fsrSharpness == 1 &&
               Launcher_ParseSettings("fsr1=1\nfsr_sharpness=max\n").fsrSharpness == 0,
           "an unknown FSR sharpness keeps the default");
+    Check(!Launcher_UpscalerIsAsr(0) && !Launcher_UpscalerIsAsr(1) && Launcher_UpscalerIsAsr(2) &&
+              Launcher_UpscalerIsAsr(3) && Launcher_UpscalerIsAsr(4) && !Launcher_UpscalerIsAsr(5) &&
+              !Launcher_UpscalerIsAsr(-1),
+          "the menu's ASR warning and sharpness row tell ASR's three presets from none and FSR 1.0");
     Check(Launcher_BuildLaunchLine(fsr, "") == Launcher_BuildLaunchLine(fsrOff, ""),
           "the upscalers leave the engine's launch line alone (the renderer reads them)");
 

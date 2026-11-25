@@ -77,6 +77,12 @@ const LauncherUpscaler kLauncherUpscalers[] = {
 };
 const int kLauncherUpscalerCount = int(sizeof(kLauncherUpscalers) / sizeof(kLauncherUpscalers[0]));
 
+bool Launcher_UpscalerIsAsr(int index)
+{
+    const char *mode = index >= 0 && index < kLauncherUpscalerCount ? kLauncherUpscalers[index].mode : nullptr;
+    return mode && !std::strncmp(mode, "asr", 3);
+}
+
 const LauncherFsrSharpness kLauncherFsrSharpness[] = {
     {"max", "Maximale", "0"},
     {"strong", "Forte", "0.2"}, // AMD's default

@@ -178,8 +178,9 @@ Au lancement, un menu texte s'ouvre avant le jeu. On y choisit :
   le sprint jusqu'aux barricades) ;
 - le rendu (deko3d ou OpenGL), la résolution (720p, ou 540p / 480p pour plus de FPS, 540p conseillé en ligne : la console agrandit l'image à
   l'écran ; sous 720p, **FSR 1.0** ou **Arm ASR** (temporel, shaders qualité, équilibré ou performance, deko3d
-  seulement) peut l'agrandir en 720p ou en 1080p (pour le dock) à la place, plus net que l'étirement de la console,
-  avec cinq niveaux de netteté), la limite de FPS (30 ou 60), les ombres, la distance des props (normale, réduite ou
+  seulement) peut l'agrandir en 720p ou en 1080p (pour le dock) à la place, plus net que l'étirement de la console ;
+  FSR 1.0 a cinq niveaux de netteté, ASR tourne sans accentuation. ASR coûte bien plus de temps GPU : à Kino, de 480p
+  vers 720p, 30 FPS avec le GPU à 768 MHz (la fréquence du dock) et 20 FPS à 537 MHz, et le menu en avertit), la limite de FPS (30 ou 60), les ombres, la distance des props (normale, réduite ou
   courte : `r_lodScaleRigid` 1, 1,5 ou 2, les objets du décor dessinés plus simples et moins loin, pour plus de FPS
   sur les maps BO2 natives), le filtre de texture et le compteur FPS/batterie ;
 - les infos speedrun (`bo1_runinfo`, aussi dans la vue Lancement de ZmClient) : les réglages qui changent une partie

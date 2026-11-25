@@ -206,9 +206,9 @@ const ItemInfo kItems[ITEM_COUNT] = {
     {VIEW_MAIN, 17, "Depart", "A: points, atouts et mods de la partie solo (hit marker, PaP illimite...)."},
     {VIEW_MAIN, 19, "Rendu", "deko3d: le plus rapide. OpenGL: l'ancien chemin, plus lent."},
     {VIEW_MAIN, 20, "Resolution", "720p: celle de l'ecran. 540p, 480p: image moins nette, plus de FPS (en ligne)."},
-    {VIEW_MAIN, 21, "  Agrandissement", "FSR 1.0: image par image. ASR: accumule les images, plus net, plus couteux."},
+    {VIEW_MAIN, 21, "  Agrandissement", "FSR 1.0: image par image. ASR: accumule les images, plus net, bien plus couteux."},
     {VIEW_MAIN, 22, "  Sortie", "Taille de l'image agrandie. 1080p: pour la TV (dock), l'ecran est en 720p."},
-    {VIEW_MAIN, 23, "  Nettete", "Accentuation de l'image agrandie. Maximale: la plus nette."},
+    {VIEW_MAIN, 23, "  Nettete", "Accentuation de l'image agrandie par FSR 1.0. Maximale: la plus nette."},
     {VIEW_MAIN, 24, "Limite de FPS", "30: plus stable et plus econome en batterie. 60: plus fluide."},
     {VIEW_MAIN, 25, "Ombres", "Ombres dynamiques. Les couper fait gagner des FPS."},
     {VIEW_MAIN, 26, "Distance des props", "Objets du decor dessines moins loin et plus simples: plus de FPS (TranZit)."},
@@ -261,6 +261,7 @@ const int kNetInfoRow = 26;
 const int kKitInfoRow = 25;
 const int kHelpRow = 39;
 const int kStatusRow = 40;
+const int kAsrWarnRow = 41;
 const int kFooterRow = 42;
 
 // The last LAN search's servers (lan_browser.h), and whether one ran since the server view opened.
@@ -294,8 +295,11 @@ bool Selectable(const LauncherSettings &s, View view, int item)
     // The upscalers take a frame below 720p to the output size: nothing to do at 720p.
     if (item == ITEM_FSR)
         return s.height < 720;
-    if (item == ITEM_UPSCALE_OUTPUT || item == ITEM_FSR_SHARPNESS)
+    if (item == ITEM_UPSCALE_OUTPUT)
         return s.height < 720 && s.upscaler > 0;
+    // ASR runs without its sharpening pass on the Switch (gb_deko3d.cpp): the stops only drive FSR 1.0's RCAS.
+    if (item == ITEM_FSR_SHARPNESS)
+        return s.height < 720 && s.upscaler > 0 && !Launcher_UpscalerIsAsr(s.upscaler);
     return true;
 }
 
@@ -912,6 +916,18 @@ void Draw(const LauncherSettings &s, View view, int selected, const Screen &scre
                     kColorNormal);
     }
 
+    // Measured on the console at Kino, ASR performance from 480p to 720p: 30 fps with the GPU at 768 MHz (the dock's
+    // clock), 20 fps at 537 MHz; its accumulate pass runs per output pixel, 2.25 times as many at 1080p.
+    if (view == VIEW_MAIN && s.height < 720 && Launcher_UpscalerIsAsr(s.upscaler))
+    {
+        At(kAsrWarnRow, 3);
+        if (s.output == 1080)
+            std::printf("%sASR vers 1080p: ne tiendra pas 30 fps, meme en dock. Preferer 720p.%s", kColorWarn,
+                        kColorNormal);
+        else
+            std::printf("%sASR: 30 fps avec le GPU a 768 MHz (dock). En portable: 20 fps ou moins.%s", kColorWarn,
+                        kColorNormal);
+    }
     At(kHelpRow, 3);
     std::printf("%s", kItems[selected].help);
     if (!screen.status.empty())

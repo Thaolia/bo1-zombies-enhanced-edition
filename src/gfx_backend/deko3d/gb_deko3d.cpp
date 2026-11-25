@@ -3298,8 +3298,8 @@ bool TemporalUpscale(const TemporalUpscaleDesc &desc)
     d.jitterOffset = {desc.jitterX, desc.jitterY};
     d.motionVectorScale = {1.0f, 1.0f}; // already in render pixels
     d.renderSize = {desc.renderWidth, desc.renderHeight};
-    d.enableSharpening = desc.sharpness > 0.0f;
-    d.sharpness = std::min(std::max(desc.sharpness, 0.0f), 1.0f);
+    // No sharpening on the Switch: its RCAS pass cost 2.0 of ASR's 23.3 ms a frame at 537 MHz (console, 480p to 720p).
+    d.enableSharpening = false;
     d.frameTimeDelta = desc.frameMs;
     d.preExposure = 1.0f;
     d.reset = desc.reset;

@@ -159,8 +159,9 @@ On the console the game starts in a text menu, where you choose:
   times, with or without the sprint to the barriers);
 - the renderer (deko3d or OpenGL), the resolution (720p, or 540p / 480p for more frames, 540p advised online: the console scales the image to the
   screen; below 720p, **FSR 1.0** or **Arm ASR** (temporal, quality, balanced or performance shaders, deko3d only)
-  can upscale it to 720p or 1080p (for the dock) instead, sharper than the console's stretch, with five sharpness
-  levels), the frame-rate cap, shadows, the props' distance (normal, reduced or short: `r_lodScaleRigid`
+  can upscale it to 720p or 1080p (for the dock) instead, sharper than the console's stretch; FSR 1.0 has five
+  sharpness levels, ASR runs unsharpened. ASR costs far more GPU time: at Kino, 480p to 720p held 30 fps with the GPU
+  at 768 MHz (the dock's clock) and 20 fps at 537 MHz, and the menu warns of it), the frame-rate cap, shadows, the props' distance (normal, reduced or short: `r_lodScaleRigid`
   1, 1.5 or 2, scenery objects drawn simpler and less far for more frames on the native BO2 maps), texture filtering
   and the FPS/battery counter;
 - the speedrun info (`bo1_runinfo`, also a ZmClient launch setting): the settings that change a run (mods, god mode,

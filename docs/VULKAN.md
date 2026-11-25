@@ -315,6 +315,9 @@ optimised for mobile GPUs:
    sharpening, 1280x720 fragments, 84 registers, no scratch) 14.2 ms; depth clip 3.4 (52 registers); RCAS 2.0; lock
    1.8 (scratch 6656 bytes a warp: spills); reconstruct depth 1.4; luma pyramid 0.6; clears 0.1. The scene itself
    is ~12 ms. Accumulate runs once per output pixel, so 1080p output would multiply its 14 ms by 2.25.
+   So deko3d runs ASR without sharpening (no RCAS pass: -2.0 ms; the menu's "Nettete" line shows for FSR 1.0 only),
+   and the start menu shows a red warning under an ASR choice: 30 fps needs the GPU at 768 MHz (the dock's clock), 20
+   fps or less handheld; ASR to 1080p will not hold 30 fps even docked (estimated from the per-pixel cost above).
    Kino on Ryujinx, 960x540 to 1280x720, quality shaders: the right image (game over screen, lobby) for 5 minutes,
    no fault, 18-21 fps (Ryujinx's own speed, not the console's). The traced frame (`deko3d_debug`) logs ASR's jobs and
    reads back the centre texel of each of its textures (`asr probe` lines), which located the last two bugs.

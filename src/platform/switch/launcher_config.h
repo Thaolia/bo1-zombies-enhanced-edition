@@ -59,6 +59,8 @@ struct LauncherUpscaler
     const char *mode;  // BO1_UPSCALE (posix_d3d9host.cpp), null for none
 };
 extern const LauncherUpscaler kLauncherUpscalers[];
+// Whether kLauncherUpscalers[index] is one of Arm ASR's presets (temporal, much costlier on the GPU than FSR 1.0).
+bool Launcher_UpscalerIsAsr(int index);
 extern const int kLauncherUpscalerCount;
 // "Nettete": the sharpening after the upscale, in AMD's RCAS stops below the strongest (0); ASR gets 1 - stops / 2.
 struct LauncherFsrSharpness
