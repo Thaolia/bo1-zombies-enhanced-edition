@@ -67,6 +67,7 @@ DEFAULTS = {
     "window": "borderless",
     "window_size": "1280x720",
     "fps_counter": False,
+    "shader_warming": False,            # r_shaderWarming, always given: the game archives it, an old config.cfg keeps 1
     "run_info": 1,                      # bo1_runinfo: 0 off, 1 on the loading screen, 2 also in a corner in game
     "scene_models": 1024,              # one of SCENE_MODEL_CHOICES
     "gfx_api": "default",              # one of GFX_APIS
@@ -432,6 +433,7 @@ def build_command(p, exe, dist_root, launch_cfg="", player=1, server_mods=None):
                  "+set", "r_mod_upscaler", p["upscaler"]]
     if p["fps_counter"]:
         argv += ["+set", "bo1_fpscounter", "1"]
+    argv += ["+set", "r_shaderWarming", "1" if p["shader_warming"] else "0"]
     argv += ["+set", "bo1_runinfo", str(p["run_info"])]
     for key, dvar in AIM_DVARS:
         if p[key] in ("0", "1"):

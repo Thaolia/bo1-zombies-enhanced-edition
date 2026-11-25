@@ -111,6 +111,13 @@ bool Temporal::PrepareShaders()
             m_motion = Create(gb::Stage::Pixel, kHashMotion, upscale_shaders::kGlslMotion);
             m_reactiveShader = Create(gb::Stage::Pixel, kHashReactive, upscale_shaders::kGlslReactive);
             break;
+        case ShaderForm::Dksh:
+#if defined(BO1_UPSCALE_HAS_DKSH)
+            m_vertex = Create(gb::Stage::Vertex, kHashVertex, upscale_shaders::kDkshVs);
+            m_motion = Create(gb::Stage::Pixel, kHashMotion, upscale_shaders::kDkshMotion);
+            m_reactiveShader = Create(gb::Stage::Pixel, kHashReactive, upscale_shaders::kDkshReactive);
+#endif
+            break;
         case ShaderForm::Spirv:
 #if defined(BO1_UPSCALE_HAS_SPIRV)
             m_vertex = Create(gb::Stage::Vertex, kHashVertex, upscale_shaders::kSpirvVs);

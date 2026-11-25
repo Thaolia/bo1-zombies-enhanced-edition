@@ -1,10 +1,12 @@
-// Per-thread CPU use on the console: a "perf:" line in the boot log every 5 s (switch_perf.h).
+// Per-thread CPU use and the CPU/GPU/memory clocks on the console: a "perf:" line in the boot log every 5 s
+// (switch_perf.h).
 #include <switch.h>
 
 #include "switch_perf.h"
 
 #include <atomic>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <map>
 
@@ -30,6 +32,91 @@ std::atomic<int> s_tickQuery{-1}; // index into kTickQueries, kTickQueryCount wh
 Result s_tickFailure = 0;
 
 const double kWindowSeconds = 5.0;
+
+// The CPU, GPU and memory (EMC) clocks, read at each perf line: they change with the dock, the system's performance
+// mode and overclocking tools, and a frame rate means little without them. clkrst since 8.0.0, pcv before.
+const PcvModuleId kClockIds[3] = {PcvModuleId_CpuBus, PcvModuleId_GPU, PcvModuleId_EMC};
+const PcvModule kClockModules[3] = {PcvModule_CpuBus, PcvModule_GPU, PcvModule_EMC};
+ClkrstSession s_clockSessions[3];
+bool s_clocksTried = false;
+bool s_clocksOpen = false;
+bool s_clocksClkrst = false;
+
+void ClocksExit()
+{
+    if (!s_clocksOpen)
+        return;
+    s_clocksOpen = false;
+    if (s_clocksClkrst)
+    {
+        for (ClkrstSession &session : s_clockSessions)
+            clkrstCloseSession(&session);
+        clkrstExit();
+    }
+    else
+        pcvExit();
+}
+
+void ClocksOpen()
+{
+    s_clocksTried = true;
+    s_clocksClkrst = hosversionAtLeast(8, 0, 0);
+    Result rc = s_clocksClkrst ? clkrstInitialize() : pcvInitialize();
+    int opened = 0;
+    if (R_SUCCEEDED(rc) && s_clocksClkrst)
+    {
+        for (; opened < 3; ++opened)
+        {
+            rc = clkrstOpenSession(&s_clockSessions[opened], kClockIds[opened], 3);
+            if (R_FAILED(rc))
+                break;
+        }
+        if (R_FAILED(rc))
+        {
+            while (opened > 0)
+                clkrstCloseSession(&s_clockSessions[--opened]);
+            clkrstExit();
+        }
+    }
+    char note[128];
+    if (R_FAILED(rc))
+    {
+        snprintf(note, sizeof(note), "perf: no clock rates (%s: 0x%X)\n", s_clocksClkrst ? "clkrst" : "pcv",
+                 (unsigned)rc);
+        Switch_BootLogWrite(note);
+        return;
+    }
+    s_clocksOpen = true;
+    std::atexit(ClocksExit);
+    snprintf(note, sizeof(note), "perf: clock rates from %s\n", s_clocksClkrst ? "clkrst" : "pcv");
+    Switch_BootLogWrite(note);
+}
+
+// " cpu 1020 gpu 384 emc 1600 MHz, handheld" (a rate that cannot be read shows as ?)
+int ClocksFormat(char *out, int size)
+{
+    if (!s_clocksTried)
+        ClocksOpen();
+    int used = 0;
+    if (s_clocksOpen)
+    {
+        static const char *const names[3] = {"cpu", "gpu", "emc"};
+        for (int i = 0; i < 3; ++i)
+        {
+            u32 hz = 0;
+            const Result rc = s_clocksClkrst ? clkrstGetClockRate(&s_clockSessions[i], &hz)
+                                             : pcvGetClockRate(kClockModules[i], &hz);
+            if (R_SUCCEEDED(rc))
+                used += snprintf(out + used, size - used, " %s %u", names[i], (unsigned)(hz / 1000000));
+            else
+                used += snprintf(out + used, size - used, " %s ?", names[i]);
+        }
+        used += snprintf(out + used, size - used, " MHz,");
+    }
+    const AppletOperationMode mode = appletGetOperationMode();
+    used += snprintf(out + used, size - used, " %s", mode == AppletOperationMode_Console ? "docked" : "handheld");
+    return used;
+}
 } // namespace
 
 extern "C" unsigned long long Switch_ThreadTicks(void)
@@ -101,7 +188,9 @@ extern "C" void Switch_PerfFrame(void)
 
     // one line: the window's frame rate, then each thread: name, CPU % of one core over the window, last core seen
     char line[1024];
-    int used = snprintf(line, sizeof(line), "perf: %.1f s, %.1f fps |", seconds, frames / seconds);
+    int used = snprintf(line, sizeof(line), "perf: %.1f s, %.1f fps,", seconds, frames / seconds);
+    used += ClocksFormat(line + used, (int)sizeof(line) - used);
+    used += snprintf(line + used, sizeof(line) - used, " |");
     const int count = Bo1_ThreadPerfSnapshot(threads, 32);
     std::map<unsigned, unsigned long long> current;
     for (int i = 0; i < count && used < (int)sizeof(line) - 48; ++i)

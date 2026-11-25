@@ -651,6 +651,7 @@ class LaunchView(RowsView):
                 disabled=split_off or (None if p["window"] != "borderless" else
                                        "Sans bordure prend la taille de l'écran")),
             Row("fps_counter", "Compteur FPS du portage", _yes(p["fps_counter"]), self.toggle("fps_counter")),
+            Row("shader_warming", "Préchauffage des shaders", _yes(p["shader_warming"]), self.toggle("shader_warming")),
             Row("run_info", "Infos speedrun", H.RUN_INFO_LABELS[p["run_info"]],
                 self.choose("run_info", "Infos speedrun",
                             [(k, v, H.ROW_HELP["run_info"]) for k, v in H.RUN_INFO_LABELS.items()])),

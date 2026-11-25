@@ -6,8 +6,10 @@ ZmClient makes the Vulkan files from the player's own game (2026-11-23): its Ins
 wraps: both write the same bytes). The Windows package carries Khronos' `glslang.exe` 16.6.0 and its licence
 (`third_party/glslang`); on Linux ZmClient uses the system's glslang.
 
-Status (2026-11-23): steps 1-7 done (FSR1 checked on the console too; Vulkan on Linux and win64; Arm ASR with its
-reactive mask; native AA; SSAA), merged into `switch`. Open: ASR on the Switch (step 6, item 4) and OpenBSD (step 8).
+Status (2026-11-24): steps 1-3 and 7 done; step 5 done but for two checks (Kino's cyan glow, NVIDIA and AMD); step 6
+done on PC (Arm ASR with its reactive mask), all merged into `switch`. Open: step 4 (GL/Vulkan parity screenshots on
+Linux, never run), ASR on the Switch (step 6, item 4, started 2026-11-24) and Vulkan on OpenBSD (step 8). The OpenBSD
+build itself (GL) ran on the user's machine on 2026-11-24 (`6ae8bd5`, started from ZmClient).
 Each step updates this file, `docs/RENDERER.md` and `docs/PORTING.md` (phase 9) in the session that does it.
 
 ## Goals and constraints
@@ -103,13 +105,13 @@ Described in `docs/RENDERER.md`, "The Vulkan backend". In short:
     deliberate misuse in a separate program proved the messages reach the log);
   - `d3d9emu_test`, `upscale_gl_test`, `launcher_config_test`.
 
-## Step 4 — Parity on Linux
+## Step 4 — Parity on Linux — not done
 - GL against Vulkan screenshots: main menu, Kino, Five, one imported BSP map. Explain every difference.
 - FSR1 on Vulkan.
 - The usual posix gate: a headless run against win64, paths and numbers masked.
 - Estimate: 1-2 sessions.
 
-## Step 5 — win64: the emulated frontend and Vulkan, native D3D9 by default — in progress
+## Step 5 — win64: the emulated frontend and Vulkan, native D3D9 by default — done, two checks open
 Done on branch `vulkan` (2026-11-22):
 - CMake: the shader headers (`upscale_shaders.h`, `vk_shaders.h`) are generated in one block shared by posix, the
   Switch and win64; 32-bit Windows needs neither Python nor glslang. Under `if(BO1_ARCH_64 AND BO1_VULKAN)` on win32
@@ -162,17 +164,16 @@ Done on branch `vulkan` (2026-11-22):
   `r_init.cpp`, `r_dvars.cpp`, `win_input.cpp` identical. Checked on the Iris Xe: a 1920x1080 borderless window renders
   1280x720 (`quality`) and FSR 1.0 upscales it, steady at the test's 30 fps cap.
 
-Still to do in this step:
-- FSR1 on win64 on the player's screen: the mouse in the menus and the image itself (a headless run's screenshot reads
-  the back buffer, not the upscaled output).
-- `shaders.spv` for players: the install's conversion (ZmClient's Installation view, `ffconv`) must also make the
-  SPIR-V pack, with a redistributable glslang/spirv-val in the Windows package, and the pack compressed (477.6 MB).
+Done since (2026-11-23): FSR 1.0 and Arm ASR played by the user on their Iris Xe (Moon, 50-60 fps with vsync);
+`shaders.spv` for players, compiled by ZmClient's Installation view with the glslang 16.6.0 the Windows and Linux
+packages carry (top of this file; the pack is not compressed); `win32-msvc` built before each merge.
+
+Still open:
 - The cyan glow of Kino's ticket counter (lobby, left arch) is missing on Vulkan and GL alike, present with native D3D9
   (and with D3D9 run on the same exe): a frontend difference older than Vulkan, to explain.
 - **NVIDIA and AMD on the user's machines.**
-- `win32-msvc` builds once before the merge.
 
-## Step 6 — Arm ASR (after the Windows port) — in progress
+## Step 6 — Arm ASR (after the Windows port) — done on PC; the Switch (item 4) in progress
 Arm Accuracy Super Resolution (`github.com/arm/accuracy-super-resolution`, generic library, MIT) is FSR 2.2.2
 optimised for mobile GPUs:
 - it takes FSR2's inputs (colour, depth, motion vectors, jitter, optional reactive mask);
@@ -257,8 +258,81 @@ optimised for mobile GPUs:
    **Asked by the user (2026-11-23). First finding:** uam 1.1.0 (Mesa's GL GLSL front end) rejects every ASR shader
    as written: `GL_EXT_samplerless_texture_functions`, `GL_EXT_shader_explicit_arithmetic_types` (float16_t) and
    separate texture/sampler objects in descriptor sets are Vulkan GLSL only (tried on the 7 passes, preprocessed with
-   `glslangValidator -E`). The work, in order:
-   1. A GL-dialect variant of ASR's GPU glue (`include/gpu/ffxm_core_glsl.h`, `fsr2/ffxm_fsr2_callbacks_glsl.h`,
+   `glslangValidator -E`).
+   **Route found (2026-11-24), replacing item 1 below:** no hand-written GL glue. Each pass goes Vulkan GLSL →
+   glslang (`-V`, `FFXM_HALF=0`, BO1's permutation macros) → SPIR-V → SPIRV-Cross (`--version 450 --no-es
+   --combined-samplers-inherit-bindings`) → GL GLSL 4.50 → uam. All 8 shaders (the vertex shader, 6 fragment passes,
+   the lock and luminance pyramid compute passes) compiled to DKSH this way, the pyramid with
+   `FFXM_SPD_NO_WAVE_OPERATIONS` (SPD's shared-memory path: uam has no `GL_KHR_shader_subgroup_quad`). One step is
+   needed between SPIRV-Cross and uam: GL gives uniform blocks, samplers and images separate binding spaces, and one
+   texture read through several samplers (`r_prepared_input_color`: linear, point and none) becomes several combined
+   samplers on the same Vulkan binding. A script renumbers each class from 0 and writes the table (class, deko3d
+   slot, Vulkan binding, name) the deko3d `FfxmInterface` binds by: accumulate then needs 1 uniform block, 8 to 10
+   samplers and 1 image, within deko3d's per-stage limits (uam refused the raw output: image binding 12 above 8).
+   Permutations: BO1 always sets low-resolution motion vectors and jitter cancellation (`gb_vk.cpp`, the Vulkan
+   context's flags), no HDR, no inverted depth, no FP16, no wave64; only the quality preset (quality, balanced,
+   performance) and the sharpening of the accumulate pass vary, a few dozen DKSH in all. Accumulate: 14.8 KB of code
+   in quality, 12.3 KB in balanced and performance. SPIRV-Cross is Debian's `spirv-cross` package.
+   **Generator done (2026-11-24):** `tools/asr/make_asr_gl.py` writes the GL GLSL of every permutation BO1 uses into
+   `src/gfx_backend/deko3d/asr/` (27 permutations, 14 distinct shaders, committed: the Switch build and the CI need
+   only uam, and glslang plus SPIRV-Cross only to regenerate after an Arm ASR update), with `asr_table.h`, its own
+   reflection per shader: for each uniform block, texture, image and render target, Arm's resource name, the deko3d
+   slot, the Vulkan binding and, for a texture, its sampler (none, point clamp, linear clamp). Arm's prebuilt
+   reflection is per 16-bit permutation and lists other resources (its accumulate reads `r_input_motion_vectors`,
+   ours `r_dilated_motion_vectors` in performance), so the deko3d `FfxmInterface` fills `FfxmPipelineState` from this
+   table. The Switch build compiles the 14 to DKSH (`asr_dksh.h`, target `bo1_asr_dksh`, `tools/embed_shaders.py`
+   now takes `comp`). Two runs of the generator write the same bytes.
+   **`FfxmInterface` done, runs on Ryujinx (2026-11-24):** `gb_deko3d.cpp`, the 15 callbacks over the backend's own
+   pieces: ASR's textures in the image pool (render usage only in colour formats every Maxwell target takes, load/store
+   for its UAVs), image descriptors from a range of 1024 taken once, one per level for load/store; its upload buffers
+   in the data pool; pipelines filled from `asr_table.h` (one job texture per name, a deko3d slot per sampler); the
+   jobs recorded into the frame's command buffer with a full barrier after each (copy, clear through a render target
+   binding, compute dispatch, full-screen triangle with ASR's vertex shader), constants through the uniform ring,
+   samplers point clamp and linear clamp (as Arm's). `Caps::temporalUpscale` is set; the frontend's temporal pass
+   (motion vectors, reactive mask) got its DKSH case. Found on the way, each in one Ryujinx run:
+   - the lock pass needs 6656 bytes of scratch a warp, the previous-depth pass 4096; the default queue has 2048.
+     deko3d checks it when a compute shader is bound (`DkResult_OutOfMemory` abort, 2359-0003) and never for a
+     graphics shader, which would overrun it. `Init` sizes the queue's scratch from the DKSH program headers.
+   - `UseMesaSchedule` skipped a 0x50-byte program header that only graphics programs have: on the two compute
+     shaders it rewrote instructions as control words (Ryujinx then died translating them). Fixed for type 5.
+   - the exposure read (-1, 65504), which turned every prepared colour black. That is ASR's clear value, (-1, 1e8),
+     with 1e8 saturated in the RG16F texture: the luminance pyramid never writes it on Ryujinx. Its last workgroup is
+     found with an image atomic, and Ryujinx 1.1.1375 does not translate Mesa's `SUATOM` ("Invalid instruction" in
+     its log, the pyramid's `imageAtomicAdd` and the previous-depth pass's `imageAtomicMax`): a counter set to 1000
+     before the pyramid still read 1000 after its 135 workgroups. Phase one works (mips 4 and 5 hold log-luminances
+     near -2.3). ASR runs without auto exposure on deko3d (default exposure 1: the scene is in display colours); the
+     pyramid still feeds the lock pass's luma, which should be right on the console (not run there yet). Arm's GLSL also declares
+     `rw_auto_exposure` `rgba32f` for the RG16F texture: the generator declares it `rg16f`, the texture's format.
+   - the clear stored 1e8 as 65504 where IEEE rounding gives infinity, and ASR reads >= 1e8 as "no history": after
+     each reset the luma would blend down from 65504 for seconds. The clear hands a 16-bit float target infinity for
+     a value beyond its range (Ryujinx probe: `0xBC00 0x7C00`).
+   On the console (user's logs, 2026-11-25, Kino, handheld): ASR performance 856x480 to 720p takes 37.0 ms of GPU a
+   frame at GPU 537 MHz (20 fps) and 25.9 ms at 768 MHz (30 fps), against ~13 ms for FSR 1.0 854x480 to 720p and 22.1
+   ms for FSR 1.0 to 1080p at 537 MHz: about 24 ms for ASR itself. To find where, each ASR job is timed on the GPU (a
+   timestamp before it and after its barrier) and the backend logs `asr gpu <total> ms a frame over 16 frames: <pass>
+   <ms>, ...` after each `gpu` line. Ryujinx's timestamps read 0.
+   Console, same settings at 537 MHz (user's log, 97 lines): ASR takes 23.3 ms of a 35.5 ms frame. Accumulate (with
+   sharpening, 1280x720 fragments, 84 registers, no scratch) 14.2 ms; depth clip 3.4 (52 registers); RCAS 2.0; lock
+   1.8 (scratch 6656 bytes a warp: spills); reconstruct depth 1.4; luma pyramid 0.6; clears 0.1. The scene itself
+   is ~12 ms. Accumulate runs once per output pixel, so 1080p output would multiply its 14 ms by 2.25.
+   So deko3d runs ASR without sharpening (no RCAS pass: -2.0 ms; the menu's "Nettete" line shows for FSR 1.0 only),
+   and the start menu shows a red warning under an ASR choice: 30 fps needs the GPU at 768 MHz (the dock's clock), 20
+   fps or less handheld; ASR to 1080p will not hold 30 fps even docked (estimated from the per-pixel cost above).
+   Kino on Ryujinx, 960x540 to 1280x720, quality shaders: the right image (game over screen, lobby) for 5 minutes,
+   no fault, 18-21 fps (Ryujinx's own speed, not the console's). The traced frame (`deko3d_debug`) logs ASR's jobs and
+   reads back the centre texel of each of its textures (`asr probe` lines), which located the last two bugs.
+   - the balanced and performance shaders render a reactive history in R8_SNORM, kept out of the renderable formats:
+     the context failed and the frontend fell back to FSR 1.0. Stored as R16F (only floats in -1..1 go through it).
+   - at 854x480 Ryujinx's GPU command stream broke a few seconds into ASR (`IndexOutOfRangeException` in
+     `LoadMmeInstructionRam`); 856x480, 960x540 and every output ran. 854 is no multiple of ASR's 8x8 compute groups,
+     whose stores past the right edge Vulkan drops. The start menu renders 856x480 at 480p with ASR (FSR 1.0 keeps
+     854); whether the console drops them is not known.
+   Ryujinx, Kino, 4-5 minutes each, no fault: quality 960x540 to 1280x720 and to 1920x1080, performance 960x540 to
+   1280x720 and 856x480 to 1920x1080.
+   The start menu offers it: "Agrandissement" (none, FSR 1.0, ASR quality, balanced, performance) and "Sortie"
+   (720p, 1080p for the dock) below 720p. Next: the console's cost (item 3).
+   The work, in order:
+   1. (Superseded by the route above.) A GL-dialect variant of ASR's GPU glue (`include/gpu/ffxm_core_glsl.h`, `fsr2/ffxm_fsr2_callbacks_glsl.h`,
       the passes' resource declarations) in `src/gfx_backend/deko3d/asr/`, never editing `third_party/arm_asr`:
       combined samplers at deko3d's per-stage bindings, `FFXM_HALF 0` (the 32-bit paths; uam has no float16 type),
       quad operations replaced where uam lacks `GL_KHR_shader_subgroup_quad`, images with explicit formats.
@@ -318,6 +392,8 @@ with headroom. Two modes:
 - Estimate: 1-2 sessions for SSAA, 1 for native AA once ASR works.
 
 ## Step 8 — OpenBSD (last, after ASR and SSAA)
+The OpenBSD build without Vulkan ran on the user's machine on 2026-11-24 (`6ae8bd5`, GL, started from ZmClient; a
+shader warming phase at start was their only remark). This step only adds the Vulkan backend to it.
 - Cross-build with `BO1_VULKAN` (`~/cross-pkg-openbsd`, mirror `/home/james/build/bo1-openbsd`). volk loads
   `libvulkan.so` at run time and the headers are vendored: no new build dependency.
 - Packaging is unchanged apart from a README line.

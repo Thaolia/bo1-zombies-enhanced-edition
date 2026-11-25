@@ -126,6 +126,10 @@ ROW_HELP = {
     "fsr_sharpness": "Le renforcement des contours après l'agrandissement (r_mod_upscaleSharpness) : « forte » est le "
                      "réglage d'AMD ; « douce » ou « faible » si l'image paraît granuleuse.",
     "fps_counter": "Le petit compteur d'images par seconde du portage, en haut à gauche.",
+    "shader_warming": "Au premier rendu d'une map, le jeu dessine une fois chaque matériau pour que le pilote compile "
+                      "ses shaders d'avance (r_shaderWarming) : moins de saccades ensuite, mais l'image se fige "
+                      "longtemps au chargement (« shader warming » en rouge, 2 minutes et plus sur un portable). "
+                      "Désactivé par défaut ; ZmClient le donne à chaque lancement, il l'emporte sur config.cfg.",
     "scene_models": "Les modèles que le jeu dessine par image (r_mod_sceneModels ; 1024 dans le jeu d'origine). Une map "
                     "importée par Mapkit en a bien plus (Nuketown : 2 096 props) : à 1024 les plus lointains manquent "
                     "(l'horloge de la tour vue de la rue). 4096 les dessine tous et agrandit d'autant la réserve "

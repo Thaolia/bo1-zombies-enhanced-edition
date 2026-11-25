@@ -45,7 +45,7 @@ Version anglaise : `README.md`. La référence complète et détaillée se trouv
 | Windows 64 bits | jouable | le renderer D3D9 d'origine ; `Play.bat`, `zmclient.exe` |
 | Windows 32 bits | build de référence | la disposition du jeu d'origine ; `Play.bat offline` sans Steam |
 | Linux x86-64 | en cours | client OpenGL 4.3, serveur dédié et client sans affichage ; pas encore de son ni de manette |
-| OpenBSD/amd64 | compile | compilé depuis Linux ; pas encore lancé sur une vraie machine |
+| OpenBSD/amd64 | fonctionne | compilé depuis Linux ; joué sur une vraie machine avec ZmClient (OpenGL) |
 | Nintendo Switch 1 | homebrew jouable | `.nro` pour Atmosphère, deko3d ou OpenGL, menu de démarrage sur la console |
 
 ## Pour commencer
@@ -177,8 +177,10 @@ Au lancement, un menu texte s'ouvre avant le jeu. On y choisit :
   script est sur la carte SD) et l'apparition plus rapide des zombies (mod spawnrate : de 2 à 10 fois, avec ou sans
   le sprint jusqu'aux barricades) ;
 - le rendu (deko3d ou OpenGL), la résolution (720p, ou 540p / 480p pour plus de FPS, 540p conseillé en ligne : la console agrandit l'image à
-  l'écran ; sous 720p, **FSR 1.0** peut l'agrandir en 720p à la place, plus net que l'étirement de la console, avec
-  cinq niveaux de netteté), la limite de FPS (30 ou 60), les ombres, la distance des props (normale, réduite ou
+  l'écran ; sous 720p, **FSR 1.0** ou **Arm ASR** (temporel, shaders qualité, équilibré ou performance, deko3d
+  seulement) peut l'agrandir en 720p ou en 1080p (pour le dock) à la place, plus net que l'étirement de la console ;
+  FSR 1.0 a cinq niveaux de netteté, ASR tourne sans accentuation. ASR coûte bien plus de temps GPU : à Kino, de 480p
+  vers 720p, 30 FPS avec le GPU à 768 MHz (la fréquence du dock) et 20 FPS à 537 MHz, et le menu en avertit), la limite de FPS (30 ou 60), les ombres, la distance des props (normale, réduite ou
   courte : `r_lodScaleRigid` 1, 1,5 ou 2, les objets du décor dessinés plus simples et moins loin, pour plus de FPS
   sur les maps BO2 natives), le filtre de texture et le compteur FPS/batterie ;
 - les infos speedrun (`bo1_runinfo`, aussi dans la vue Lancement de ZmClient) : les réglages qui changent une partie
@@ -234,7 +236,7 @@ bo1_headless 1` pour le serveur dédié (et `+set bo1_headless_client 1` pour le
 d'OpenGL dans le log. Les zones converties avant le 2026-10-24 ont besoin d'un nouveau `shaders.pack` (relancer
 `ffconv`).
 
-Sur OpenBSD/amd64, le même build posix compile aussi (pas encore lancé sur une machine OpenBSD ici). Il se compile
+Sur OpenBSD/amd64, le même build posix fonctionne aussi (joué sur une vraie machine OpenBSD, depuis ZmClient). Il se compile
 en croisé depuis Linux avec une chaîne clang/lld pour OpenBSD dont le sysroot contient les sets officiels et le paquet
 `sdl2` : passe son fichier CMake (`-DCMAKE_TOOLCHAIN_FILE=...`) et `-DSDL2_DIR=<sysroot>/usr/local/lib/cmake/SDL2`.
 Les différences d'OS sont sous `#if defined(__OpenBSD__)` dans `src/platform/posix` (sysctl au lieu de `/proc`,

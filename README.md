@@ -43,7 +43,7 @@ French version: `README.fr.md`. The full, detailed reference is [below](#detaile
 | Windows 64-bit | playable | the original D3D9 renderer; `Play.bat`, `zmclient.exe` |
 | Windows 32-bit | reference build | the retail layout; `Play.bat offline` without Steam |
 | Linux x86-64 | work in progress | OpenGL 4.3 client, dedicated server and headless client; no sound or gamepad yet |
-| OpenBSD/amd64 | compiles | cross-built from Linux; not yet run on a real machine |
+| OpenBSD/amd64 | runs | cross-built from Linux; played on a real machine with ZmClient (OpenGL) |
 | Nintendo Switch 1 | playable homebrew | `.nro` for Atmosphère, deko3d or OpenGL, start menu on the console |
 
 ## Getting started
@@ -158,8 +158,10 @@ On the console the game starts in a text menu, where you choose:
   Pack-a-Punch (mods/unlimitedpap, when its script is on the SD card) and the faster spawns (mods/spawnrate: 2 to 10
   times, with or without the sprint to the barriers);
 - the renderer (deko3d or OpenGL), the resolution (720p, or 540p / 480p for more frames, 540p advised online: the console scales the image to the
-  screen; below 720p, **FSR 1.0** can upscale it to 720p instead, sharper than the console's stretch, with five
-  sharpness levels), the frame-rate cap, shadows, the props' distance (normal, reduced or short: `r_lodScaleRigid`
+  screen; below 720p, **FSR 1.0** or **Arm ASR** (temporal, quality, balanced or performance shaders, deko3d only)
+  can upscale it to 720p or 1080p (for the dock) instead, sharper than the console's stretch; FSR 1.0 has five
+  sharpness levels, ASR runs unsharpened. ASR costs far more GPU time: at Kino, 480p to 720p held 30 fps with the GPU
+  at 768 MHz (the dock's clock) and 20 fps at 537 MHz, and the menu warns of it), the frame-rate cap, shadows, the props' distance (normal, reduced or short: `r_lodScaleRigid`
   1, 1.5 or 2, scenery objects drawn simpler and less far for more frames on the native BO2 maps), texture filtering
   and the FPS/battery counter;
 - the speedrun info (`bo1_runinfo`, also a ZmClient launch setting): the settings that change a run (mods, god mode,
@@ -210,7 +212,7 @@ folder> +devmap zombie_theater` for the windowed client, with `+set bo1_headless
 `BO1_GL_DEBUG=1` logs OpenGL's debug messages. Converted zones from before 2026-10-24 need a new `shaders.pack`
 (`ffconv` again).
 
-On OpenBSD/amd64 the same posix build compiles as well (not yet run on an OpenBSD machine here). It cross-compiles
+On OpenBSD/amd64 the same posix build runs as well (played on a real OpenBSD machine, from ZmClient). It cross-compiles
 from Linux with an OpenBSD clang/lld toolchain whose sysroot holds the official sets and the `sdl2` package: pass that
 toolchain's CMake file (`-DCMAKE_TOOLCHAIN_FILE=...`) and `-DSDL2_DIR=<sysroot>/usr/local/lib/cmake/SDL2`. The OS
 differences are under `#if defined(__OpenBSD__)` in `src/platform/posix` (sysctl instead of `/proc`, `funopen`,

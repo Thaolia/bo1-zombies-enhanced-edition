@@ -68,6 +68,21 @@ const LauncherPropDistance kLauncherPropDistances[] = {
 };
 const int kLauncherPropDistanceCount = int(sizeof(kLauncherPropDistances) / sizeof(kLauncherPropDistances[0]));
 
+const LauncherUpscaler kLauncherUpscalers[] = {
+    {"off", "Non", nullptr},
+    {"fsr1", "FSR 1.0", "fsr1"},
+    {"asr_quality", "ASR qualite", "asr"},
+    {"asr_balanced", "ASR equilibre", "asr_balanced"},
+    {"asr_performance", "ASR performance", "asr_performance"},
+};
+const int kLauncherUpscalerCount = int(sizeof(kLauncherUpscalers) / sizeof(kLauncherUpscalers[0]));
+
+bool Launcher_UpscalerIsAsr(int index)
+{
+    const char *mode = index >= 0 && index < kLauncherUpscalerCount ? kLauncherUpscalers[index].mode : nullptr;
+    return mode && !std::strncmp(mode, "asr", 3);
+}
+
 const LauncherFsrSharpness kLauncherFsrSharpness[] = {
     {"max", "Maximale", "0"},
     {"strong", "Forte", "0.2"}, // AMD's default
@@ -277,7 +292,23 @@ void Apply(LauncherSettings *s, const std::string &key, const std::string &value
             s->height = std::atoi(value.c_str());
     }
     else if (key == "fsr1")
-        ParseBool(value, &s->fsr1);
+    {
+        // menu.cfg before the upscaler choice; a later upscaler= line wins
+        bool fsr1 = false;
+        ParseBool(value, &fsr1);
+        s->upscaler = fsr1 ? 1 : 0;
+    }
+    else if (key == "upscaler")
+    {
+        for (int i = 0; i < kLauncherUpscalerCount; ++i)
+            if (value == kLauncherUpscalers[i].key)
+                s->upscaler = i;
+    }
+    else if (key == "output")
+    {
+        if (value == "720" || value == "1080")
+            s->output = std::atoi(value.c_str());
+    }
     else if (key == "fsr_sharpness")
     {
         for (int i = 0; i < kLauncherFsrSharpnessCount; ++i)
@@ -373,7 +404,8 @@ std::string Launcher_FormatSettings(const LauncherSettings &s)
     out += "spawnrate=" + std::to_string(s.spawnRate) + "\n";
     out += std::string("spawnrate_rush=") + (s.spawnRush ? "1" : "0") + "\n";
     out += "resolution=" + std::to_string(s.height) + "\n";
-    out += std::string("fsr1=") + (s.fsr1 ? "1" : "0") + "\n";
+    out += std::string("upscaler=") + kLauncherUpscalers[s.upscaler].key + "\n";
+    out += "output=" + std::to_string(s.output) + "\n";
     out += std::string("fsr_sharpness=") + kLauncherFsrSharpness[s.fsrSharpness].key + "\n";
     out += "maxfps=" + std::to_string(s.maxFps) + "\n";
     out += std::string("shadows=") + (s.shadows ? "1" : "0") + "\n";
@@ -439,8 +471,12 @@ std::string Launcher_BuildLaunchLine(const LauncherSettings &s, const std::strin
     if (kit && s.startPerks != 0)
         line += " +set zm_startperks " + Launcher_StartPerkList(s);
     // The game runs windowed on the console (r_fullscreen 0), so r_customMode sizes its back buffer; the swapchain
-    // takes that size and the console's compositor scales the frame to the screen.
-    line += std::string(" +set r_fullscreen 0 +set r_customMode ") + (s.height == 480 ? "854x480" : s.height == 540 ? "960x540" : "1280x720");
+    // takes that size and the console's compositor scales the frame to the screen. Arm ASR at 480p renders 856 wide,
+    // a multiple of its 8x8 compute groups: at 854 its passes store past the right edge of their images, which Vulkan
+    // drops and which corrupted Ryujinx's GPU command stream (docs/VULKAN.md, step 6, item 4).
+    const bool asr = kLauncherUpscalers[s.upscaler].mode && std::string(kLauncherUpscalers[s.upscaler].mode) != "fsr1";
+    line += std::string(" +set r_fullscreen 0 +set r_customMode ") +
+            (s.height == 480 ? (asr ? "856x480" : "854x480") : s.height == 540 ? "960x540" : "1280x720");
     line += " +set com_maxfps " + std::to_string(s.maxFps);
     line += std::string(" +set sm_enable ") + (s.shadows ? "1" : "0");
     line += std::string(" +set r_lodScaleRigid ") + kLauncherPropDistances[s.propDistance].scale;
@@ -482,9 +518,11 @@ std::string Launcher_BuildLaunchLine(const LauncherSettings &s, const std::strin
 
 std::vector<std::string> Launcher_UpscaleEnvironment(const LauncherSettings &s)
 {
-    if (!s.fsr1 || s.height >= 720)
+    const char *mode = kLauncherUpscalers[s.upscaler].mode;
+    if (!mode || s.height >= 720)
         return {};
-    return {"BO1_UPSCALE=fsr1", "BO1_UPSCALE_OUTPUT=1280x720",
+    return {std::string("BO1_UPSCALE=") + mode,
+            std::string("BO1_UPSCALE_OUTPUT=") + (s.output == 1080 ? "1920x1080" : "1280x720"),
             std::string("BO1_UPSCALE_SHARPNESS=") + kLauncherFsrSharpness[s.fsrSharpness].stops};
 }
 

@@ -284,3 +284,34 @@ Rules for any Switch 1 homebrew project built with devkitPro + libnx, verified o
   registers depending on its component selector (bits 50-52) and on its second destination (bits 28-35) being RZ, a
   `TEX` one register per enabled component (mask at bits 31-34), and `RRO`, `F2F`, `I2F` read only Rb. Guessing "4
   registers" flagged 11 280 of 13 348 pixel shaders that were in fact hazard-free.
+- A compute DKSH has no 0x50-byte program header: its first control word is at the entry point, where a graphics
+  program has its header and the first control word 0x50 further. Code that walks the control words (BO1's
+  `UseMesaSchedule`) must skip the header for graphics programs only (DKSH program type 5 is compute); skipping it on a
+  compute shader rewrites instructions as control words, and Ryujinx died translating them
+  (`InvalidMemoryRegionException` with a negative size in `ShaderCache.GetComputeShader`) (BO-Zombies_switch,
+  2026-11-24).
+- Size the queue's scratch memory (`DkQueueMaker::perWarpScratchMemorySize`, default 2048 bytes a warp) from the DKSH
+  program headers' `per_warp_scratch_sz` (field 5) of every shader you bind. deko3d checks it when a compute shader is
+  bound (`DkResult_OutOfMemory`, abort 2359-0003 in `ComputeQueue::bindShader`) and never for a graphics shader, which
+  silently overruns it. Arm ASR's lock pass needs 6656, its previous-depth fragment pass 4096 (BO-Zombies_switch,
+  2026-11-24).
+- Declare a storage image's GLSL format qualifier as the texture's own format (Arm ASR declares `rw_auto_exposure`
+  `rgba32f` for an RG16F texture; GL leaves a mismatch undefined). When a deko3d compute or fragment result is garbage,
+  read back a texel of each texture the pass writes, and compare it with the clear value before suspecting the maths:
+  ASR's "-1 and 65504" exposure, first blamed on that qualifier, was its own clear, never overwritten
+  (BO-Zombies_switch, 2026-11-24, corrected 2026-11-25).
+- Ryujinx 1.1.1375 does not translate Mesa's image atomic `SUATOM` (opcode `0xEA6`/`0xEA7` in the top 12 bits, uam
+  emits it for `imageAtomicAdd`/`imageAtomicMax`): its log says `Shader translator: Invalid instruction at 0x...` and the
+  atomic writes nothing. Arm ASR's luminance pyramid then never finds its last workgroup and never writes the exposure.
+  Grep the emulator log for "Invalid instruction" whenever a compute result is missing, and prove an atomic by
+  seeding its target (a counter set to 1000 still read 1000 after 135 workgroups); judge atomics on the console
+  (BO-Zombies_switch, 2026-11-25).
+- A Maxwell clear (`dkCmdBufClearColorFloat`) of a 16-bit float target stored 1e8 as 65504 on Ryujinx, where IEEE
+  rounding gives infinity. A shader that uses a huge clear value as a sentinel (ASR: exposure luma >= 1e8 means "no
+  history") then misreads it: pass infinity yourself for a value beyond 65504 (BO-Zombies_switch, 2026-11-25).
+- Ryujinx 1.1.1375 answers `clkrst` (opens sessions, `GetClockRate` succeeds) but every rate reads 0 MHz: clock logging
+  is checked on the console only (BO-Zombies_switch, 2026-11-24).
+- Give a compute pass images whose size is a multiple of its workgroup size, or bounds-check its stores: at 854x480 Arm
+  ASR's 8x8 groups store past the right edge, which Vulkan drops, and Ryujinx's GPU command stream broke a few seconds
+  later (`IndexOutOfRangeException` in `GPFifoClass.LoadMmeInstructionRam`); 856x480 ran (BO-Zombies_switch,
+  2026-11-24).
