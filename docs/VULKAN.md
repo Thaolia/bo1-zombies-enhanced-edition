@@ -311,6 +311,10 @@ optimised for mobile GPUs:
    ms for FSR 1.0 to 1080p at 537 MHz: about 24 ms for ASR itself. To find where, each ASR job is timed on the GPU (a
    timestamp before it and after its barrier) and the backend logs `asr gpu <total> ms a frame over 16 frames: <pass>
    <ms>, ...` after each `gpu` line. Ryujinx's timestamps read 0.
+   Console, same settings at 537 MHz (user's log, 97 lines): ASR takes 23.3 ms of a 35.5 ms frame. Accumulate (with
+   sharpening, 1280x720 fragments, 84 registers, no scratch) 14.2 ms; depth clip 3.4 (52 registers); RCAS 2.0; lock
+   1.8 (scratch 6656 bytes a warp: spills); reconstruct depth 1.4; luma pyramid 0.6; clears 0.1. The scene itself
+   is ~12 ms. Accumulate runs once per output pixel, so 1080p output would multiply its 14 ms by 2.25.
    Kino on Ryujinx, 960x540 to 1280x720, quality shaders: the right image (game over screen, lobby) for 5 minutes,
    no fault, 18-21 fps (Ryujinx's own speed, not the console's). The traced frame (`deko3d_debug`) logs ASR's jobs and
    reads back the centre texel of each of its textures (`asr probe` lines), which located the last two bugs.
