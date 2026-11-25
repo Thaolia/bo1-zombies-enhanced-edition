@@ -5,6 +5,7 @@
 #include "win32_handles.h"
 
 #include <gfx_d3d9emu/d3d9emu_host.h>
+#include <platform/mod_upscale.h>
 
 #include <SDL.h>
 
@@ -17,6 +18,28 @@
 char *__cdecl Sys_DefaultInstallPath();
 namespace gb { const char *Name(); } // backend name, for ShaderPackPath
 void Com_Printf(int channel, const char *fmt, ...);
+
+#if defined(BO1_MOD_UPSCALE)
+// What r_mod_upscale asked for (r_init.cpp, R_SetD3DPresentParameters): the back buffer and the frontend's settings.
+static unsigned int s_backWidth, s_backHeight;
+static d3d9emu::host::UpscaleSettings s_upscale;
+
+void Bo1_SetUpscale(unsigned int backWidth, unsigned int backHeight, unsigned int outputWidth,
+                    unsigned int outputHeight, float sharpness, unsigned int temporal)
+{
+    s_backWidth = backWidth;
+    s_backHeight = backHeight;
+    s_upscale = {outputWidth, outputHeight, sharpness, uint8_t(temporal <= 3 ? temporal : 0)};
+}
+
+void Bo1_ClientToBackBuffer(int *x, int *y)
+{
+    if (!s_upscale.outputWidth || !s_upscale.outputHeight)
+        return;
+    *x = int(int64_t(*x) * s_backWidth / s_upscale.outputWidth);
+    *y = int(int64_t(*y) * s_backHeight / s_upscale.outputHeight);
+}
+#endif
 
 namespace d3d9emu::host
 {
@@ -122,10 +145,18 @@ const char *ShaderPackPath()
     return path.c_str();
 }
 
-// BO1_UPSCALE=fsr1 turns it on, BO1_UPSCALE_OUTPUT=<width>x<height> gives the output (required),
-// BO1_UPSCALE_SHARPNESS the RCAS stops (default 0.2, AMD's). The Switch start menu sets them (switch_main.cpp).
+// r_mod_upscale when it is on (desktop posix); otherwise BO1_UPSCALE=fsr1 turns it on,
+// BO1_UPSCALE_OUTPUT=<width>x<height> gives the output (required), BO1_UPSCALE_SHARPNESS the RCAS stops (default 0.2,
+// AMD's). The Switch start menu sets them (switch_main.cpp).
 bool Upscale(UpscaleSettings *settings)
 {
+#if defined(BO1_MOD_UPSCALE)
+    if (s_upscale.outputWidth && s_upscale.outputHeight)
+    {
+        *settings = s_upscale;
+        return true;
+    }
+#endif
     static const UpscaleSettings *chosen = []() -> const UpscaleSettings * {
         const char *mode = getenv("BO1_UPSCALE");
         if (!mode || !*mode || !std::strcmp(mode, "off"))

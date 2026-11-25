@@ -423,7 +423,7 @@ if wants linux; then
     build_zmadmin linux "$ROOT/build/zmadmin/linux/zmadmin"
     build_zmclient linux "$ROOT/build/zmclient/linux/zmclient"
 fi
-if { wants windows || wants linux; } && [ "$GAME_DATA" = 1 ]; then
+if { wants windows || wants linux || wants openbsd; } && [ "$GAME_DATA" = 1 ]; then
     build_spirv
 fi
 if wants openbsd; then
@@ -836,6 +836,10 @@ CLIENT      ./zmclient                    lanceur : partie solo (map, mods, hord
             installation des fichiers du jeu (la conversion des zones lance ffconv.exe avec wine).
 JOUER       ./play.sh                     ouvre le menu du jeu (Zombies, Solo, une map).
             FULLSCREEN=1 ./play.sh        en plein écran.
+VULKAN      facultatif, OpenGL reste le rendu par défaut : zmclient, vue Lancement, « API graphique » Vulkan,
+            puis « Agrandissement » (FSR 1.0, Arm ASR, suréchantillonnage) ; ou BO1_GFX_BACKEND=vulkan ./play.sh.
+            Il faut shaders.spv à côté du programme et un pilote Vulkan 1.3. Sans lui le jeu ne démarre pas :
+            repassez à OpenGL.
 REJOINDRE   ./play.sh net 192.168.1.20:3074 MonNom
             rejoint un serveur dédié dès que le menu est prêt, et y revient tout seul après une coupure.
 SERVEUR     ./server.sh [map] [port]      par défaut : zombie_theater 3074
@@ -990,6 +994,7 @@ package_openbsd() {
         dualwield_data "$d"
         unlimitedpap_data "$d"
         cp "$ZONES/shaders.pack" "$d/"
+        rsync -a "$WORK/spirv/shaders.spv" "$d/"
     fi
     # OpenBSD's base system has no bash: both scripts are POSIX sh (ksh).
     cat > "$d/bo1_program.sh" << 'EOF'
@@ -1084,6 +1089,11 @@ CLIENT      ./zmclient                    lanceur : partie solo (map, mods, hord
             n'existe pas pour OpenBSD (voir la fin de ce fichier).
 JOUER       ./play.sh                     ouvre le menu du jeu (Zombies, Solo, une map).
             FULLSCREEN=1 ./play.sh        en plein écran.
+VULKAN      facultatif, OpenGL reste le rendu par défaut : zmclient, vue Lancement, « API graphique » Vulkan,
+            puis « Agrandissement » (FSR 1.0, Arm ASR, suréchantillonnage) ; ou BO1_GFX_BACKEND=vulkan ./play.sh.
+            Il faut shaders.spv à côté du programme, le chargeur Vulkan (doas pkg_add vulkan-loader) et un pilote
+            Mesa qui donne Vulkan 1.3 (radv, anv). Sans eux le jeu ne démarre pas : repassez à OpenGL. Jamais
+            essayé sur OpenBSD : renvoyez main/console_mp.log (lignes vk: et d3d9emu:).
 REJOINDRE   ./play.sh net 192.168.1.20:3074 MonNom
             rejoint un serveur dédié dès que le menu est prêt, et y revient tout seul après une coupure.
 SERVEUR     ./server.sh [map] [port]      par défaut : zombie_theater 3074
@@ -1109,7 +1119,7 @@ serveur en prend environ 650 Mo sur Kino, le client bien plus (textures, pilote 
 montent au maximum de la classe et préviennent sous 3 Go (client) ou 1 Go (serveur) : il faut alors une classe plus
 large (staff, ou une classe à vous ; usermod -L <classe> <vous>). zmclient et zmadmin la montent de même pour le
 jeu et les serveurs qu'ils lancent.
-Pas encore essayé sur une vraie machine OpenBSD : renvoyez main/console_mp.log en cas de problème.
+Joué sur une vraie machine OpenBSD avec OpenGL ; Vulkan pas encore : renvoyez main/console_mp.log en cas de problème.
 
 EOF
     bo2_note >> "$d/LISEZMOI.txt"
@@ -1119,8 +1129,10 @@ EOF
         cat >> "$d/LISEZMOI.txt" << 'EOF'
 Ce dossier ne contient aucun fichier du jeu. ffconv n'existe pas pour OpenBSD : installez d'abord
 le paquet Windows ou Linux sur un PC avec votre Call of Duty: Black Ops (Steam), faites-y l'installation (zmclient,
-vue Installation, F7), puis copiez de ce dossier vers celui-ci : localization.txt, shaders.pack, zone/ et main/
-(ses .iwd et video/). Ce sont alors vos propres fichiers de jeu : gardez-les pour vos machines, ne les publiez pas.
+vue Installation, F7), puis copiez de ce dossier vers celui-ci : localization.txt, shaders.pack, shaders.spv
+(pour Vulkan), zone/ et main/ (ses .iwd et video/). Ce sont alors vos propres fichiers de jeu : gardez-les pour vos
+machines, ne les publiez pas. Sans shaders.spv, la vue Installation de zmclient le compile ici avec le glslang du
+système (doas pkg_add glslang), conversion des zones décochée (z).
 EOF
     fi
     write_version "$d" openbsd "programs: ${OPENBSD_FLAVORS[*]/#/BO1Zombies-}"

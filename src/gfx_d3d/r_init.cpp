@@ -369,17 +369,22 @@ char __cdecl R_CreateDevice(const GfxWindowParms *wndParms)
     }
 }
 
-#if defined(BO1_WIN_VULKAN)
-// mod: r_mod_upscale (emulated Direct3D only): the back buffer, which vidConfig and D3D9 both use, is the window's size
-// over the mode's factor; the window keeps its own size and the frontend upscales into it. "native" keeps the window's
-// size and asks for the upscaler anyway: Arm ASR at 1:1 is a temporal anti-aliasing (docs/VULKAN.md, step 7). The
-// ssaa modes make the back buffer larger than the window: the frontend averages it down (supersampling).
+#if defined(BO1_MOD_UPSCALE)
+// mod: r_mod_upscale (emulated Direct3D only, which posix always is): the back buffer, which vidConfig and D3D9 both
+// use, is the window's size over the mode's factor; the window keeps its own size and the frontend upscales into it.
+// "native" keeps the window's size and asks for the upscaler anyway: Arm ASR at 1:1 is a temporal anti-aliasing
+// (docs/VULKAN.md, step 7). The ssaa modes make the back buffer larger than the window: the frontend averages it down
+// (supersampling).
 // True while the mode asks for the upscaler.
 static bool R_ModUpscaleSize(int windowWidth, int windowHeight, unsigned int *width, unsigned int *height)
 {
     static const float factors[] = {1.0f, 1.3f, 1.5f, 1.7f, 2.0f, 1.0f, 1.0f / 1.5f, 0.5f};
     const int mode = r_mod_upscale ? r_mod_upscale->current.integer : 0;
-    if ( !Bo1_EmulatedDirect3DActive() || mode <= 0 || mode >= (int)(sizeof(factors) / sizeof(factors[0])) )
+#if defined(BO1_WIN_VULKAN)
+    if ( !Bo1_EmulatedDirect3DActive() )
+        return false;
+#endif
+    if ( mode <= 0 || mode >= (int)(sizeof(factors) / sizeof(factors[0])) )
         return false;
     *width = (unsigned int)((float)windowWidth / factors[mode] + 0.5f);
     *height = (unsigned int)((float)windowHeight / factors[mode] + 0.5f);
@@ -400,7 +405,7 @@ void __cdecl R_SetD3DPresentParameters(_D3DPRESENT_PARAMETERS_ *d3dpp, const Gfx
     memset((unsigned __int8 *)d3dpp, 0, sizeof(_D3DPRESENT_PARAMETERS_));
     d3dpp->BackBufferHeight = wndParms->displayHeight;
     d3dpp->BackBufferWidth = wndParms->displayWidth;
-#if defined(BO1_WIN_VULKAN)
+#if defined(BO1_MOD_UPSCALE)
     if ( R_ModUpscaleSize(wndParms->displayWidth, wndParms->displayHeight, &d3dpp->BackBufferWidth,
                           &d3dpp->BackBufferHeight) )
     {
@@ -947,7 +952,7 @@ void __cdecl R_StoreWindowSettings(const GfxWindowParms *wndParms)
     vidConfig.sceneHeight = wndParms->sceneHeight;
     vidConfig.displayWidth = wndParms->displayWidth;
     vidConfig.displayHeight = wndParms->displayHeight;
-#if defined(BO1_WIN_VULKAN)
+#if defined(BO1_MOD_UPSCALE)
     R_ModUpscaleSize(wndParms->displayWidth, wndParms->displayHeight, &vidConfig.displayWidth, &vidConfig.displayHeight);
     R_ModUpscaleSize(wndParms->sceneWidth, wndParms->sceneHeight, &vidConfig.sceneWidth, &vidConfig.sceneHeight);
 #endif

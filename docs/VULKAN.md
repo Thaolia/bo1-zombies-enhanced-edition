@@ -8,8 +8,9 @@ wraps: both write the same bytes). The Windows package carries Khronos' `glslang
 
 Status (2026-11-24): steps 1-3 and 7 done; step 5 done but for two checks (Kino's cyan glow, NVIDIA and AMD); step 6
 done on PC (Arm ASR with its reactive mask), all merged into `switch`. Open: step 4 (GL/Vulkan parity screenshots on
-Linux, never run), ASR on the Switch (step 6, item 4, started 2026-11-24) and Vulkan on OpenBSD (step 8). The OpenBSD
-build itself (GL) ran on the user's machine on 2026-11-24 (`6ae8bd5`, started from ZmClient).
+Linux, never run), ASR on the Switch (step 6, item 4: on the console since 2026-11-25) and Vulkan on OpenBSD (step 8:
+built 2026-11-25, not tried on OpenBSD). The OpenBSD build itself (GL) ran on the user's machine on 2026-11-24
+(`6ae8bd5`, started from ZmClient).
 Each step updates this file, `docs/RENDERER.md` and `docs/PORTING.md` (phase 9) in the session that does it.
 
 ## Goals and constraints
@@ -391,14 +392,34 @@ with headroom. Two modes:
   keeps its position); screenshots on win64 and Linux; frame times at 1.5x and 2x on the user's Iris Xe.
 - Estimate: 1-2 sessions for SSAA, 1 for native AA once ASR works.
 
-## Step 8 — OpenBSD (last, after ASR and SSAA)
+## Step 8 — OpenBSD (last, after ASR and SSAA) — built, not tried on OpenBSD (2026-11-25)
 The OpenBSD build without Vulkan ran on the user's machine on 2026-11-24 (`6ae8bd5`, GL, started from ZmClient; a
-shader warming phase at start was their only remark). This step only adds the Vulkan backend to it.
-- Cross-build with `BO1_VULKAN` (`~/cross-pkg-openbsd`, mirror `/home/james/build/bo1-openbsd`). volk loads
-  `libvulkan.so` at run time and the headers are vendored: no new build dependency.
-- Packaging is unchanged apart from a README line.
-- Never run on real OpenBSD by us: Vulkan there is "for a player to try", and GL stays the default.
-- Estimate: 0.5-1 session.
+shader warming phase at start was their only remark). This step adds the Vulkan backend to it.
+- `BO1_VULKAN` was already ON for every posix target: only the OpenBSD builds made before Vulkan lacked it. A fresh
+  cross-build (`~/cross-pkg-openbsd`, `-DOPENBSD_FLAVOR=current`, `OPENBSD_LLD` set,
+  `-DPython3_EXECUTABLE=/usr/bin/python3` for the layout check's clang module) compiles and links with no warning in the Vulkan, volk, VMA, Arm ASR or
+  frontend files. The program needs no new library: volk opens `libvulkan.so.1`, then `libvulkan.so` (OpenBSD's
+  `dlopen` takes the highest version for the unversioned name), and SDL2's OpenBSD package has `SDL_VIDEO_VULKAN`.
+- `r_mod_upscale`, `r_mod_upscaler` and `r_mod_upscaleSharpness` now exist on desktop posix too
+  (`src/platform/mod_upscale.h`, `BO1_MOD_UPSCALE`: win64 Vulkan and posix, not the Switch, never win32): ZmClient's
+  "Agrandissement" rows had passed them on Linux, where they did nothing since posix only read `BO1_UPSCALE*`. The
+  posix host keeps what `R_SetD3DPresentParameters` asked (`Bo1_SetUpscale`) and hands it to the frontend before the
+  environment variables, which still work when the dvar is off; `Bo1_ClientToBackBuffer` maps the mouse as on win64.
+  They apply on GL too (FSR 1.0 and SSAA; ASR needs Vulkan), so ZmClient passes `r_mod_upscale off` when Vulkan is
+  not chosen: the dvar is archived and an old Vulkan choice would otherwise carry over to GL.
+- Checked on Linux (WSL, offscreen, headless client): GL with `r_mod_upscale quality` logs
+  `r_mod_upscale: fsr1 quality, 683 x 512 to the 1024 x 768 window` and the frontend upscales 683x512 to 1024x768;
+  `d3d9emu_test`, `upscale_gl_test`, `gb_gl_test` (48), `gb_vk_test` (49), `launcher_config_test`, ZmClient's tests;
+  `tools/codediff.py`: `r_init.cpp`, `r_dvars.cpp`, `win_input.cpp` identical on 32-bit. On Vulkan (lavapipe) with
+  `r_mod_upscaler asr_quality` the engine logs `r_mod_upscale: asr_quality quality, 683 x 512 ...`, but Arm ASR only
+  starts at the first 3D scene and Kino never finished loading on this WSL set-up (headless client under offscreen,
+  GL or Vulkan, 5-10 minutes): the same stall with `switch`'s own Linux binary and `r_mod_upscale off`, so it is not
+  this change, and ASR on posix through the dvar is not seen running yet.
+- Packaging: the OpenBSD package carries `shaders.spv` like the Linux one, and its LISEZMOI says how to turn Vulkan
+  on (`vulkan-loader`, a Mesa driver with Vulkan 1.3) and that a `_nodata` package gets `shaders.spv` from the PC
+  install or from ZmClient's Installation view with OpenBSD's `glslang` (conversion unticked).
+- Never run on real OpenBSD by us: Vulkan there is "for a player to try", and GL stays the default. Asking for Vulkan
+  without a driver does not fall back on posix: the game does not start, and the LISEZMOI says to go back to OpenGL.
 
 ## Totals
 | Part | Sessions |
