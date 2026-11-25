@@ -224,6 +224,10 @@ ssize_t TextWrite(void *cookie, const char *buffer, size_t size)
         if ((buffer[i] == '\n' && fputc('\r', stream->raw) == EOF) || fputc((unsigned char)buffer[i], stream->raw) == EOF)
             return i ? (ssize_t)i : -1;
     }
+    // The stream calls this when it flushes. An fflush of the stream (logfile 2) must reach the file, and the raw
+    // stream's own buffer would keep the tail of console_mp.log from a crash.
+    if (fflush(stream->raw) == EOF)
+        return -1;
     return (ssize_t)size;
 }
 

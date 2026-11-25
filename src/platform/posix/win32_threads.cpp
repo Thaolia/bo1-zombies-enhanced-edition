@@ -133,6 +133,9 @@ void ExitIfStopping()
     Bo1Thread *self = t_self;
     if (!s_exiting.load() || !self || !self->created)
         return;
+    pthread_mutex_lock(&self->gateMutex);
+    self->finished = true;
+    pthread_mutex_unlock(&self->gateMutex);
     self->exited.Set();
     UnregisterThread(self);
     s_running.fetch_sub(1);
@@ -279,6 +282,9 @@ void *ThreadTrampoline(void *arg)
     pthread_mutex_unlock(&thread->gateMutex);
 
     thread->exitCode = thread->start(thread->parameter);
+    pthread_mutex_lock(&thread->gateMutex);
+    thread->finished = true;
+    pthread_mutex_unlock(&thread->gateMutex);
     thread->exited.Set();
     UnregisterThread(thread);
     Bo1_Release(thread); // the reference CreateThread gave the running thread
@@ -669,21 +675,26 @@ DWORD SuspendThread(HANDLE hThread)
     }
     pthread_mutex_lock(&thread->gateMutex);
     const int previous = thread->suspendCount.fetch_add(1);
-    const bool interrupt = previous == 0 && thread->started;
-    pthread_mutex_unlock(&thread->gateMutex);
+    // A thread that has returned has nothing left to stop, and glibc hands its pthread_t to the next thread created: a
+    // signal would reach that one instead (SDL's audio thread, whose handler has no ack to give, so Sys_Error waited
+    // forever on Kino's load error). The signal goes out under gateMutex, before the thread can mark itself finished.
+    const bool interrupt = previous == 0 && thread->started && !thread->finished;
 #if !defined(__SWITCH__)
+    if (interrupt && pthread_kill(thread->thread, BO1_SUSPEND_SIGNAL))
+    {
+        thread->suspendCount.fetch_sub(1);
+        pthread_mutex_unlock(&thread->gateMutex);
+        Bo1_SetLastError(ERROR_INVALID_HANDLE);
+        return (DWORD)-1;
+    }
+    pthread_mutex_unlock(&thread->gateMutex);
     if (interrupt)
     {
-        if (pthread_kill(thread->thread, BO1_SUSPEND_SIGNAL))
-        {
-            thread->suspendCount.fetch_sub(1);
-            Bo1_SetLastError(ERROR_INVALID_HANDLE);
-            return (DWORD)-1;
-        }
         while (sem_wait(&thread->suspendAck) && errno == EINTR)
             ;
     }
 #else
+    pthread_mutex_unlock(&thread->gateMutex);
     // The console has no signal-based interrupt yet: the count is tracked but the target is not actually stopped
     // (GetThreadContext then reads an empty context, which its callers already guard against). (docs/PORTING.md)
     (void)interrupt;
@@ -732,7 +743,11 @@ DWORD ResumeThread(HANDLE hThread)
     const int previous = thread->suspendCount;
     if (previous > 0 && --thread->suspendCount == 0)
     {
-        if (thread->started)
+        if (thread->finished)
+        {
+            // SuspendThread did not stop it: nothing waits on resume
+        }
+        else if (thread->started)
             sem_post(&thread->resume);
         else
             pthread_cond_signal(&thread->gateCond);
@@ -745,7 +760,7 @@ DWORD ResumeThread(HANDLE hThread)
 BOOL GetThreadContext(HANDLE hThread, LPCONTEXT lpContext)
 {
     Bo1Thread *thread = ThreadFromHandle(hThread);
-    if (!thread || !lpContext || thread->suspendCount == 0 || !thread->started)
+    if (!thread || !lpContext || thread->suspendCount == 0 || !thread->started || thread->finished)
     {
         Bo1_SetLastError(ERROR_INVALID_PARAMETER);
         return FALSE;

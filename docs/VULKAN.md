@@ -9,7 +9,7 @@ wraps: both write the same bytes). The Windows package carries Khronos' `glslang
 Status (2026-11-24): steps 1-3 and 7 done; step 5 done but for two checks (Kino's cyan glow, NVIDIA and AMD); step 6
 done on PC (Arm ASR with its reactive mask), all merged into `switch`. Open: step 4 (GL/Vulkan parity screenshots on
 Linux, never run), ASR on the Switch (step 6, item 4: on the console since 2026-11-25) and Vulkan on OpenBSD (step 8:
-built 2026-11-25, not tried on OpenBSD). The OpenBSD build itself (GL) ran on the user's machine on 2026-11-24
+built 2026-11-25, not tried on OpenBSD; `r_mod_upscale` runs FSR 1.0 and Arm ASR on Linux, seen 2026-11-26). The OpenBSD build itself (GL) ran on the user's machine on 2026-11-24
 (`6ae8bd5`, started from ZmClient).
 Each step updates this file, `docs/RENDERER.md` and `docs/PORTING.md` (phase 9) in the session that does it.
 
@@ -410,11 +410,12 @@ shader warming phase at start was their only remark). This step adds the Vulkan 
 - Checked on Linux (WSL, offscreen, headless client): GL with `r_mod_upscale quality` logs
   `r_mod_upscale: fsr1 quality, 683 x 512 to the 1024 x 768 window` and the frontend upscales 683x512 to 1024x768;
   `d3d9emu_test`, `upscale_gl_test`, `gb_gl_test` (48), `gb_vk_test` (49), `launcher_config_test`, ZmClient's tests;
-  `tools/codediff.py`: `r_init.cpp`, `r_dvars.cpp`, `win_input.cpp` identical on 32-bit. On Vulkan (lavapipe) with
-  `r_mod_upscaler asr_quality` the engine logs `r_mod_upscale: asr_quality quality, 683 x 512 ...`, but Arm ASR only
-  starts at the first 3D scene and Kino never finished loading on this WSL set-up (headless client under offscreen,
-  GL or Vulkan, 5-10 minutes): the same stall with `switch`'s own Linux binary and `r_mod_upscale off`, so it is not
-  this change, and ASR on posix through the dvar is not seen running yet.
+  `tools/codediff.py`: `r_init.cpp`, `r_dvars.cpp`, `win_input.cpp` identical on 32-bit. Kino in game (2026-11-26,
+  `+set bo1_zombies 1`): FSR 1.0 on GL (1.0 fps on llvmpipe) and on Vulkan (2.6 fps on lavapipe), and with
+  `r_mod_upscaler asr_quality` on Vulkan `vk: Arm ASR from 683x512 to 1024x768, quality shaders` then "the 3D scene is
+  scaled before the 2D" (2.1 fps). The "Kino never finishes loading" of the first runs was the test's own command
+  line: without `bo1_zombies 1` there are no SP code zones and the patch zone dies on a missing rawfile; that fatal
+  error then froze the game instead of reporting it, fixed on posix the same day (`docs/PORTING.md`, 2026-11-26).
 - Packaging: the OpenBSD package carries `shaders.spv` like the Linux one, and its LISEZMOI says how to turn Vulkan
   on (`vulkan-loader`, a Mesa driver with Vulkan 1.3) and that a `_nodata` package gets `shaders.spv` from the PC
   install or from ZmClient's Installation view with OpenBSD's `glslang` (conversion unticked).

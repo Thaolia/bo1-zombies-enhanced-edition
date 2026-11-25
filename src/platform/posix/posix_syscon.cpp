@@ -7,6 +7,10 @@
 #include <qcommon/threads.h>
 #include <universal/q_shared.h>
 
+#if !defined(__SWITCH__)
+#include <SDL.h>
+#endif
+
 #include <errno.h>
 #include <poll.h>
 #include <stdio.h>
@@ -121,3 +125,15 @@ void __cdecl Sys_SetErrorText(const char *buf)
     WriteClean(stderr, s_errorString);
     fputc('\n', stderr);
 }
+
+#if !defined(__SWITCH__)
+void Sys_ShowErrorBox(const char *text)
+{
+    char clean[4100];
+    Conbuf_CleanText(text, clean, sizeof(clean));
+    // SDL draws it through its own connection to the display, so it works from any thread while the others are
+    // suspended. Without a display (offscreen, ssh) it fails at once and the error stays on stderr.
+    if (SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Black Ops Zombies", clean, nullptr))
+        fprintf(stderr, "no error box: %s\n", SDL_GetError());
+}
+#endif
