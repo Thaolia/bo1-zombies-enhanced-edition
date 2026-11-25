@@ -306,6 +306,11 @@ optimised for mobile GPUs:
    - the clear stored 1e8 as 65504 where IEEE rounding gives infinity, and ASR reads >= 1e8 as "no history": after
      each reset the luma would blend down from 65504 for seconds. The clear hands a 16-bit float target infinity for
      a value beyond its range (Ryujinx probe: `0xBC00 0x7C00`).
+   On the console (user's logs, 2026-11-25, Kino, handheld): ASR performance 856x480 to 720p takes 37.0 ms of GPU a
+   frame at GPU 537 MHz (20 fps) and 25.9 ms at 768 MHz (30 fps), against ~13 ms for FSR 1.0 854x480 to 720p and 22.1
+   ms for FSR 1.0 to 1080p at 537 MHz: about 24 ms for ASR itself. To find where, each ASR job is timed on the GPU (a
+   timestamp before it and after its barrier) and the backend logs `asr gpu <total> ms a frame over 16 frames: <pass>
+   <ms>, ...` after each `gpu` line. Ryujinx's timestamps read 0.
    Kino on Ryujinx, 960x540 to 1280x720, quality shaders: the right image (game over screen, lobby) for 5 minutes,
    no fault, 18-21 fps (Ryujinx's own speed, not the console's). The traced frame (`deko3d_debug`) logs ASR's jobs and
    reads back the centre texel of each of its textures (`asr probe` lines), which located the last two bugs.

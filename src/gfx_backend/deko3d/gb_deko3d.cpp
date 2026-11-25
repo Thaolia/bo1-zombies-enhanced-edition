@@ -644,6 +644,21 @@ const volatile uint64_t *s_timerCpu = nullptr;
 DkGpuAddr s_timerGpu = 0;
 uint64_t s_gpuNsSum = 0, s_gpuNsMax = 0, s_waitNsSum = 0, s_waitNsMax = 0;
 uint32_t s_gpuFrames = 0, s_waitFrames = 0;
+// Arm ASR's GPU time, job by job: a timestamp before each job and one after its barrier (a frame may run ASR's jobs in
+// several calls), per frame slot, summed by kind (a pass, or ASR's clears and copies), logged with the frame's GPU time.
+constexpr uint32_t kAsrTimerCap = 32;
+enum : uint8_t
+{
+    kAsrKindClear = 8, // after FfxmFsr2Pass's 0..7
+    kAsrKindCopy,
+    kAsrKindCount
+};
+DkMemBlock s_asrTimerMem = nullptr;
+uint32_t s_asrTimerJobs[kFramesInFlight] = {};
+uint8_t s_asrTimerKind[kFramesInFlight][kAsrTimerCap] = {};
+uint64_t s_asrKindNs[kAsrKindCount] = {};
+uint32_t s_asrKindJobs[kAsrKindCount] = {};
+uint32_t s_asrTimedFrames = 0;
 
 // Submits the batched uploads and waits for them: the staging they read becomes free.
 void FlushUploads()
@@ -877,6 +892,22 @@ void BeginFrame(Swapchain *s)
                 ++s_gpuFrames;
             }
         }
+        if (idle && s_asrTimerMem && s_asrTimerJobs[slot])
+        {
+            const volatile uint64_t *report =
+                static_cast<const volatile uint64_t *>(dkMemBlockGetCpuAddr(s_asrTimerMem)) + slot * kAsrTimerCap * 4;
+            for (uint32_t j = 0; j < s_asrTimerJobs[slot]; ++j)
+            {
+                const uint64_t start = report[j * 4 + 1], end = report[j * 4 + 3]; // {value, ticks} twice
+                if (end >= start)
+                {
+                    s_asrKindNs[s_asrTimerKind[slot][j]] += (end - start) * 625 / 384;
+                    ++s_asrKindJobs[s_asrTimerKind[slot][j]];
+                }
+            }
+            ++s_asrTimedFrames;
+        }
+        s_asrTimerJobs[slot] = 0;
     }
     // Only once that frame is known finished (and every frame before it, the queue runs in order): stores it read
     // become free and the memory freed up to it goes.
@@ -1622,6 +1653,7 @@ gb::Swapchain *CreateSwapchain(const SwapchainDesc &desc)
     s_timerMem = MakeBlock(kFramesInFlight * 32, DkMemBlockFlags_CpuUncached | DkMemBlockFlags_GpuCached);
     s_timerCpu = static_cast<const volatile uint64_t *>(dkMemBlockGetCpuAddr(s_timerMem));
     s_timerGpu = dkMemBlockGetGpuAddr(s_timerMem);
+    s_asrTimerMem = MakeBlock(kFramesInFlight * kAsrTimerCap * 32, DkMemBlockFlags_CpuUncached | DkMemBlockFlags_GpuCached);
 
     // Uniform rings (bump per frame), one per frame slot.
     s_uboMem = MakeBlock(kFramesInFlight * kUboRingSize, DkMemBlockFlags_CpuUncached | DkMemBlockFlags_GpuCached);
@@ -2141,6 +2173,27 @@ void Present(gb::Swapchain *swapchain, gb::Texture *image)
                 s_waitFrames ? double(s_waitNsSum) / s_waitFrames / 1e6 : 0.0, double(s_waitNsMax) / 1e6, s_upFlushes);
         s_gpuNsSum = s_gpuNsMax = s_waitNsSum = s_waitNsMax = 0;
         s_gpuFrames = s_waitFrames = 0;
+        if (s_asrTimedFrames)
+        {
+            static const char *const kKindNames[kAsrKindCount] = {
+                "depth clip", "reconstruct depth", "lock", "accumulate", "accumulate+sharpen", "rcas",
+                "luma pyramid", "generate reactive", "clears", "copies"};
+            double totalMs = 0;
+            std::string passes;
+            for (uint32_t k = 0; k < kAsrKindCount; ++k)
+                if (s_asrKindJobs[k])
+                {
+                    const double ms = double(s_asrKindNs[k]) / s_asrTimedFrames / 1e6;
+                    totalMs += ms;
+                    char part[64];
+                    snprintf(part, sizeof(part), "%s %.2f", kKindNames[k], ms);
+                    passes += (passes.empty() ? "" : ", ") + std::string(part);
+                }
+            Log("asr gpu %.2f ms a frame over %u frames: %s", totalMs, s_asrTimedFrames, passes.c_str());
+            std::fill(std::begin(s_asrKindNs), std::end(s_asrKindNs), 0);
+            std::fill(std::begin(s_asrKindJobs), std::end(s_asrKindJobs), 0);
+            s_asrTimedFrames = 0;
+        }
     }
     if (s_uboOverflows)
     {
@@ -3006,8 +3059,14 @@ arm::FfxmErrorCode AsrExecuteGpuJobs(arm::FfxmInterface *, arm::FfxmCommandList 
     // Descriptors written from the CPU since the frame began (new textures) and the engine's targets just rendered.
     dkCmdBufBarrier(cmd, DkBarrier_Full, DkInvalidateFlags_Image | DkInvalidateFlags_Descriptors);
     bool ok = true;
+    const unsigned timerSlot = s_swapchain ? s_swapchain->slot : 0;
+    const DkGpuAddr timerBase = s_asrTimerMem ? dkMemBlockGetGpuAddr(s_asrTimerMem) + timerSlot * kAsrTimerCap * 32 : 0;
+    uint32_t &timed = s_asrTimerJobs[timerSlot];
     for (const AsrJob &j : s_asrJobs)
     {
+        const bool timeIt = timerBase && timed < kAsrTimerCap;
+        if (timeIt)
+            dkCmdBufReportCounter(cmd, DkCounter_Timestamp, timerBase + timed * 32);
         if (s_frameTrace)
         {
             const arm::FfxmGpuJobDescription &g = j.job;
@@ -3039,6 +3098,27 @@ arm::FfxmErrorCode AsrExecuteGpuJobs(arm::FfxmInterface *, arm::FfxmCommandList 
             break;
         }
         dkCmdBufBarrier(cmd, DkBarrier_Full, DkInvalidateFlags_Image);
+        if (timeIt)
+        {
+            uint8_t kind = kAsrKindClear;
+            const arm::FfxmGpuJobDescription &g = j.job;
+            const AsrPipeline *pl = g.jobType == arm::FFXM_GPU_JOB_COMPUTE
+                                        ? static_cast<const AsrPipeline *>(g.computeJobDescriptor.pipeline.pipeline)
+                                    : g.jobType == arm::FFXM_GPU_JOB_FRAGMENT && g.fragmentJobDescription.pipeline
+                                        ? static_cast<const AsrPipeline *>(g.fragmentJobDescription.pipeline->pipeline)
+                                        : nullptr;
+            if (g.jobType == arm::FFXM_GPU_JOB_COPY)
+                kind = kAsrKindCopy;
+            else if (pl)
+                for (const asr::Permutation &perm : asr::kPermutations)
+                    if (perm.shader == pl->shader && perm.pass < 8)
+                    {
+                        kind = perm.pass;
+                        break;
+                    }
+            dkCmdBufReportCounter(cmd, DkCounter_Timestamp, timerBase + timed * 32 + 16);
+            s_asrTimerKind[timerSlot][timed++] = kind;
+        }
     }
     if (s_frameTrace && ok)
     {
