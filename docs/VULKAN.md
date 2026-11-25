@@ -295,10 +295,17 @@ optimised for mobile GPUs:
      graphics shader, which would overrun it. `Init` sizes the queue's scratch from the DKSH program headers.
    - `UseMesaSchedule` skipped a 0x50-byte program header that only graphics programs have: on the two compute
      shaders it rewrote instructions as control words (Ryujinx then died translating them). Fixed for type 5.
-   - Arm's GLSL declares `rw_auto_exposure` `rgba32f`, the component creates it RG16F: Maxwell stores through the
-     shader's format and wrote -1 and 65504. The generator declares it `rg16f`. The exposure still came out -1, so
-     ASR runs without auto exposure on deko3d (default exposure 1: the scene is in display colours); why the
-     luminance pyramid's exposure is wrong here is open (SPD's shared-memory path, or Ryujinx).
+   - the exposure read (-1, 65504), which turned every prepared colour black. That is ASR's clear value, (-1, 1e8),
+     with 1e8 saturated in the RG16F texture: the luminance pyramid never writes it on Ryujinx. Its last workgroup is
+     found with an image atomic, and Ryujinx 1.1.1375 does not translate Mesa's `SUATOM` ("Invalid instruction" in
+     its log, the pyramid's `imageAtomicAdd` and the previous-depth pass's `imageAtomicMax`): a counter set to 1000
+     before the pyramid still read 1000 after its 135 workgroups. Phase one works (mips 4 and 5 hold log-luminances
+     near -2.3). ASR runs without auto exposure on deko3d (default exposure 1: the scene is in display colours); the
+     pyramid still feeds the lock pass's luma, which should be right on the console (not run there yet). Arm's GLSL also declares
+     `rw_auto_exposure` `rgba32f` for the RG16F texture: the generator declares it `rg16f`, the texture's format.
+   - the clear stored 1e8 as 65504 where IEEE rounding gives infinity, and ASR reads >= 1e8 as "no history": after
+     each reset the luma would blend down from 65504 for seconds. The clear hands a 16-bit float target infinity for
+     a value beyond its range (Ryujinx probe: `0xBC00 0x7C00`).
    Kino on Ryujinx, 960x540 to 1280x720, quality shaders: the right image (game over screen, lobby) for 5 minutes,
    no fault, 18-21 fps (Ryujinx's own speed, not the console's). The traced frame (`deko3d_debug`) logs ASR's jobs and
    reads back the centre texel of each of its textures (`asr probe` lines), which located the last two bugs.

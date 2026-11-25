@@ -20,11 +20,13 @@
 #include <malloc.h>
 
 #include <algorithm>
+#include <cmath>
 #include <cstdarg>
 #include <cstdio>
 #include <cstring>
 #include <cwchar>
 #include <iterator>
+#include <limits>
 #include <map>
 #include <string>
 #include <unordered_map>
@@ -2906,7 +2908,16 @@ bool AsrRecord(DkCmdBuf cmd, const arm::FfxmGpuJobDescription &job)
             logged = true;
             return true;
         }
-        const float *c = job.clearJobDescriptor.color;
+        // ASR clears its exposure (RG16F) to (-1, 1e8) and reads >= 1e8 as "no history yet". IEEE rounding turns 1e8
+        // into infinity in a 16-bit float, but this clear stored 65504 on Ryujinx: the shader then blends the luma from
+        // 65504 for seconds after each reset. Hand the clear the infinity itself.
+        float c[4];
+        std::memcpy(c, job.clearJobDescriptor.color, sizeof(c));
+        if (r->format == DkImageFormat_R16_Float || r->format == DkImageFormat_RG16_Float ||
+            r->format == DkImageFormat_RGBA16_Float)
+            for (float &v : c)
+                if (std::fabs(v) > 65504.0f)
+                    v = std::copysign(std::numeric_limits<float>::infinity(), v);
         const uint32_t mips = r->external ? 1 : std::max<uint32_t>(r->desc.mipCount, 1);
         for (uint32_t m = 0; m < mips; ++m)
         {
@@ -3011,6 +3022,15 @@ arm::FfxmErrorCode AsrExecuteGpuJobs(arm::FfxmInterface *, arm::FfxmCommandList 
                        std::to_string(g.computeJobDescriptor.dimensions[1]))
                           .c_str()
                     : "");
+            if (g.jobType == arm::FFXM_GPU_JOB_COMPUTE && pl)
+                for (uint32_t c = 0; c < asr::kShaders[pl->shader].cbvCount; ++c)
+                {
+                    const arm::FfxmConstantBuffer &cb = g.computeJobDescriptor.cbs[c];
+                    std::string words;
+                    for (uint32_t w = 0; w < std::min<uint32_t>(cb.num32BitEntries, 8); ++w)
+                        words += " " + std::to_string(cb.data[w]);
+                    Log("trace asr job cb %u (%u words):%s", c, cb.num32BitEntries, words.c_str());
+                }
         }
         if (!AsrRecord(cmd, j.job))
         {
@@ -3030,17 +3050,24 @@ arm::FfxmErrorCode AsrExecuteGpuJobs(arm::FfxmInterface *, arm::FfxmCommandList 
             const AsrResource &r = s_asrRes[i];
             if (!r.live || r.buffer || !r.desc.width)
                 continue;
-            AsrProbe probe = {};
-            std::memcpy(probe.name, r.name, sizeof(probe.name));
-            probe.format = r.format;
-            probe.offset = uint32_t(s_asrProbes.size()) * kAsrProbeStride;
-            DkImageView view;
-            dkImageViewDefaults(&view, AsrImage(r));
-            view.mipLevelCount = 1;
-            const DkImageRect texel = {r.desc.width / 2, r.desc.height / 2, 0, 1, 1, 1};
-            const DkCopyBuf to = {dkMemBlockGetGpuAddr(s_asrProbeMem) + probe.offset, 0, 0};
-            dkCmdBufCopyImageToBuffer(cmd, &view, &texel, &to, 0);
-            s_asrProbes.push_back(probe);
+            const uint32_t mips = r.external ? 1 : std::max<uint32_t>(r.desc.mipCount, 1);
+            for (uint32_t m = 0; m < mips && s_asrProbes.size() < kAsrProbeCap; ++m)
+            {
+                AsrProbe probe = {};
+                std::memcpy(probe.name, r.name, sizeof(probe.name));
+                if (m)
+                    snprintf(probe.name, sizeof(probe.name), "%.30s mip %u", r.name, m);
+                probe.format = r.format;
+                probe.offset = uint32_t(s_asrProbes.size()) * kAsrProbeStride;
+                DkImageView view;
+                dkImageViewDefaults(&view, AsrImage(r));
+                view.mipLevelOffset = m;
+                view.mipLevelCount = 1;
+                const DkImageRect texel = {m ? 0 : r.desc.width / 2, m ? 0 : r.desc.height / 2, 0, 1, 1, 1};
+                const DkCopyBuf to = {dkMemBlockGetGpuAddr(s_asrProbeMem) + probe.offset, 0, 0};
+                dkCmdBufCopyImageToBuffer(cmd, &view, &texel, &to, 0);
+                s_asrProbes.push_back(probe);
+            }
         }
         dkCmdBufBarrier(cmd, DkBarrier_Full, 0);
     }
@@ -3144,8 +3171,10 @@ bool AsrContext(const TemporalUpscaleDesc &desc)
                      : desc.preset == UpscalePreset::Balanced  ? arm::FFXM_FSR2_SHADER_QUALITY_MODE_BALANCED
                                                                : arm::FFXM_FSR2_SHADER_QUALITY_MODE_QUALITY;
     // The flags asr_table.h's shaders were made with (kFixedFlags): low-resolution motion vectors, jitter cancellation.
-    // No auto exposure: the engine's scene is already in display colours, and the luminance pyramid's exposure came out
-    // as -1 here (Ryujinx), which turned every prepared colour black; ASR then reads its default exposure, 1.
+    // No auto exposure: the engine's scene is already in display colours, so ASR's default exposure, 1, is right. The
+    // pyramid still runs, for the lock pass's luma: its last workgroup is found with an image atomic, a SUATOM that
+    // Ryujinx 1.1.1375 does not translate ("Invalid instruction"), so there it never writes and the exposure stays at
+    // its clear value (-1), which turned every prepared colour black.
     cd.flags = arm::FFXM_FSR2_ENABLE_MOTION_VECTORS_JITTER_CANCELLATION |
                (infinite ? arm::FFXM_FSR2_ENABLE_DEPTH_INFINITE : 0);
     cd.maxRenderSize = {desc.renderWidth, desc.renderHeight};
