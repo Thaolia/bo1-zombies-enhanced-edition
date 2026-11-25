@@ -327,6 +327,31 @@ const char *ItemLabel(int item)
     return PadControlItem(item) ? Launcher_PadActionLabel(item - ITEM_PAD_FIRST) : kItems[item].label;
 }
 
+// An item's value starts on column 33 (column 3, then "> ", a 24-column label and "[A] "): 48 columns are left on
+// the 80-column console, and a longer value wraps onto the next row.
+const size_t kValueWidth = 48;
+
+std::string Clip(const std::string &text, size_t width)
+{
+    return text.size() <= width ? text : text.substr(0, width - 3) + "...";
+}
+
+// Joins the parts that fit in kValueWidth and counts the others ("+3").
+std::string JoinFitting(const std::vector<std::string> &parts)
+{
+    std::string text;
+    for (size_t i = 0; i < parts.size(); ++i)
+    {
+        const std::string next = text.empty() ? parts[i] : text + ", " + parts[i];
+        const size_t rest = parts.size() - i - 1;
+        const size_t room = rest ? kValueWidth - (" +" + std::to_string(rest)).size() : kValueWidth;
+        if (next.size() > room)
+            return text.empty() ? Clip(next, kValueWidth) : text + " +" + std::to_string(parts.size() - i);
+        text = next;
+    }
+    return text;
+}
+
 const char *YesNo(bool v)
 {
     return v ? "Oui" : "Non";
@@ -359,25 +384,30 @@ std::string ValueText(const LauncherSettings &s, int item)
         int perks = 0;
         for (int i = 0; i < kLauncherPerkCount; ++i)
             perks += (s.startPerks >> i) & 1;
-        std::string dual = s.dualWield && s.dualWieldInstalled ? ", armes doublees" : "";
-        if (s.hitmarker)
-            dual += ", hit marker";
-        if (s.unlimitedPap && s.unlimitedPapInstalled)
-            dual += ", PaP illimite";
-        if (s.spawnRate > 0)
-            dual += ", zombies x" + std::to_string(s.spawnRate);
+        std::vector<std::string> parts;
         if (!s.startPoints && !perks && !s.startPower && !s.startPap && !s.farRespawn)
-            return "Celui du jeu" + dual;
-        std::string text = s.startPoints ? std::to_string(s.startPoints) + " points" : "500 points";
-        if (perks)
-            text += ", " + std::to_string(perks) + (perks > 1 ? " atouts" : " atout");
-        if (s.startPower)
-            text += ", courant";
-        if (s.startPap)
-            text += ", Pack-a-Punch";
-        if (s.farRespawn > 0)
-            text += ", rapproches";
-        return text + dual;
+            parts.push_back("Celui du jeu");
+        else
+        {
+            parts.push_back(s.startPoints ? std::to_string(s.startPoints) + " points" : "500 points");
+            if (perks)
+                parts.push_back(std::to_string(perks) + (perks > 1 ? " atouts" : " atout"));
+            if (s.startPower)
+                parts.push_back("courant");
+            if (s.startPap)
+                parts.push_back("Pack-a-Punch");
+            if (s.farRespawn > 0)
+                parts.push_back("rapproches");
+        }
+        if (s.dualWield && s.dualWieldInstalled)
+            parts.push_back("armes doublees");
+        if (s.hitmarker)
+            parts.push_back("hit marker");
+        if (s.unlimitedPap && s.unlimitedPapInstalled)
+            parts.push_back("PaP illimite");
+        if (s.spawnRate > 0)
+            parts.push_back("zombies x" + std::to_string(s.spawnRate));
+        return JoinFitting(parts);
     }
     case ITEM_KIT_POINTS:
         return s.startPoints ? std::to_string(s.startPoints) : "Ceux du jeu (500)";
@@ -806,7 +836,7 @@ void DrawItem(const LauncherSettings &s, View view, int item, int selected)
         std::printf("[A] ecran des manettes%s", kColorNormal);
     else if (item == ITEM_SERVER || item == ITEM_PAD || item == ITEM_PAD_RESET || item == ITEM_KIT || TypedItem(item) ||
              item == ITEM_NET_SCAN)
-        std::printf("[A] %s%s", ValueText(s, item).c_str(), kColorNormal);
+        std::printf("[A] %s%s", Clip(ValueText(s, item), kValueWidth).c_str(), kColorNormal);
     else if (PadControlItem(item))
     {
         // The game's own button beside a changed one, so a custom layout reads at a glance.
@@ -817,7 +847,7 @@ void DrawItem(const LauncherSettings &s, View view, int item, int selected)
         std::printf("%s", kColorNormal);
     }
     else
-        std::printf("<  %s  >%s", ValueText(s, item).c_str(), kColorNormal);
+        std::printf("<  %s  >%s", Clip(ValueText(s, item), kValueWidth - 2).c_str(), kColorNormal);
 }
 
 void Draw(const LauncherSettings &s, View view, int selected, const Screen &screen)
@@ -873,7 +903,7 @@ void Draw(const LauncherSettings &s, View view, int selected, const Screen &scre
         At(kPadInfoRow + 1, 5);
         std::printf("Les menus du jeu suivent aussi: valider = Sauter, retour = S'accroupir.");
         At(kPadInfoRow + 2, 5);
-        std::printf("Ce lanceur garde toujours les boutons de la console: une erreur se corrige ici.");
+        std::printf("Ce lanceur garde les boutons de la console: une erreur se corrige ici.");
         At(kPadInfoRow + 3, 5);
         std::printf("Les sticks (deplacement, camera) ne changent pas.");
     }
@@ -942,9 +972,9 @@ void Draw(const LauncherSettings &s, View view, int selected, const Screen &scre
     if (view == VIEW_MAIN)
         std::printf("Haut/Bas: choisir  Gauche/Droite: modifier  A: valider  +: jouer  -: quitter");
     else if (view == VIEW_KIT)
-        std::printf("Haut/Bas: choisir  Gauche/Droite: modifier  A: valider  B: retour  +: jouer  -: quitter");
+        std::printf("Haut/Bas: choisir  Gauche/Droite: modifier  B: retour  +: jouer  -: quitter");
     else if (view == VIEW_PAD)
-        std::printf("Haut/Bas: choisir  Gauche/Droite: bouton  A: valider  B: retour  +: jouer  -: quitter");
+        std::printf("Haut/Bas: choisir  Gauche/Droite: bouton  B: retour  +: jouer  -: quitter");
     else
         std::printf("Haut/Bas: choisir  A: modifier  B: retour  +: jouer  -: quitter");
     At(kFooterRow + 2, 3);
