@@ -38,3 +38,6 @@ char *__cdecl Sys_ConsoleInput();
 void __cdecl Conbuf_AppendText(char *pMsg);
 void __cdecl Conbuf_AppendTextInMainThread(char *msg);
 void __cdecl Sys_SetErrorText(const char *buf);
+#if !defined(_WIN32) && !defined(__SWITCH__)
+void Sys_ShowErrorBox(const char *text); // posix_syscon.cpp: Sys_Error's message box
+#endif

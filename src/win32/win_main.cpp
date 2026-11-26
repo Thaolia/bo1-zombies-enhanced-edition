@@ -49,6 +49,9 @@
 #include <ui/keycodes.h>
 #include <cgame_mp/cg_newDraw_mp.h>
 #include <ui_mp/ui_main_mp.h>
+#if !defined(_WIN32)
+#include <unistd.h> // _exit (Sys_Error)
+#endif
 
 const dvar_t *sys_configureGHz;
 const dvar_t *sys_sysMB;
@@ -1513,7 +1516,9 @@ void    Sys_Error(char *error, ...)
 {
     char string[4100]; // [esp+20h] [ebp-1008h] BYREF
     va_list va; // [esp+1034h] [ebp+Ch] BYREF
+#if defined(_WIN32) || defined(__SWITCH__)
     MSG Msg;
+#endif
 
     va_start(va, error);
     Sys_EnterCriticalSection(CRITSECT_COM_ERROR);
@@ -1566,12 +1571,21 @@ void    Sys_Error(char *error, ...)
 
         Sys_SetErrorText(string);
 
+#if defined(_WIN32) || defined(__SWITCH__)
         // wait for the user to quit
         while (GetMessage(&Msg, 0, 0, 0))
         {
             TranslateMessage(&Msg);
             DispatchMessage(&Msg);
         }
+#else
+        // posix has no error console for the user to close, so that loop never ended: the game window stood frozen
+        // and the error went only to stderr. Show it in a box, then end without the exit handlers (the other threads
+        // are suspended, some of them in the renderer the handlers would shut down).
+        Sys_ShowErrorBox(string);
+        fflush(nullptr);
+        _exit(1);
+#endif
     }
     //BLOPS_NULLSUB();
     exit(0);

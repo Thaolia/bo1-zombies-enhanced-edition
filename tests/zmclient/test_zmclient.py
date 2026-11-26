@@ -503,7 +503,9 @@ class CommandLine(unittest.TestCase):
     def test_fsr(self):
         p = P.Profile()
         p["fsr"] = "quality"
-        self.assertNotIn("r_mod_upscale", " ".join(P.build_command(p, "x", "/g")))   # Vulkan only
+        line = " ".join(P.build_command(p, "x", "/g"))
+        self.assertIn("+set r_mod_upscale off", line)                    # Vulkan only, and archived: reset
+        self.assertNotIn("r_mod_upscaler", line)
         p["gfx_api"] = "vulkan"
         line = " ".join(P.build_command(p, "x", "/g"))
         self.assertIn("+set r_mod_upscale quality +set r_mod_upscaleSharpness 0.2 +set r_mod_upscaler fsr1", line)

@@ -79,6 +79,7 @@ struct Bo1Thread : Bo1Object
     pthread_mutex_t gateMutex;
     pthread_cond_t gateCond;
     bool started = false;
+    bool finished = false; // its start routine returned (under gateMutex)
     std::atomic<int> suspendCount{0};
     sem_t suspendAck;
     sem_t resume;

@@ -114,8 +114,8 @@ ROW_HELP = {
     "run_info": "Les réglages qui changent une partie et un hash SHA-512 du programme et des zones chargées "
                 "(bo1_runinfo), en bas de l'écran de chargement, ou aussi dans un coin pendant la partie, pour un "
                 "stream ou un speedrun. Le hash complet est aussi écrit dans console_mp.log (ligne runinfo:).",
-    "gfx_api": "Le moteur de rendu : Direct3D 9 (Windows) ou OpenGL (Linux) par défaut, ou Vulkan "
-               "(r_mod_gfxApi sous Windows, BO1_GFX_BACKEND sous Linux). Au prochain lancement.",
+    "gfx_api": "Le moteur de rendu : Direct3D 9 (Windows) ou OpenGL (Linux, OpenBSD) par défaut, ou Vulkan "
+               "(r_mod_gfxApi sous Windows, BO1_GFX_BACKEND sous Linux et OpenBSD). Au prochain lancement.",
     "fsr": "Avec Vulkan seulement (r_mod_upscale) : le jeu rend plus petit que la fenêtre puis l'agrandit en gardant "
            "les contours nets (FSR 1.0 ou Arm ASR, voir la ligne suivante). Le HUD reste à la taille de la fenêtre. "
            "Plus de FPS sur un GPU limité (Intel). Au prochain lancement.",
@@ -225,7 +225,8 @@ VIEW_HELP = {
         "Copie localization.txt, main/*.iwd et main/video/, puis convertit les zones zombies avec le ffconv du "
         "paquet (environ 6 minutes ; il écrit aussi shaders.pack), puis compile shaders.pack en shaders.spv pour "
         "Vulkan avec glslang (5 à 15 minutes selon le processeur ; glslang est dans les paquets Windows et "
-        "Linux, sinon celui du système : glslang-tools). Votre installation n'est jamais modifiée.",
+        "Linux, sinon celui du système : glslang-tools sous Linux, glslang sous OpenBSD). Votre installation n'est "
+        "jamais modifiée.",
         "c           choisir l'installation : trouvée dans les bibliothèques Steam, en parcourant les dossiers "
         "(flèches, Entrée pour ouvrir, Retour arrière pour remonter, Espace pour choisir ; une installation est "
         "marquée « Black Ops »), ou en tapant le chemin",
@@ -252,7 +253,7 @@ GLOBAL_HELP = [
 ]
 
 RUN_INFO_LABELS = {0: "non", 1: "au chargement", 2: "chargement + en jeu"}
-GFX_API_LABELS = {"default": "Direct3D 9 (Windows) / OpenGL (Linux)", "vulkan": "Vulkan"}
+GFX_API_LABELS = {"default": "Direct3D 9 (Windows) / OpenGL (Linux, OpenBSD)", "vulkan": "Vulkan"}
 FSR_LABELS = {"off": "non", "ultra": "Ultra qualité (x1,3)", "quality": "Qualité (x1,5)",
               "balanced": "Équilibré (x1,7)", "performance": "Performance (x2)",
               "native": "Natif (anti-aliasing ASR)", "ssaa_1.5x": "Suréchantillonnage x1,5 (SSAA)",
@@ -280,7 +281,8 @@ UPSCALER_HELP = {
     "asr_performance": "Arm ASR avec ses shaders les plus rapides : un peu moins fin.",
 }
 GFX_API_HELP = {
-    "default": "Le rendu habituel : le Direct3D 9 de Windows, OpenGL sous Linux.",
-    "vulkan": "Le rendu par Vulkan (Windows 64 bits, Linux). Il lui faut shaders.spv à côté du programme ; sans lui, "
-              "ou sans pilote Vulkan, le jeu revient au rendu habituel (Windows) et le dit dans console_mp.log.",
+    "default": "Le rendu habituel : le Direct3D 9 de Windows, OpenGL sous Linux et OpenBSD.",
+    "vulkan": "Le rendu par Vulkan (Windows 64 bits, Linux, OpenBSD). Il lui faut shaders.spv à côté du programme ; "
+              "sans lui, ou sans pilote Vulkan, le jeu revient au rendu habituel (Windows) et le dit dans "
+              "console_mp.log.",
 }

@@ -43,7 +43,7 @@ French version: `README.fr.md`. The full, detailed reference is [below](#detaile
 | Windows 64-bit | playable | the original D3D9 renderer; `Play.bat`, `zmclient.exe` |
 | Windows 32-bit | reference build | the retail layout; `Play.bat offline` without Steam |
 | Linux x86-64 | work in progress | OpenGL 4.3 client, dedicated server and headless client; no sound or gamepad yet |
-| OpenBSD/amd64 | runs | cross-built from Linux; played on a real machine with ZmClient (OpenGL) |
+| OpenBSD/amd64 | runs | cross-built from Linux; played on a real machine with ZmClient (OpenGL); Vulkan built, not tried yet |
 | Nintendo Switch 1 | playable homebrew | `.nro` for Atmosphère, deko3d or OpenGL, start menu on the console |
 
 ## Getting started
@@ -217,6 +217,11 @@ from Linux with an OpenBSD clang/lld toolchain whose sysroot holds the official 
 toolchain's CMake file (`-DCMAKE_TOOLCHAIN_FILE=...`) and `-DSDL2_DIR=<sysroot>/usr/local/lib/cmake/SDL2`. The OS
 differences are under `#if defined(__OpenBSD__)` in `src/platform/posix` (sysctl instead of `/proc`, `funopen`,
 `getthrid`, no CPU affinity); `src/platform/openbsd/include` stands in for the glibc headers OpenBSD lacks.
+The Vulkan backend is built there too, opt-in as on Linux (`BO1_GFX_BACKEND=vulkan`, or ZmClient's "API graphique"):
+it opens `libvulkan` at run time, so the build needs nothing more, and the player needs `vulkan-loader` and a Mesa
+driver with Vulkan 1.3. On Linux and OpenBSD, `r_mod_upscale`, `r_mod_upscaler` and `r_mod_upscaleSharpness` (FSR 1.0,
+Arm ASR, SSAA, as on win64) now exist too, so ZmClient's "Agrandissement" rows take effect there (docs/VULKAN.md, step
+8).
 
 A dedicated zombies server (work in progress, branch `server`) is the same program started with `+set bo1_server 1`
 on Windows or Linux: no window, listening on UDP on every interface, `server.cfg` for its settings. `Server.bat
@@ -270,7 +275,7 @@ folders and archives in `build/dist`, one per platform:
 | `BO1Zombies_windows/` | the 64-bit client and dedicated server, `Play.bat` (`Play.bat net <address[:port]> [name]` joins a server), `Server.bat [map] [port]`, `zmclient.exe`, `zmadmin.exe`, `ffconv.exe`, the 64-bit runtime DLLs, `switch-tools\uam.exe` (below) | `.zip` |
 | `BO1Zombies_linux/` | the Linux client and dedicated server, `play.sh` (`./play.sh net ...`), `server.sh [map] [port]`, `zmclient`, `zmadmin`, `ffconv.exe`, `shaders.pack` | `.tar.gz` |
 | `BO1Zombies_switch/` | an SD card tree, `switch/bo1zm/` with the `.nro`, `shaders.pack` and `shaders.dksh` | `.zip` |
-| `BO1Zombies_openbsd/` | the OpenBSD/amd64 client and dedicated server, `BO1Zombies-8.0` (the release) and `BO1Zombies-current`, `play.sh` and `server.sh` (POSIX sh: they pick the running system's program and raise the data size limit), `shaders.pack`; only when asked (`tools/make_dist.sh openbsd`) | `.tar.gz` |
+| `BO1Zombies_openbsd/` | the OpenBSD/amd64 client and dedicated server, `BO1Zombies-8.0` (the release) and `BO1Zombies-current`, `play.sh` and `server.sh` (POSIX sh: they pick the running system's program and raise the data size limit), `shaders.pack` and `shaders.spv`; only when asked (`tools/make_dist.sh openbsd`) | `.tar.gz` |
 
 Each also holds the converted zones, the install's `main/*.iwd` and `localization.txt` (and `main/video` on PC), a
 `LISEZMOI.txt` and a `VERSION.txt` (commit, date, NRO link time). With `--no-game-data` the packages go to

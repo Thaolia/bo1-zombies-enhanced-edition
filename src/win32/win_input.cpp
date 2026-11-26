@@ -9,9 +9,7 @@
 #include <gfx_d3d/rb_backend.h>
 #include "win_shared.h"
 #include <client_mp/cl_input_mp.h>
-#if defined(BO1_WIN_VULKAN)
-#include <platform/windows/win_gfxapi.h> // mod: r_mod_upscale
-#endif
+#include <platform/mod_upscale.h> // mod: r_mod_upscale
 #include <client/cl_console.h>
 
 GamePadButton buttonList[32] =
@@ -344,7 +342,7 @@ void IN_MouseMove()
         }
         s_wmv.oldPos = curPos;
         ScreenToClient(g_wv.hWnd, &curPos);
-#if defined(BO1_WIN_VULKAN)
+#if defined(BO1_MOD_UPSCALE)
         Bo1_ClientToBackBuffer((int *)&curPos.x, (int *)&curPos.y); // mod: r_mod_upscale renders smaller than the window
 #endif
         g_wv.recenterMouse = CL_MouseEvent(curPos.x, curPos.y, v0, dy);

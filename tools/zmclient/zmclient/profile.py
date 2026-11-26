@@ -41,12 +41,13 @@ MAX_COMMAND_LINES = 63      # Com_ParseCommandLine keeps 64 lines, the first bei
 # MapKit (Nuketown: 2 096 props) needs more; each model past retail's also takes a model lighting entry
 SCENE_MODEL_CHOICES = (1024, 2048, 4096)
 MODEL_LIGHTING_ENTRIES_MAX = 5120   # r_mod_modelLightingEntries' cap (r_model_lighting.cpp)
-# The renderer (docs/VULKAN.md): "default" is the system's Direct3D 9 on Windows and OpenGL on Linux; "vulkan" is
-# r_mod_gfxApi vulkan on win64 (an archived dvar, so ZmClient always sets it) and BO1_GFX_BACKEND=vulkan on Linux.
+# The renderer (docs/VULKAN.md): "default" is the system's Direct3D 9 on Windows and OpenGL on Linux and OpenBSD;
+# "vulkan" is r_mod_gfxApi vulkan on win64 (an archived dvar, so ZmClient always sets it) and BO1_GFX_BACKEND=vulkan
+# on Linux and OpenBSD.
 GFX_APIS = ("default", "vulkan")
-# FSR 1.0 under Vulkan on Windows (r_mod_upscale): the game renders at the window's size over the mode's factor and
-# upscales to the window; the sharpness is RCAS's, in stops below its sharpest (r_mod_upscaleSharpness). The choices are
-# the Switch start menu's (launcher_config.cpp).
+# FSR 1.0 under Vulkan (r_mod_upscale; win64, Linux, OpenBSD): the game renders at the window's size over the mode's
+# factor and upscales to the window; the sharpness is RCAS's, in stops below its sharpest (r_mod_upscaleSharpness). The
+# choices are the Switch start menu's (launcher_config.cpp).
 # native: Arm ASR as anti-aliasing; ssaa_*: supersampling, rendered larger than the window and averaged down to it.
 FSR_MODES = ("off", "ultra", "quality", "balanced", "performance", "native", "ssaa_1.5x", "ssaa_2x")
 SSAA_MODES = ("ssaa_1.5x", "ssaa_2x")
@@ -281,7 +282,7 @@ def add_mod_pools(argv):
 
 
 def launch_env(p):
-    """The environment the client starts with: None keeps ZmClient's own; Vulkan on Linux is BO1_GFX_BACKEND."""
+    """The environment the client starts with: None keeps ZmClient's own; Vulkan on Linux and OpenBSD is BO1_GFX_BACKEND."""
     if p["gfx_api"] != "vulkan":
         return None
     env = dict(os.environ)
@@ -431,6 +432,9 @@ def build_command(p, exe, dist_root, launch_cfg="", player=1, server_mods=None):
     if p["gfx_api"] == "vulkan":
         argv += ["+set", "r_mod_upscale", p["fsr"], "+set", "r_mod_upscaleSharpness", f"{p['fsr_sharpness']:g}",
                  "+set", "r_mod_upscaler", p["upscaler"]]
+    else:
+        # archived in config.cfg, and on Linux and OpenBSD OpenGL upscales too: an old choice made with Vulkan stays off
+        argv += ["+set", "r_mod_upscale", "off"]
     if p["fps_counter"]:
         argv += ["+set", "bo1_fpscounter", "1"]
     argv += ["+set", "r_shaderWarming", "1" if p["shader_warming"] else "0"]

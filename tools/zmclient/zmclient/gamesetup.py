@@ -208,7 +208,8 @@ def converter_command(lay, install, out_dir):
     ffconv is a 32-bit program and OpenBSD's wine runs 64-bit ones only."""
     if IS_OPENBSD:
         return ("pas de conversion sur OpenBSD (ffconv est un programme Windows 32 bits) : convertissez sur un PC "
-                "Windows ou Linux (ZmClient, vue Installation) et copiez zone/ et shaders.pack ici")
+                "Windows ou Linux (ZmClient, vue Installation), copiez zone/ et shaders.pack ici, puis décochez la "
+                "conversion (z)")
     if not os.path.isfile(lay.ffconv):
         return f"pas de {FFCONV_NAME} dans le dossier : ce paquet ne sait pas convertir les zones"
     if IS_WINDOWS:
@@ -376,8 +377,8 @@ class Setup(threading.Thread):
             return
         glslang = spirvpack.find_glslang(lay.root)
         if not glslang:
-            self.warning = ("pas de glslang : Vulkan indisponible (Linux : installez glslang-tools, puis Installer "
-                            "à nouveau)")
+            self.warning = ("pas de glslang : Vulkan indisponible (Linux : installez glslang-tools, OpenBSD : "
+                            "doas pkg_add glslang, puis Installer à nouveau)")
             self.note(self.warning)
             return
         # shaders.spv is ~3.6 times shaders.pack (478 MB from 133 MB), plus a copy while it replaces the old one
