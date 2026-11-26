@@ -9,18 +9,24 @@
 // starve on long frames (the libnx note in .claude/rules/switch-homebrew.md), so the pull model is deliberate. The
 // game thread mutates the voice table in the SD_* entry points; the callback reads it. One mutex guards the table,
 // held only briefly and never across an allocation or I/O: the callback allocates nothing (its scratch is
-// pre-allocated in SD_Init) and reads only RAM, and every decode/alloc happens on the game thread at voice start.
+// pre-allocated in SD_Init) and reads only RAM, and every decode/alloc happens on the game thread (at a voice start or
+// a stream window).
 //
-// Scope (docs/PORTING.md, phase 4b). RAM voices (indices 10..73) only. Streamed voices (0..9: music, long ambience)
-// are deferred: SND_StartAliasStream reports not-played, as with no device. The reverb (wet) send and the master
-// EQ/limiter DSP are deferred too, so the mix is dry; SD_PreUpdate therefore does nothing. The decoders (snd_adpcm)
-// and the send matrices (snd_mix) are unit-tested offline; audible correctness, 3D and the non-unity resampler are
-// verified on hardware, not here.
+// Scope (docs/PORTING.md, phase 4b). RAM voices (indices 10..73) and streamed voices (0..9: music, long ambience).
+// A streamed voice follows SD_UpdateStreamVoice of the XAudio2 driver: the engine's stream thread (snd_stream.cpp)
+// reads the file into windows; the game thread acquires a window, decodes it to float into one of the voice's two
+// chunks (XAudio2 queues at most two buffers too) and gives the window back at once, since the chunk holds the
+// samples. The reverb (wet) send and the master EQ/limiter DSP are deferred, so the mix is dry; SD_PreUpdate therefore
+// does nothing. The decoders (snd_adpcm) and the send matrices (snd_mix) are unit-tested offline; audible correctness,
+// 3D and the non-unity resampler are verified on hardware, not here.
 
 #include "snd_adpcm.h"
 #include "snd_mix.h"
 
+#include <sound/snd_db.h>
 #include <sound/snd_driver.h>
+#include <sound/snd_public_async.h>
+#include <sound/snd_stream.h>
 
 #include <qcommon/common.h>
 
@@ -32,15 +38,28 @@
 #include <mutex>
 #include <vector>
 
+// The XAudio2 driver declares these in snd_driver_xaudio2.h, which names XAudio2 types; only this file uses them here.
+unsigned int __cdecl iSND_GetStreamChannel(unsigned int index);
+void __cdecl SD_UpdateStreamVoice(int voiceIndex);
+void __cdecl iSND_ChannelError(int voiceIndex);
+
 namespace
 {
 constexpr int kDeviceRate = 48000;
 constexpr int kDeviceChannels = 2; // the device is stereo; snd_speakerConfiguration defaults to "Stereo" (index 0),
                                    // so the engine fills each voice's pan with output_channel_count == 2 to match.
 
+// One decoded stream window. The audio thread reads the chunk at `head`; the game thread fills the other slot.
+struct StreamChunk
+{
+    std::vector<float> samples; // interleaved float PCM, frames * inputChannels
+    int frames = 0;
+};
+
 struct MixerVoice
 {
     bool active = false;
+    bool stream = false;   // a streamed voice (0..9): samples come from `chunks`, not from `samples`
     bool started = false;  // the engine starts a voice on its first SD_UpdateVoice, as the XAudio2 driver does
     bool paused = false;
     bool looping = false;
@@ -54,6 +73,9 @@ struct MixerVoice
     double step = 1.0;           // source frames per output frame = pitch * assetRate / deviceRate
     float dry[2 * 8] = {};       // the dry send matrix, destination-major (dest * inputChannels + src)
     std::vector<float> samples;  // interleaved float PCM, frameCount * inputChannels; owned by the game thread
+    StreamChunk chunks[2];       // streamed voices only
+    int chunkHead = 0;           // the chunk being played
+    int chunkCount = 0;          // chunks queued, the one being played included (XAudio2's BuffersQueued)
 };
 
 std::mutex s_lock;
@@ -62,6 +84,8 @@ SDL_AudioDeviceID s_device = 0;
 int s_callbackFrames = 0;
 std::vector<float> s_scratch; // resampled source for one voice, reused each callback; sized in SD_Init
 bool s_subsystemReady = false;
+std::vector<float> s_streamSpare[SND_MAX_STREAM_VOICES]; // game thread: the next chunk is decoded here, then swapped in
+std::vector<int16_t> s_streamPcm;                         // game thread: ADPCM decode output before the float step
 
 // Decodes a RAM asset (PCM16 or MS-ADPCM) into interleaved float in [-1, 1]. Called on the game thread at voice
 // start, into a local buffer, before the voice is made active, so the callback never races the decode.
@@ -89,6 +113,41 @@ void DecodeAsset(const snd_asset *snd, int frames, int channels, std::vector<flo
     }
 }
 
+// Resamples a streamed voice across its queued chunks. A chunk played to its end is dropped; with none left the voice
+// is silent until the game thread queues more, or stops it (SD_UpdateVoice, as XAudio2 with no buffer queued).
+void MixStream(MixerVoice &v, int frames, float *src, float *out)
+{
+    int produced = 0;
+    for (int f = 0; f < frames && v.chunkCount > 0; ++f)
+    {
+        const StreamChunk *cur = &v.chunks[v.chunkHead];
+        while (v.readPos >= cur->frames)
+        {
+            v.readPos -= cur->frames;
+            v.chunkHead ^= 1;
+            if (--v.chunkCount == 0)
+                break;
+            cur = &v.chunks[v.chunkHead];
+        }
+        if (v.chunkCount == 0)
+            break;
+        const int i0 = int(v.readPos);
+        const double frac = v.readPos - i0;
+        const float *a = &cur->samples[size_t(i0) * v.inputChannels];
+        const float *b = a;
+        if (i0 + 1 < cur->frames)
+            b = a + v.inputChannels;
+        else if (v.chunkCount > 1 && v.chunks[v.chunkHead ^ 1].frames > 0)
+            b = v.chunks[v.chunkHead ^ 1].samples.data();
+        for (int c = 0; c < v.inputChannels; ++c)
+            src[f * v.inputChannels + c] = float(a[c] + (b[c] - a[c]) * frac);
+        v.readPos += v.step;
+        v.playedSrc += v.step;
+        ++produced;
+    }
+    bo1snd::MixAccumulate(src, produced, v.inputChannels, v.dry, kDeviceChannels, out);
+}
+
 void SDLCALL AudioCallback(void *, Uint8 *stream, int len)
 {
     std::memset(stream, 0, size_t(len));
@@ -100,7 +159,14 @@ void SDLCALL AudioCallback(void *, Uint8 *stream, int len)
     for (int vi = 0; vi < SND_MAX_VOICES; ++vi)
     {
         MixerVoice &v = s_voices[vi];
-        if (!v.active || v.paused || !v.started || v.drained || v.frameCount == 0)
+        if (!v.active || v.paused || !v.started)
+            continue;
+        if (v.stream)
+        {
+            MixStream(v, frames, src, out);
+            continue;
+        }
+        if (v.drained || v.frameCount == 0)
             continue;
 
         // Resample the voice into the scratch at the device rate, linearly. At most `frames`, fewer if a
@@ -203,7 +269,7 @@ char __cdecl SD_Init()
     s_callbackFrames = have.samples;
     s_scratch.assign(size_t(s_callbackFrames) * 2, 0.0f); // *2: stereo asset worst case, pre-allocated once
     SDL_PauseAudioDevice(s_device, 0);
-    Com_Printf(16, "snd: SDL2 software mixer on %s, %d Hz, %d ch, %d-frame buffer (RAM voices; streaming/reverb deferred)\n",
+    Com_Printf(16, "snd: SDL2 software mixer on %s, %d Hz, %d ch, %d-frame buffer (RAM and streamed voices; reverb deferred)\n",
                SDL_GetCurrentAudioDriver(), have.freq, have.channels, have.samples);
     return 1;
 }
@@ -231,13 +297,31 @@ void __cdecl SD_PreUpdate()
 
 void __cdecl SD_StopVoice(int voiceIndex)
 {
-    std::lock_guard<std::mutex> lock(s_lock);
-    MixerVoice &v = s_voices[voiceIndex];
-    v.active = false;
-    v.started = false;
-    v.drained = false;
-    std::vector<float>().swap(v.samples);
-    v.frameCount = 0;
+    {
+        std::vector<float> freed[3]; // released after the lock, so the callback never waits on a free
+        std::lock_guard<std::mutex> lock(s_lock);
+        MixerVoice &v = s_voices[voiceIndex];
+        v.active = false;
+        v.started = false;
+        v.drained = false;
+        v.samples.swap(freed[0]);
+        v.frameCount = 0;
+        v.stream = false;
+        v.chunkHead = 0;
+        v.chunkCount = 0;
+        for (int i = 0; i < 2; ++i)
+        {
+            v.chunks[i].samples.swap(freed[1 + i]);
+            v.chunks[i].frames = 0;
+        }
+    }
+    // As the XAudio2 driver: a streamed voice closes its file stream. Its windows were given back when decoded.
+    if (SND_IsStream(voiceIndex))
+    {
+        const unsigned int streamVoice = iSND_GetStreamChannel(voiceIndex);
+        if (Snd_StreamStatus(streamVoice))
+            Snd_StreamClose(streamVoice);
+    }
 }
 
 void __cdecl SD_PauseVoice(int voiceIndex)
@@ -266,18 +350,27 @@ __int64 SD_BO1SamplesPlayed(int voiceIndex)
 
 void __cdecl SD_UpdateVoice(unsigned int voiceIndex)
 {
-    if (SND_IsStream(voiceIndex)) // streamed voices are deferred; nothing was started for them
-        return;
+    // As the XAudio2 driver: a streamed voice first queues the windows its stream has read; that may stop it.
+    if (SND_IsStream(voiceIndex))
+    {
+        SD_UpdateStreamVoice(int(voiceIndex));
+        if (!g_snd.voiceAliasHash[voiceIndex])
+            return;
+    }
     snd_voice_t *voice = &g_snd.voice[voiceIndex];
     if (voice->soundFileInfo.loadingState == SFLS_LOADING)
         return;
 
-    std::lock_guard<std::mutex> lock(s_lock);
+    std::unique_lock<std::mutex> lock(s_lock);
     MixerVoice &v = s_voices[voiceIndex];
     if (!v.active)
         return;
-    if (v.drained) // ran out since the last update: let the engine tear it down, as the XAudio2 path does
+    // Ran out since the last update (a RAM voice played to its end, a streamed one with no chunk left): let the engine
+    // tear it down, as the XAudio2 path does when no buffer is queued. SND_StopVoice comes back into SD_StopVoice,
+    // which takes the lock: drop it first.
+    if (v.stream ? v.chunkCount == 0 : v.drained)
     {
+        lock.unlock();
         SND_StopVoice(int(voiceIndex));
         return;
     }
@@ -304,11 +397,189 @@ void __cdecl SD_UpdateVoice(unsigned int voiceIndex)
         v.started = true;
 }
 
-int __cdecl SND_StartAliasStream(SndStartAliasInfo *, unsigned int)
+void __cdecl iSND_ChannelError(int voiceIndex)
 {
-    // Streamed playback (seek tables, double-buffered windows, Snd_Stream*) is deferred; reporting not-played keeps
-    // streamed music and long ambience silent while the RAM voices play, rather than faking a stream.
-    return SND_PLAYBACKID_NOTPLAYED;
+    const snd_alias_t *alias = g_snd.voice[voiceIndex].alias;
+    SND_LengthNotify(voiceIndex, 0);
+    SND_StopVoice(voiceIndex);
+    alias->soundFile->exists = 0;
+}
+
+unsigned int __cdecl iSND_GetStreamChannel(unsigned int index)
+{
+    iassert(index < SND_MAX_STREAM_VOICES);
+    return index;
+}
+
+namespace
+{
+// Decodes one stream window (whole MS-ADPCM blocks, or PCM16) into `out`; returns the frames decoded.
+int DecodeWindow(const snd_asset *header, const char *data, unsigned int size, std::vector<float> &out)
+{
+    const int channels = int(header->channel_count);
+    int frames = 0;
+    if (header->format == SND_ASSET_FORMAT_MSADPCM)
+    {
+        const int blockAlign = 262 * channels;
+        const int blocks = int((size + blockAlign - 1) / blockAlign);
+        const int capacity = blocks * Bo1_MsAdpcmFramesPerBlock(channels, blockAlign);
+        if (s_streamPcm.size() < size_t(capacity) * channels)
+            s_streamPcm.resize(size_t(capacity) * channels);
+        frames = Bo1_DecodeMsAdpcm(reinterpret_cast<const uint8_t *>(data), size, channels, blockAlign,
+                                   s_streamPcm.data(), capacity);
+        out.resize(size_t(frames) * channels);
+        for (int i = 0; i < frames * channels; ++i)
+            out[i] = s_streamPcm[i] * (1.0f / 32768.0f);
+    }
+    else
+    {
+        frames = int(size / (sizeof(int16_t) * channels));
+        out.resize(size_t(frames) * channels);
+        const int16_t *pcm = reinterpret_cast<const int16_t *>(data);
+        for (int i = 0; i < frames * channels; ++i)
+            out[i] = pcm[i] * (1.0f / 32768.0f);
+    }
+    return frames;
+}
+
+int QueuedChunks(int voiceIndex)
+{
+    std::lock_guard<std::mutex> lock(s_lock);
+    return s_voices[voiceIndex].chunkCount;
+}
+
+// iSND_CreateVoice's part for a stream: the mixer voice, from the header the stream thread read.
+bool CreateStreamVoice(int voiceIndex, const snd_asset *header)
+{
+    if (header->format != SND_ASSET_FORMAT_MSADPCM && header->format != 0 /*PCM16*/)
+        return false;
+    if (header->channel_count < 1 || header->channel_count > 2 || !header->frame_rate)
+        return false;
+    std::lock_guard<std::mutex> lock(s_lock);
+    MixerVoice &v = s_voices[voiceIndex];
+    v.stream = true;
+    v.inputChannels = int(header->channel_count);
+    v.outputChannels = kDeviceChannels;
+    v.frameCount = 0;
+    v.assetRate = int(header->frame_rate);
+    v.looping = false; // the stream wraps a looping file itself
+    v.readPos = 0.0;
+    v.playedSrc = 0.0;
+    v.step = double(header->frame_rate) / kDeviceRate;
+    v.started = false;
+    v.paused = false;
+    v.drained = false;
+    v.chunkHead = 0;
+    v.chunkCount = 0;
+    for (float &g : v.dry)
+        g = 0.0f;
+    v.active = true;
+    return true;
+}
+} // namespace
+
+void __cdecl SD_UpdateStreamVoice(int voiceIndex)
+{
+    const unsigned int streamVoice = iSND_GetStreamChannel(voiceIndex);
+    snd_stream_status status = Snd_StreamStatus(streamVoice);
+    if (!status || status == SND_STREAM_STARVING || !Snd_StreamGetHeader(streamVoice))
+        return;
+    if (status == SND_STREAM_ERROR)
+    {
+        iSND_ChannelError(voiceIndex);
+        return;
+    }
+
+    bool created;
+    {
+        std::lock_guard<std::mutex> lock(s_lock);
+        created = s_voices[voiceIndex].active && s_voices[voiceIndex].stream;
+    }
+    const snd_asset *header = Snd_StreamGetHeader(streamVoice);
+    if (!created)
+    {
+        if (status != SND_STREAM_OK)
+            return;
+        if (!CreateStreamVoice(voiceIndex, header))
+        {
+            iSND_ChannelError(voiceIndex);
+            return;
+        }
+        // One line a stream start, so a player's log shows which music and long sounds played.
+        Com_Printf(16, "snd: stream %u '%s', %u ch, %u Hz, %u frames\n", streamVoice,
+                   g_snd.voice[voiceIndex].alias ? g_snd.voice[voiceIndex].alias->name : "?",
+                   header->channel_count, header->frame_rate, header->frame_count);
+        const unsigned int lengthMS = unsigned(1000LL * header->frame_count / header->frame_rate);
+        SND_SetSoundFileVoiceInfo(voiceIndex, header->channel_count, header->frame_rate, lengthMS, 0, SFLS_LOADED);
+        SND_UpdateVoice(&g_snd.voice[voiceIndex], 0.0f);
+    }
+
+    while (Snd_StreamGetFreeWindows(streamVoice))
+    {
+        const int queued = QueuedChunks(voiceIndex);
+        if (queued >= 2)
+            break;
+        unsigned int size = 0, position = 0;
+        char *data = nullptr;
+        status = Snd_StreamAcquireWindow(streamVoice, &size, &position, &data);
+        switch (status)
+        {
+        case SND_STREAM_OK:
+        {
+            std::vector<float> &spare = s_streamSpare[streamVoice];
+            const int frames = DecodeWindow(header, data, size, spare);
+            Snd_StreamReleaseWindow(streamVoice, data);
+            if (frames <= 0)
+                break;
+            std::lock_guard<std::mutex> lock(s_lock);
+            MixerVoice &v = s_voices[voiceIndex];
+            StreamChunk &slot = v.chunks[(v.chunkHead + v.chunkCount) & 1];
+            slot.samples.swap(spare); // the slot's old samples (a played chunk) become the next spare
+            slot.frames = frames;
+            ++v.chunkCount;
+            break;
+        }
+        case SND_STREAM_STARVING:
+            return;
+        case SND_STREAM_EOF:
+            if (!queued)
+                SND_StopVoice(voiceIndex);
+            return;
+        case SND_STREAM_ERROR:
+            iSND_ChannelError(voiceIndex);
+            return;
+        default:
+            return;
+        }
+    }
+}
+
+// The XAudio2 driver's, word for word: open the file stream (primed from RAM when the alias has a prime), then let
+// SD_UpdateVoice create the voice once the stream thread has read the header.
+int __cdecl SND_StartAliasStream(SndStartAliasInfo *startAliasInfo, unsigned int voiceIndex)
+{
+    const snd_alias_t *alias = startAliasInfo->alias;
+    const unsigned int streamVoice = iSND_GetStreamChannel(voiceIndex);
+    char filename[260];
+    SND_AliasGetFileName(alias, filename, 256);
+    if (!alias->soundFile->exists)
+    {
+        Com_PrintError(1, "Tried to play streamed sound '%s' from alias '%s', but it was not found at load time.\n",
+                       filename, alias->name);
+        return SND_SetPlaybackIdNotPlayed(voiceIndex);
+    }
+    unsigned int primeSize = 0;
+    char *primeData = nullptr;
+    if ((alias->flags & 0xC000) >> 14 == 3 && alias->soundFile->u.streamSnd->primeSnd)
+    {
+        primeData = alias->soundFile->u.streamSnd->primeSnd->buffer;
+        primeSize = alias->soundFile->u.streamSnd->primeSnd->size;
+    }
+    Snd_StreamOpen(streamVoice, filename, (alias->flags & 1) != 0, primeSize, primeData);
+    SND_SetVoiceStartInfo(voiceIndex, startAliasInfo);
+    SND_SetSoundFileVoiceInfo(voiceIndex, 0, 0, 0, 0, SFLS_LOADING);
+    SD_UpdateVoice(voiceIndex);
+    return g_snd.voice[voiceIndex].alias ? startAliasInfo->playbackId : -1;
 }
 
 int __cdecl SD_StartAlias(SndStartAliasInfo *startAliasInfo, unsigned int voice)

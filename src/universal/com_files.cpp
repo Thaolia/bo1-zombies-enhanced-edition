@@ -851,7 +851,9 @@ unsigned int __cdecl FS_FOpenFileReadForThread(const char *filename, int *file, 
                                     filetemp = zfi->file;
                                     ziptemp = zfi->pfile_in_zip_read;
                                     unzSetCurrentFileInfoPosition(v14->handle, i->pos);
-                                    Com_Memcpy(zfi, v14->handle, 128);
+                                    // zombies: the iwd's state up to (not including) tmpFile; 128 was its 32-bit size and, with LP64's 8-byte
+                                    // longs, missed cur_file_info.uncompressed_size: a clone read another file's size.
+                                    Com_Memcpy(zfi, v14->handle, offsetof(unz_s, tmpFile));
                                     zfi->file = filetemp;
                                     zfi->pfile_in_zip_read = ziptemp;
                                     unzOpenCurrentFile(fsh[*file].handleFiles.file.z);

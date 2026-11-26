@@ -51,8 +51,10 @@ not.
   `snd_driver_xaudio2*.cpp` see XAudio2; on posix `snd_driver_sdl2.cpp` implements the same `snd_driver.h` as a
   software mixer on an SDL2 device. The engine still owns the voice table and computes each voice's speaker map and
   send levels; the driver turns that into samples — the MS-ADPCM/PCM decode (`snd_adpcm`) and the send matrices
-  (`snd_mix`, ported from `SDXA2_UpdateVoiceSends`) are factored out pure and unit-tested. RAM voices only so far;
-  streamed voices, the reverb bus and the master DSP are deferred (`docs/PORTING.md`, phase 4b step 4).
+  (`snd_mix`, ported from `SDXA2_UpdateVoiceSends`) are factored out pure and unit-tested. RAM and streamed voices
+  (music, long ambience: the engine's stream thread reads the file, the driver decodes each window into one of two
+  chunks per voice, as XAudio2 queues two buffers); the reverb bus, the master DSP and the per-voice low-pass are
+  deferred (`docs/PORTING.md`, phase 4b step 4).
 
 ## ffconv (phase 2)
 `tools/ffconv` is a 32-bit Windows tool (MinGW, `tools/ffconv/CMakePresets.json`) that turns the retail zones into
