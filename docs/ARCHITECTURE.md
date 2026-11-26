@@ -53,7 +53,10 @@ not.
   send levels; the driver turns that into samples — the MS-ADPCM/PCM decode (`snd_adpcm`) and the send matrices
   (`snd_mix`, ported from `SDXA2_UpdateVoiceSends`) are factored out pure and unit-tested. RAM and streamed voices
   (music, long ambience: the engine's stream thread reads the file, the driver decodes each window into one of two
-  chunks per voice, as XAudio2 queues two buffers); the reverb bus, the master DSP and the per-voice low-pass are
+  chunks per voice, as XAudio2 queues two buffers). The buses are XAudio2's, rendered in its 480-frame quantum:
+  dry to the master or novoice bus, wet to the 4-channel radverb bus, radverb into novoice (compressor), novoice into
+  master (EQ, limiter), with the engine's own DSP (`snd_radverb.cpp`, `snd_dsp.cpp`) and the parameters
+  `SD_PreUpdate` reads from the map's reverb and master tables. The per-voice source DSP (occlusion low-pass, futz) is
   deferred (`docs/PORTING.md`, phase 4b step 4).
 
 ## ffconv (phase 2)

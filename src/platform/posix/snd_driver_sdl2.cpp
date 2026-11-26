@@ -16,15 +16,21 @@
 // A streamed voice follows SD_UpdateStreamVoice of the XAudio2 driver: the engine's stream thread (snd_stream.cpp)
 // reads the file into windows; the game thread acquires a window, decodes it to float into one of the voice's two
 // chunks (XAudio2 queues at most two buffers too) and gives the window back at once, since the chunk holds the
-// samples. The reverb (wet) send and the master EQ/limiter DSP are deferred, so the mix is dry; SD_PreUpdate therefore
-// does nothing. The decoders (snd_adpcm) and the send matrices (snd_mix) are unit-tested offline; audible correctness,
-// 3D and the non-unity resampler are verified on hardware, not here.
+// samples. The buses and their DSP are XAudio2's (RenderBlock): reverb, the novoice compressor, the master EQ and
+// limiter, with the parameters SD_PreUpdate computes as the XAudio2 driver does. The per-voice source DSP (occlusion
+// low-pass, futz) is not run yet. The decoders (snd_adpcm) and the send matrices (snd_mix) are unit-tested offline;
+// audible correctness, 3D and the non-unity resampler are verified on hardware, not here.
 
 #include "snd_adpcm.h"
 #include "snd_mix.h"
 
+#include <sound/snd_bank.h>
 #include <sound/snd_db.h>
 #include <sound/snd_driver.h>
+#include <sound/snd_dsp.h>
+#include <sound/snd_dvar.h>
+#include <sound/snd_globals.h>
+#include <sound/snd_radverb.h>
 #include <sound/snd_public_async.h>
 #include <sound/snd_stream.h>
 
@@ -72,6 +78,8 @@ struct MixerVoice
     double playedSrc = 0.0;      // cumulative source frames consumed, monotonic across loops (SamplesPlayed)
     double step = 1.0;           // source frames per output frame = pitch * assetRate / deviceRate
     float dry[2 * 8] = {};       // the dry send matrix, destination-major (dest * inputChannels + src)
+    float wet[2 * 4] = {};       // the wet send to the 4-channel radverb bus, same layout
+    bool toMasterBus = false;    // the dry send's bus: master, else novoice (alias flags, bus 2)
     std::vector<float> samples;  // interleaved float PCM, frameCount * inputChannels; owned by the game thread
     StreamChunk chunks[2];       // streamed voices only
     int chunkHead = 0;           // the chunk being played
@@ -81,9 +89,24 @@ struct MixerVoice
 std::mutex s_lock;
 MixerVoice s_voices[SND_MAX_VOICES];
 SDL_AudioDeviceID s_device = 0;
-int s_callbackFrames = 0;
 std::vector<float> s_scratch; // resampled source for one voice, reused each callback; sized in SD_Init
 bool s_subsystemReady = false;
+// The buses of one quantum, and the engine DSP's parameters and state (audio thread, under s_lock). 480 frames at
+// 48 kHz is XAudio2's quantum, the frame count its XAPOs and SND_RvFrame's buffers are written for.
+constexpr int kBlock = 480;
+float s_masterBus[kBlock * kDeviceChannels];
+float s_novoiceBus[kBlock * kDeviceChannels];
+float s_radverbBus[kBlock * 4];
+float s_planar[kBlock * 4];
+float s_rvOut[kBlock * 4];
+float s_block[kBlock * kDeviceChannels];
+int s_blockPos = kBlock;
+snd_rv_state s_rvState;
+snd_rv_params s_rvParams, s_rvPending;
+snd_dsp_master_params s_masterParams, s_masterPending;
+snd_dsp_master_no_voice_params s_novoiceParams, s_novoicePending;
+snd_dsp_master_state s_masterState[kDeviceChannels];
+snd_dsp_master_no_voice_state s_novoiceState[kDeviceChannels];
 std::vector<float> s_streamSpare[SND_MAX_STREAM_VOICES]; // game thread: the next chunk is decoded here, then swapped in
 std::vector<int16_t> s_streamPcm;                         // game thread: ADPCM decode output before the float step
 
@@ -113,9 +136,10 @@ void DecodeAsset(const snd_asset *snd, int frames, int channels, std::vector<flo
     }
 }
 
-// Resamples a streamed voice across its queued chunks. A chunk played to its end is dropped; with none left the voice
-// is silent until the game thread queues more, or stops it (SD_UpdateVoice, as XAudio2 with no buffer queued).
-void MixStream(MixerVoice &v, int frames, float *src, float *out)
+// Resamples a streamed voice across its queued chunks into `src`; returns the frames produced. A chunk played to its
+// end is dropped; with none left the voice is silent until the game thread queues more, or stops it (SD_UpdateVoice,
+// as XAudio2 with no buffer queued).
+int ProduceStream(MixerVoice &v, int frames, float *src)
 {
     int produced = 0;
     for (int f = 0; f < frames && v.chunkCount > 0; ++f)
@@ -145,67 +169,137 @@ void MixStream(MixerVoice &v, int frames, float *src, float *out)
         v.playedSrc += v.step;
         ++produced;
     }
-    bo1snd::MixAccumulate(src, produced, v.inputChannels, v.dry, kDeviceChannels, out);
+    return produced;
 }
 
-void SDLCALL AudioCallback(void *, Uint8 *stream, int len)
+// Resamples a RAM voice into `src`, linearly; returns the frames produced (fewer than `frames` if a non-looping voice
+// ends inside the block).
+int ProduceRam(MixerVoice &v, int frames, float *src)
 {
-    std::memset(stream, 0, size_t(len));
-    float *out = reinterpret_cast<float *>(stream);
-    const int frames = len / (kDeviceChannels * int(sizeof(float)));
+    int produced = 0;
+    for (int f = 0; f < frames; ++f)
+    {
+        if (v.readPos >= v.frameCount)
+        {
+            if (!v.looping)
+            {
+                v.drained = true;
+                break;
+            }
+            v.readPos -= v.frameCount;
+        }
+        const int i0 = int(v.readPos);
+        const double frac = v.readPos - i0;
+        int i1 = i0 + 1;
+        if (i1 >= v.frameCount)
+            i1 = v.looping ? 0 : i0;
+        for (int c = 0; c < v.inputChannels; ++c)
+        {
+            const float a = v.samples[size_t(i0) * v.inputChannels + c];
+            const float b = v.samples[size_t(i1) * v.inputChannels + c];
+            src[f * v.inputChannels + c] = float(a + (b - a) * frac);
+        }
+        v.readPos += v.step;
+        v.playedSrc += v.step;
+        ++produced;
+    }
+    return produced;
+}
 
-    std::lock_guard<std::mutex> lock(s_lock);
+void Uninterleave(const float *in, int channels, float *planar)
+{
+    for (int f = 0; f < kBlock; ++f)
+        for (int c = 0; c < channels; ++c)
+            planar[c * kBlock + f] = in[f * channels + c];
+}
+
+// One 480-frame quantum of the XAudio2 graph (SD_Init in snd_driver_xaudio2.cpp): every voice sends dry to the master
+// or the novoice bus and wet to the 4-channel radverb bus; the radverb bus (stage 1) feeds the novoice bus through the
+// stereo output matrix (its channel 3 to the left, 1 to the right); the novoice bus (stage 2, its compressor) feeds
+// the master bus (stage 3, EQ and limiter), which goes to the device. The DSP is the engine's own (snd_radverb.cpp,
+// snd_dsp.cpp), run per channel on planar data as the XAPOs of snd_driver_xaudio2_dsp.cpp do. Called with s_lock held.
+void RenderBlock()
+{
+    std::memset(s_masterBus, 0, sizeof(s_masterBus));
+    std::memset(s_novoiceBus, 0, sizeof(s_novoiceBus));
+    std::memset(s_radverbBus, 0, sizeof(s_radverbBus));
+
     float *src = s_scratch.data();
     for (int vi = 0; vi < SND_MAX_VOICES; ++vi)
     {
         MixerVoice &v = s_voices[vi];
         if (!v.active || v.paused || !v.started)
             continue;
+        int produced;
         if (v.stream)
-        {
-            MixStream(v, frames, src, out);
+            produced = ProduceStream(v, kBlock, src);
+        else if (v.drained || v.frameCount == 0)
             continue;
-        }
-        if (v.drained || v.frameCount == 0)
-            continue;
-
-        // Resample the voice into the scratch at the device rate, linearly. At most `frames`, fewer if a
-        // non-looping voice ends inside this block.
-        int produced = 0;
-        for (int f = 0; f < frames; ++f)
-        {
-            if (v.readPos >= v.frameCount)
-            {
-                if (!v.looping)
-                {
-                    v.drained = true;
-                    break;
-                }
-                v.readPos -= v.frameCount;
-            }
-            const int i0 = int(v.readPos);
-            const double frac = v.readPos - i0;
-            int i1 = i0 + 1;
-            if (i1 >= v.frameCount)
-                i1 = v.looping ? 0 : i0;
-            for (int c = 0; c < v.inputChannels; ++c)
-            {
-                const float a = v.samples[size_t(i0) * v.inputChannels + c];
-                const float b = v.samples[size_t(i1) * v.inputChannels + c];
-                src[f * v.inputChannels + c] = float(a + (b - a) * frac);
-            }
-            v.readPos += v.step;
-            v.playedSrc += v.step;
-            ++produced;
-        }
-        bo1snd::MixAccumulate(src, produced, v.inputChannels, v.dry, kDeviceChannels, out);
+        else
+            produced = ProduceRam(v, kBlock, src);
+        bo1snd::MixAccumulate(src, produced, v.inputChannels, v.dry, kDeviceChannels,
+                              v.toMasterBus ? s_masterBus : s_novoiceBus);
+        bo1snd::MixAccumulate(src, produced, v.inputChannels, v.wet, 4, s_radverbBus);
     }
 
-    // The buses sum without headroom; clamp before the device, as a hard limiter would. The master limiter DSP is
-    // deferred, so this only guards against clipping noise, not for tone.
-    const int total = frames * kDeviceChannels;
-    for (int i = 0; i < total; ++i)
-        out[i] = out[i] < -1.0f ? -1.0f : out[i] > 1.0f ? 1.0f : out[i];
+    // Parameters the game thread set in SD_PreUpdate, as SetEffectParameters hands them to the XAPOs.
+    s_rvParams = s_rvPending;
+    s_masterParams = s_masterPending;
+    s_novoiceParams = s_novoicePending;
+
+    float *planar = s_planar;
+    float *rvOut = s_rvOut;
+    Uninterleave(s_radverbBus, 4, planar);
+    if (s_rvParams.earlySize > 0.0f) // SDXA2RadverbEffect::Process asserts it; the defaults set it
+    {
+        SND_RvFrame(&s_rvParams, &s_rvState, reinterpret_cast<const float *>(uintptr_t(kBlock)), &planar[3 * kBlock],
+                    &planar[kBlock], planar, &planar[2 * kBlock], &rvOut[3 * kBlock], &rvOut[kBlock], rvOut,
+                    &rvOut[2 * kBlock]);
+        for (int f = 0; f < kBlock; ++f)
+        {
+            s_novoiceBus[2 * f] += rvOut[3 * kBlock + f];
+            s_novoiceBus[2 * f + 1] += rvOut[kBlock + f];
+        }
+    }
+
+    Uninterleave(s_novoiceBus, kDeviceChannels, planar);
+    for (int c = 0; c < kDeviceChannels; ++c)
+        SND_DspFxMasterNoVoiceSingleChannel(kBlock, float(kDeviceRate), &planar[c * kBlock], &s_novoiceParams,
+                                            &s_novoiceState[c], &g_snd.meters[c]);
+    for (int f = 0; f < kBlock; ++f)
+        for (int c = 0; c < kDeviceChannels; ++c)
+            s_masterBus[f * kDeviceChannels + c] += planar[c * kBlock + f];
+
+    Uninterleave(s_masterBus, kDeviceChannels, planar);
+    for (int c = 0; c < kDeviceChannels; ++c)
+        SND_DspFxMasterSingleChannel(kBlock, float(kDeviceRate), &planar[c * kBlock], &s_masterParams,
+                                     &s_masterState[c], &g_snd.meters[c]);
+    // The limiter keeps the master bus in range; the clamp only stops a stray overshoot from wrapping at the device.
+    for (int f = 0; f < kBlock; ++f)
+        for (int c = 0; c < kDeviceChannels; ++c)
+        {
+            const float x = planar[c * kBlock + f];
+            s_block[f * kDeviceChannels + c] = x < -1.0f ? -1.0f : x > 1.0f ? 1.0f : x;
+        }
+    s_blockPos = 0;
+}
+
+void SDLCALL AudioCallback(void *, Uint8 *stream, int len)
+{
+    float *out = reinterpret_cast<float *>(stream);
+    int frames = len / (kDeviceChannels * int(sizeof(float)));
+
+    std::lock_guard<std::mutex> lock(s_lock);
+    while (frames > 0)
+    {
+        if (s_blockPos >= kBlock)
+            RenderBlock();
+        const int n = frames < kBlock - s_blockPos ? frames : kBlock - s_blockPos;
+        std::memcpy(out, &s_block[s_blockPos * kDeviceChannels], sizeof(float) * size_t(n) * kDeviceChannels);
+        out += n * kDeviceChannels;
+        s_blockPos += n;
+        frames -= n;
+    }
 }
 
 bool EnsureSubsystem()
@@ -266,10 +360,20 @@ char __cdecl SD_Init()
         return 0;
     }
 
-    s_callbackFrames = have.samples;
-    s_scratch.assign(size_t(s_callbackFrames) * 2, 0.0f); // *2: stereo asset worst case, pre-allocated once
+    s_scratch.assign(size_t(kBlock) * 2, 0.0f); // one quantum of a stereo asset, the worst case, pre-allocated once
+    {
+        std::lock_guard<std::mutex> lock(s_lock);
+        // As the XAPOs start: radverb on its defaults, the master and novoice parameters zero until SD_PreUpdate.
+        SND_RvParamsDefault(&s_rvPending);
+        std::memset(&s_masterPending, 0, sizeof(s_masterPending));
+        std::memset(&s_novoicePending, 0, sizeof(s_novoicePending));
+        std::memset(&s_rvState, 0, sizeof(s_rvState));
+        std::memset(s_masterState, 0, sizeof(s_masterState));
+        std::memset(s_novoiceState, 0, sizeof(s_novoiceState));
+        s_blockPos = kBlock;
+    }
     SDL_PauseAudioDevice(s_device, 0);
-    Com_Printf(16, "snd: SDL2 software mixer on %s, %d Hz, %d ch, %d-frame buffer (RAM and streamed voices; reverb deferred)\n",
+    Com_Printf(16, "snd: SDL2 software mixer on %s, %d Hz, %d ch, %d-frame buffer (RAM and streamed voices, reverb and master DSP)\n",
                SDL_GetCurrentAudioDriver(), have.freq, have.channels, have.samples);
     return 1;
 }
@@ -289,10 +393,81 @@ void SD_Shutdown()
     }
 }
 
+// The XAudio2 driver's, with SetEffectParameters replaced by the pending copies RenderBlock picks up.
 void __cdecl SD_PreUpdate()
 {
-    // Sets the reverb/master/novoice bus DSP parameters in the XAudio2 driver; those effects are deferred, so there
-    // is nothing to set yet.
+    snd_rv_params rv;
+    SND_RvParamsDefault(&rv);
+    const snd_radverb *radverb = SND_GetRadverb(SND_GetCurrentReverb());
+    rv.frameRate = float(kDeviceRate);
+    if (radverb)
+    {
+        rv.smoothing = radverb->smoothing;
+        rv.earlyTime = radverb->earlyTime;
+        rv.lateTime = radverb->lateTime;
+        rv.earlyGain = radverb->earlyGain;
+        rv.lateGain = radverb->lateGain;
+        rv.lateGainProx[3] = g_snd.proximityLateModifier[0];
+        rv.lateGainProx[1] = g_snd.proximityLateModifier[1];
+        rv.lateGainProx[2] = g_snd.proximityLateModifier[2];
+        rv.lateGainProx[0] = g_snd.proximityLateModifier[3];
+        rv.returnGain = radverb->returnGain;
+        rv.earlyLpf = radverb->earlyLpf;
+        rv.lateLpf = radverb->lateLpf;
+        rv.inputLpf = radverb->inputLpf;
+        rv.dampLpf = radverb->dampLpf;
+        for (int i = 0; i < 4; ++i)
+            rv.wallReflect[i] = radverb->wallReflect;
+        rv.dryGain = radverb->dryGain;
+        rv.earlySize = radverb->earlySize;
+        rv.lateSize = radverb->lateSize;
+        rv.diffusion = radverb->diffusion;
+        rv.delayMatrix = snd_radverb_matrix->current.color[0];
+        if (SND_ActiveListenerCount() == 1)
+        {
+            const float a = float(atan2(g_snd.listeners[0].orient.axis[0][0], g_snd.listeners[0].orient.axis[0][1]));
+            const float v4 = (a + 3.1415927f) - 6.2831855f < 0.0f ? a + 3.1415927f : 6.2831855f;
+            rv.angle = 0.0f - (a + 3.1415927f) < 0.0f ? v4 : 0.0f;
+        }
+        else
+        {
+            rv.angle = 0.0f;
+        }
+    }
+
+    snd_dsp_master_params mp;
+    std::memset(&mp, 0, sizeof(mp));
+    const snd_master *master = SND_GetMasterCurrent();
+    mp.lowE = master->lowE;
+    mp.lowG = master->lowG;
+    mp.lowF = master->lowF;
+    mp.lowQ = master->lowQ;
+    mp.peak1E = master->peak1E;
+    mp.peak1G = master->peak1G;
+    mp.peak1F = master->peak1F;
+    mp.peak1Q = master->peak1Q;
+    mp.peak2E = master->peak2E;
+    mp.peak2G = master->peak2G;
+    mp.peak2F = master->peak2F;
+    mp.peak2Q = master->peak2Q;
+    mp.hiE = master->hiE;
+    mp.hiG = master->hiG;
+    mp.hiF = master->hiF;
+    mp.hiQ = master->hiQ;
+    mp.eqG = master->eqG;
+    mp.limitE = master->limitE;
+    mp.limitPG = master->limitPG;
+    mp.limitMG = master->limitMG;
+    mp.limitT = master->limitT;
+    mp.limitR = master->limitR;
+    mp.limitTA = master->limitTA;
+    mp.limitTR = master->limitTR;
+    const snd_dsp_master_no_voice_params nv = *reinterpret_cast<const snd_dsp_master_no_voice_params *>(&master->compE);
+
+    std::lock_guard<std::mutex> lock(s_lock);
+    s_rvPending = rv;
+    s_masterPending = mp;
+    s_novoicePending = nv;
 }
 
 void __cdecl SD_StopVoice(int voiceIndex)
@@ -378,8 +553,7 @@ void __cdecl SD_UpdateVoice(unsigned int voiceIndex)
     // Rebuild the dry send matrix from the engine's current speaker map and dry level, and refresh the pitch. The
     // decoded channel count (v.inputChannels, fixed at start) is the stride of the sample buffer and of the matrix,
     // so it is what the matrix is built with, not voice->pan.input_channel_count: were they ever to disagree, reading
-    // the buffer with the pan's count would run off its end. The wet (reverb) send is built too but ignored until the
-    // reverb bus exists.
+    // the buffer with the pan's count would run off its end. The wet send feeds the radverb bus.
     // The device is stereo, so the dry matrix must be exactly kDeviceChannels wide; the speaker map's volumes[] is
     // laid out for output_channel_count outputs, so that count has to be kDeviceChannels too (it is: the engine
     // defaults snd_speakerConfiguration to "Stereo"). A different count would need an N->2 down-mix the mixer does
@@ -391,6 +565,8 @@ void __cdecl SD_UpdateVoice(unsigned int voiceIndex)
                             voice->alias->flags, &sends);
     v.outputChannels = kDeviceChannels;
     std::memcpy(v.dry, sends.dry, sizeof(v.dry));
+    std::memcpy(v.wet, sends.wet, sizeof(v.wet));
+    v.toMasterBus = sends.toMasterBus;
     v.step = SND_GetPitch(voice) * (double(v.assetRate) / kDeviceRate);
 
     if (!v.started && !voice->paused && !voice->startDelay)
@@ -472,6 +648,8 @@ bool CreateStreamVoice(int voiceIndex, const snd_asset *header)
     v.chunkHead = 0;
     v.chunkCount = 0;
     for (float &g : v.dry)
+        g = 0.0f;
+    for (float &g : v.wet)
         g = 0.0f;
     v.active = true;
     return true;
@@ -620,6 +798,8 @@ int __cdecl SND_StartAliasRam(SndStartAliasInfo *startAliasInfo, int voiceIndex)
         v.paused = false;
         v.drained = false;
         for (float &g : v.dry)
+            g = 0.0f;
+        for (float &g : v.wet)
             g = 0.0f;
         v.active = true;
     }
