@@ -38,7 +38,7 @@ std::string Launcher_MapFile(int map, int i);
 extern const int kLauncherStartPoints[];
 extern const int kLauncherStartPointCount;
 // mods/admin's zm_farrespawn choices (zm_where's units; 0 = off, 1500 = Moon's own), as ZmClient's FAR_RESPAWN_CHOICES.
-// "Distance des props": r_lodScaleRigid, which scales the distance a static model is seen at when the renderer picks
+// "Prop distance": r_lodScaleRigid, which scales the distance a static model is seen at when the renderer picks
 // its LOD and culls it (r_add_staticmodel.cpp): 1 is the map's own, 2 culls and simplifies props at half the distance.
 // A native BO2 map draws its big props one per instance (TranZit: thousands of draws a frame on the console).
 struct LauncherPropDistance
@@ -49,7 +49,7 @@ struct LauncherPropDistance
 };
 extern const LauncherPropDistance kLauncherPropDistances[];
 extern const int kLauncherPropDistanceCount;
-// "Agrandissement": below 720p, the upscaler that takes the frame to the output size (docs/RENDERER.md, "Upscaling";
+// "Upscaling": below 720p, the upscaler that takes the frame to the output size (docs/RENDERER.md, "Upscaling";
 // docs/VULKAN.md, step 6): none (the console's stretch), AMD FSR 1.0, or Arm ASR with its quality, balanced or
 // performance shaders (temporal: deko3d only; the renderer falls back to FSR 1.0 where it cannot).
 struct LauncherUpscaler
@@ -62,7 +62,7 @@ extern const LauncherUpscaler kLauncherUpscalers[];
 // Whether kLauncherUpscalers[index] is one of Arm ASR's presets (temporal, much costlier on the GPU than FSR 1.0).
 bool Launcher_UpscalerIsAsr(int index);
 extern const int kLauncherUpscalerCount;
-// "Nettete": the sharpening after the upscale, in AMD's RCAS stops below the strongest (0); ASR gets 1 - stops / 2.
+// "Sharpness": the sharpening after the upscale, in AMD's RCAS stops below the strongest (0); ASR gets 1 - stops / 2.
 struct LauncherFsrSharpness
 {
     const char *key;   // menu.cfg value
@@ -205,9 +205,9 @@ std::string Launcher_ServerAddress(const LauncherSettings &s);
 // The gfx.cfg value switch_main.cpp turns into BO1_GFX_BACKEND.
 const char *Launcher_BackendName(LauncherBackend backend);
 
-// The Switch's label of a pad control (Bo1PadControl): "A", "ZR", "+", "Haut"...
+// The Switch's label of a pad control (Bo1PadControl): "A", "ZR", "+", "Up"...
 const char *Launcher_PadButtonLabel(int control);
 // What a game control does with the Switch build's binds (buttons_default.cfg, then Switch_ApplyPadLayout in
-// qcommon/cmd.cpp): "Tirer", "Viser"...
+// qcommon/cmd.cpp): "Fire", "Aim"...
 const char *Launcher_PadActionLabel(int control);
 const char *Launcher_TexFilterLabel(LauncherTexFilter filter);

@@ -166,8 +166,8 @@ out-of-band query `getmodinfo "<password>"` (`SV_ModInfoRequest`, `sv_main_mp.cp
 ZmClient asks it when it joins (Jouer view, "Détecter les mods du serveur", on by default, `zmclient --play` too) and
 adds the answer to the client's line as `+set` commands; without an answer, or on a refusal, it falls back on "Armes
 de Black Ops II" and "Armes doublées". It refuses to start when the package lacks a file the answer names (a `mod.ff`,
-a zone, the world), naming it. The Switch menu does the same at Start (server screen: "Mot de passe", which also lets
-it join a server with a password, and "Mods auto"), through `lan_browser.cpp`'s `LanBrowser_QueryModInfo`: a connected
+a zone, the world), naming it. The Switch menu does the same at Start (server screen: "Password", which also lets
+it join a server with a password, and "Auto mods"), through `lan_browser.cpp`'s `LanBrowser_QueryModInfo`: a connected
 UDP socket and `recv`, never `recvfrom` with an address (Ryujinx stops on it). It asks a dotted IPv4 address only.
 
 ### The local server's game
@@ -235,23 +235,23 @@ heard twice.
 
 ## Joining from a Switch
 
-In the start menu, **Serveur** (A) opens the server screen:
-- **Connexion**: on to join a server, off for a solo game;
-- **Adresse IP** and **Port** (3074 by default): typed with the console's keyboard;
-- **Mot de passe**: the server's player password (`g_password`, `+set password`), empty for none;
-- **Nom du joueur**: the name on the server; empty keeps the game's own;
-- **Mods auto** (on by default): Start asks the server what its clients load (`getmodinfo`, above) and the game loads
+In the start menu, **Server** (A) opens the server screen:
+- **Connection**: on to join a server, off for a solo game;
+- **IP address** and **Port** (3074 by default): typed with the console's keyboard;
+- **Password**: the server's player password (`g_password`, `+set password`), empty for none;
+- **Player name**: the name on the server; empty keeps the game's own;
+- **Auto mods** (on by default): Start asks the server what its clients load (`getmodinfo`, above) and the game loads
   the same; a refused password keeps the menu open with a message, as does a file of the answer missing from the SD
   card (a `mod.ff`, an imported map's zone or world). A server that does not answer (older, or a host name instead of
-  an IPv4 address) leaves "Armes BO2" and "Armes doublees" (`mods/dualwield`) to decide;
-- **Armes BO2** (on by default, greyed out without them): the join loads `mods/bo2weapons` (`+set fs_mods bo2weapons`,
+  an IPv4 address) leaves "BO2 weapons" and "Dual wield" (`mods/dualwield`) to decide;
+- **BO2 weapons** (on by default, greyed out without them): the join loads `mods/bo2weapons` (`+set fs_mods bo2weapons`,
   as ZmClient's join option), which a client needs on a server that has the BO2 weapons. The Switch package carries
   them when `make_dist.sh --bo2` has them (`mod.ff` and its images, about 125 MB);
-- **Recherche auto** (on by default) and **Chercher maintenant**: a search of the local network, as ZmClient's browser
+- **Auto search** (on by default) and **Search now**: a search of the local network, as ZmClient's browser
   does it (`src/platform/lan_browser.cpp`): a broadcast `getstatus` to 255.255.255.255 and to the console's subnet
   (`nifmGetCurrentIpConfigInfo`), on ports 3074-3083, then every `statusResponse` within one second. Up to six
   servers are listed with their address, name, map and players; A on one fills in its address and port and turns the
-  connection on. With Recherche auto, the search runs as the screen opens. Ryujinx 1.1.1375 stops on the first UDP
+  connection on. With Auto search, the search runs as the screen opens. Ryujinx 1.1.1375 stops on the first UDP
   reply it receives, so a search there only works with no server answering: the console is the test;
 - the console's own network address, or a warning when it has none (Wi-Fi off, airplane mode).
 

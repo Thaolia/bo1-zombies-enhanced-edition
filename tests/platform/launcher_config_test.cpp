@@ -438,7 +438,7 @@ int main()
                   swap.pad.source[BO1_PAD_X] == BO1_PAD_X,
               "a swap in two lines loads; unknown pad names are skipped");
         Check(std::string(Launcher_PadButtonLabel(BO1_PAD_RTRIGGER)) == "ZR" &&
-                  std::string(Launcher_PadActionLabel(BO1_PAD_RTRIGGER)) == "Tirer" &&
+                  std::string(Launcher_PadActionLabel(BO1_PAD_RTRIGGER)) == "Fire" &&
                   std::string(Launcher_PadButtonLabel(BO1_PAD_COUNT)) == "?",
               "pad labels: ZR fires; past the list is \"?\"");
         bool ascii = true;

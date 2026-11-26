@@ -74,7 +74,7 @@ The `--retail` build makes the same effect and ammo changes.
 `+set fs_mods dualwield`, with the line's other mods (`+set fs_mods zinfo bo2weapons dualwield`). The engine loads the
 `mod.ff` of every stacked mod: the first as zone `mod`, the next ones as `mod_<name>` (`DB_ListModZones`,
 `src/database/db_registry.cpp`), so this mod stacks with `bo2weapons`. ZmClient (Solo, Serveur local and Rejoindre
-rows "Armes doublées (Pack-a-Punch)"), ZmAdmin (local server launch) and the Switch menu ("Armes doublees", start kit
+rows "Armes doublées (Pack-a-Punch)"), ZmAdmin (local server launch) and the Switch menu ("Dual wield", start kit
 screen for a solo game, server screen to join) offer it when `mods/dualwield/mod.ff` is there.
 
 Dvars, read when the map loads:

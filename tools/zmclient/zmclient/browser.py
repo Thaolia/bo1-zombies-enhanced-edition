@@ -8,6 +8,7 @@ import socket
 import threading
 import time
 
+from zmadmin.i18n import tr
 from zmadmin.protocol import OOB, ProtocolError, parse_status
 
 LAN_PORTS = range(3074, 3084)   # a second server on one machine takes net_port + 1..9
@@ -84,7 +85,7 @@ class Browser(threading.Thread):
         try:
             ip = socket.gethostbyname(host)
         except (OSError, UnicodeError) as e:
-            return f"adresse introuvable ({e.__class__.__name__})"
+            return tr("address not found ({error})").format(error=e.__class__.__name__)
         return (ip, port)
 
     def _send(self, addr):
@@ -149,7 +150,7 @@ class Browser(threading.Thread):
             for a in ask:
                 e = self.entries.setdefault(a, Entry(a))
                 if e.seen < start:
-                    e.status, e.ping, e.error = None, None, "pas de réponse"
+                    e.status, e.ping, e.error = None, None, tr("no answer")
             favset = set(favs)
             for k in [k for k, e in self.entries.items()
                       if k not in favset and now - e.seen > FORGET_SECONDS]:

@@ -10,6 +10,7 @@ import os
 import subprocess
 import time
 
+from zmadmin.i18n import tr
 from zmadmin.launcher import IS_WINDOWS, pid_runs
 
 from .profile import split_home
@@ -51,7 +52,7 @@ class Client:
 
     def start(self, argv, fs_game="", env=None):
         if self.running():
-            raise RuntimeError(f"le jeu tourne déjà (PID {self.pid})")
+            raise RuntimeError(tr("the game is already running (PID {pid})").format(pid=self.pid))
         os.makedirs(self.main, exist_ok=True)
         os.makedirs(self.home, exist_ok=True)
         kwargs = {}

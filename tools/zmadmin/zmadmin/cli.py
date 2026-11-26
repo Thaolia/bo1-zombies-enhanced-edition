@@ -8,6 +8,7 @@ import sys
 from . import __version__
 from . import help as H
 from .config import Config
+from .i18n import set_language
 from .launcher import EXE_NAME, LocalServer, find_dist, missing_program_hint, raise_data_limit
 from .profiles import local_game, profile_configured, start_profile
 from .protocol import DEFAULT_PORT, ProtocolError, RconClient, parse_target, query_status, strip_colors
@@ -77,6 +78,8 @@ def main(argv=None):
     parser.add_argument("--list-profiles", action="store_true", help="print the folder's local server profiles, exit")
     parser.add_argument("--version", action="version", version=f"zmadmin {__version__}")
     args = parser.parse_args(argv)
+    # ZmAdmin speaks French; the modules it shares with ZmClient hold English texts with French tables
+    set_language("fr")
     raise_data_limit()
 
     if args.status or args.rcon:

@@ -7,6 +7,7 @@ import curses
 import os
 import string
 
+from zmadmin.i18n import tr
 from zmadmin.widgets import (BACKSPACE, C_DIM, C_ERR, C_INFO, C_OK, ENTER, ESC, OK_MARK, Dialog, color, put)
 
 from . import gamesetup
@@ -67,7 +68,7 @@ def listing(path, mark=True):
                     continue
                 names.append(e.name)
     except OSError as e:
-        return out, f"illisible : {e.strerror or e}"
+        return out, tr("unreadable: {error}").format(error=e.strerror or e)
     names.sort(key=str.lower)
     check = mark and len(names) <= MARK_LIMIT
     for n in names:
@@ -117,37 +118,38 @@ class FolderDialog(Dialog):
     def draw(self, scr):
         win = self.frame(scr)
         dh, dw = win.getmaxyx()
-        where = self.path if self.path != COMPUTER else "Ordinateur (lecteurs)"
+        where = self.path if self.path != COMPUTER else tr("Computer (drives)")
         if len(where) > dw - 6:
             where = "…" + where[-(dw - 7):]
         put(win, 1, 2, where, curses.A_BOLD, width=dw - 4)
         if self.here_install:
-            put(win, 2, 2, f"{OK_MARK} ce dossier est une installation de Black Ops : « Choisir ce dossier »",
+            put(win, 2, 2, tr('{mark} this folder is a Black Ops install: "Choose this folder"').format(mark=OK_MARK),
                 color(C_OK), width=dw - 4)
         else:
-            put(win, 2, 2, "Entrez dans le dossier qui contient BlackOps.exe (zone/, main/).", color(C_DIM),
+            put(win, 2, 2, tr("Enter the folder that holds BlackOps.exe (zone/, main/)."), color(C_DIM),
                 width=dw - 4)
         rows = dh - 7
         self.sel = max(0, min(self.sel, len(self.entries) - 1))
         self.top = max(0, min(self.top, self.sel), self.sel - rows + 1)
         if not self.entries:
-            put(win, 4, 4, "(aucun sous-dossier)", color(C_DIM))
+            put(win, 4, 4, tr("(no subfolder)"), color(C_DIM))
         for i, e in enumerate(self.entries[self.top:self.top + rows]):
             n = self.top + i
-            label = "..  (dossier parent)" if e.up else e.name + ("/" if os.name != "nt" else "\\")
+            label = tr("..  (parent folder)") if e.up else e.name + ("/" if os.name != "nt" else "\\")
             mark = f"  {OK_MARK} Black Ops" if e.install else ""
             attr = curses.A_REVERSE if n == self.sel else (color(C_OK) if e.install else 0)
             put(win, 3 + i, 2, f" {label}{mark} ".ljust(dw - 4), attr, width=dw - 4)
             self.zone(3 + i, 2, dw - 4, lambda n=n: self.select(n), lambda n=n: self.open_entry(n))
         if len(self.entries) > rows:
-            put(win, dh - 4, 2, f"({self.top + 1}-{min(len(self.entries), self.top + rows)} sur {len(self.entries)})",
+            put(win, dh - 4, 2, tr("({first}-{last} of {count})").format(
+                first=self.top + 1, last=min(len(self.entries), self.top + rows), count=len(self.entries)),
                 color(C_DIM))
         put(win, dh - 3, 2, self.error, color(C_ERR), width=dw - 4)
         x = 2
-        for label, action in (("[ Ouvrir ]", lambda: self.open_entry(self.sel)), ("[ Dossier parent ]", self.up),
-                              ("[ Choisir ce dossier ]", self.pick), ("[ Annuler ]", lambda: True)):
-            x = self.button(win, dh - 2, x, label, curses.A_BOLD, action)
-        put(win, dh - 1, 2, " Entrée/→ ouvrir  ←/Retour arrière parent  Espace choisir  lettre : aller à  Échap ",
+        for label, action in (("[ Open ]", lambda: self.open_entry(self.sel)), ("[ Parent folder ]", self.up),
+                              ("[ Choose this folder ]", self.pick), ("[ Cancel ]", lambda: True)):
+            x = self.button(win, dh - 2, x, tr(label), curses.A_BOLD, action)
+        put(win, dh - 1, 2, tr(" Enter/→ open  ←/Backspace parent  Space choose  letter: go to  Esc "),
             color(C_INFO), width=dw - 4)
 
     def select(self, n):
@@ -169,7 +171,7 @@ class FolderDialog(Dialog):
 
     def pick(self):
         if self.path == COMPUTER:
-            self.error = "choisissez un dossier, pas la liste des lecteurs"
+            self.error = tr("choose a folder, not the list of drives")
             return False
         self.error = self.on_pick(self.path) or ""
         return not self.error

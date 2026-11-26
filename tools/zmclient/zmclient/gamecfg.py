@@ -7,6 +7,8 @@ Lines ZmClient does not change are kept as they are, in their order.
 import os
 import re
 
+from zmadmin.i18n import tr
+
 _SETA = re.compile(r'^\s*seta\s+(\S+)\s+"([^"]*)"\s*$')
 _BIND = re.compile(r'^\s*bind\s+(\S+)\s+"(.*)"\s*$')
 _BIND_KEY = re.compile(r"^[A-Za-z0-9_]{1,24}$")
@@ -14,41 +16,41 @@ _BIND_KEY = re.compile(r"^[A-Za-z0-9_]{1,24}$")
 # (dvar, label, kind, options, help). kinds: bool, int (min, max), float (min, max), choice (values), text, fov,
 # picmip (writes the r_picmip_* family). Ranges are the engine's (_Dvar_Register* in src/). No r_mode: the resolution is
 # the Launch view's (profile window_size), which the command line gives (profile.window_flags) and which wins over
-# config.cfg; the Config view shows it as a row of its own.
+# config.cfg; the Config view shows it as a row of its own. The labels and help are English: tr() them where shown.
 SETTINGS = [
-    ("sensitivity", "Sensibilité de la souris", "float", (0.01, 100.0),
-     "Vitesse de la visée à la souris. Défaut 5."),
-    ("cl_mouseAccel", "Accélération de la souris", "float", (0.0, 100.0),
-     "0 : aucune (défaut). Plus haut : un geste rapide tourne plus loin."),
-    ("gpad_enabled", "Manette activée", "bool", None,
-     "1 : la manette joue (XInput). Défaut 0 sur PC."),
-    ("input_invertPitch", "Manette : axe vertical inversé", "bool", None,
-     "1 : pousser le stick vers le haut fait baisser le regard."),
-    ("gpad_rumble", "Manette : vibrations", "bool", None, "1 : vibrations activées."),
-    ("bo1_mod_fov", "Champ de vision (FOV)", "fov", None,
-     "0 : celui du jeu (65). 65 à 120 : plus large. Un seul réglage pour tous les modes (aussi écrit dans "
-     "players/bo1_shared.cfg, que le jeu lit après config.cfg)."),
-    ("r_displayRefresh", "Fréquence de l'écran", "text", None, "Ex. « 60 Hz », « 144 Hz » (plein écran)."),
-    ("r_vsync", "Synchronisation verticale", "bool", None,
-     "1 : pas de déchirure d'image, FPS limités à la fréquence de l'écran. Au prochain lancement."),
-    ("com_maxfps", "FPS maximum", "int", (0, 1000), "0 : sans limite. Défaut 85."),
-    ("r_gamma", "Luminosité (gamma)", "float", (0.5, 3.0), "Défaut 0.9 ; plus haut : plus clair."),
-    ("r_aaSamples", "Anticrénelage (MSAA)", "choice", ("1", "2", "4", "8", "16"),
-     "Échantillons par pixel ; 1 : désactivé. Au prochain lancement."),
-    ("r_texFilterAnisoMax", "Filtrage anisotrope", "choice", ("1", "2", "4", "8", "16"),
-     "Netteté des textures vues de biais ; 16 : la meilleure."),
-    ("r_picmip", "Qualité des textures", "picmip", ("auto", "0", "1", "2", "3"),
-     "auto : le jeu choisit ; 0 : la meilleure ; 3 : la plus basse (moins de mémoire vidéo). Écrit aussi "
-     "r_picmip_manual, r_picmip_bump et r_picmip_spec."),
-    ("sm_enable", "Ombres", "bool", None, "1 : ombres dynamiques (plus lourd)."),
-    ("r_dof_enable", "Profondeur de champ", "bool", None, "1 : flou des objets lointains en visant."),
-    ("cg_blood", "Sang", "bool", None, "1 : effets de sang."),
-    ("cg_subtitles", "Sous-titres", "bool", None, "1 : sous-titres des dialogues."),
-    ("cg_drawFPS", "Compteur FPS du jeu", "choice", ("Off", "Simple", "SimpleRanges", "Verbose"),
-     "Le compteur d'origine du jeu (le compteur du portage est dans Lancement, F4)."),
-    ("bo1_quitOnDisconnect", "Quitter le jeu depuis le menu pause", "bool", None,
-     "1 (défaut) : « Quitter » dans le menu pause (Échap, Start) ferme le jeu ; 0 : retour au menu principal de BO1. "
-     "Un game over ne ferme jamais le jeu."),
+    ("sensitivity", "Mouse sensitivity", "float", (0.01, 100.0),
+     "Speed of mouse aiming. Default 5."),
+    ("cl_mouseAccel", "Mouse acceleration", "float", (0.0, 100.0),
+     "0: none (default). Higher: a quick move turns further."),
+    ("gpad_enabled", "Controller enabled", "bool", None,
+     "1: the controller plays (XInput). Default 0 on PC."),
+    ("input_invertPitch", "Controller: invert Y axis", "bool", None,
+     "1: pushing the stick up makes you look down."),
+    ("gpad_rumble", "Controller: rumble", "bool", None, "1: rumble on."),
+    ("bo1_mod_fov", "Field of view (FOV)", "fov", None,
+     "0: the game's own (65). 65 to 120: wider. One setting for every mode (also written to "
+     "players/bo1_shared.cfg, which the game reads after config.cfg)."),
+    ("r_displayRefresh", "Screen refresh rate", "text", None, 'E.g. "60 Hz", "144 Hz" (fullscreen).'),
+    ("r_vsync", "Vertical sync", "bool", None,
+     "1: no screen tearing, FPS capped at the screen's refresh rate. At the next launch."),
+    ("com_maxfps", "Maximum FPS", "int", (0, 1000), "0: no limit. Default 85."),
+    ("r_gamma", "Brightness (gamma)", "float", (0.5, 3.0), "Default 0.9; higher: brighter."),
+    ("r_aaSamples", "Anti-aliasing (MSAA)", "choice", ("1", "2", "4", "8", "16"),
+     "Samples per pixel; 1: off. At the next launch."),
+    ("r_texFilterAnisoMax", "Anisotropic filtering", "choice", ("1", "2", "4", "8", "16"),
+     "Sharpness of textures seen at an angle; 16: the best."),
+    ("r_picmip", "Texture quality", "picmip", ("auto", "0", "1", "2", "3"),
+     "auto: the game chooses; 0: the best; 3: the lowest (less video memory). Also writes "
+     "r_picmip_manual, r_picmip_bump and r_picmip_spec."),
+    ("sm_enable", "Shadows", "bool", None, "1: dynamic shadows (heavier)."),
+    ("r_dof_enable", "Depth of field", "bool", None, "1: distant objects blur while aiming."),
+    ("cg_blood", "Blood", "bool", None, "1: blood effects."),
+    ("cg_subtitles", "Subtitles", "bool", None, "1: dialogue subtitles."),
+    ("cg_drawFPS", "Game's FPS counter", "choice", ("Off", "Simple", "SimpleRanges", "Verbose"),
+     "The game's original counter (the port's counter is in Launch, F4)."),
+    ("bo1_quitOnDisconnect", "Quit game from pause menu", "bool", None,
+     '1 (default): "Quit" in the pause menu (Esc, Start) closes the game; 0: back to BO1\'s main menu. '
+     "A game over never closes the game."),
 ]
 BY_NAME = {s[0]: s for s in SETTINGS}
 PICMIP_FAMILY = ("r_picmip", "r_picmip_bump", "r_picmip_spec")
@@ -59,30 +61,30 @@ def validate(name, text):
     setting = BY_NAME.get(name)
     text = text.strip()
     if '"' in text or "\n" in text:
-        return None, "pas de guillemet"
+        return None, tr("no quote")
     if not setting:
         return text, None
     kind, opts = setting[2], setting[3]
     if kind == "bool":
         if text not in ("0", "1"):
-            return None, "0 ou 1"
+            return None, tr("0 or 1")
     elif kind in ("int", "float"):
         try:
             v = int(text) if kind == "int" else float(text)
         except ValueError:
-            return None, "un nombre entier" if kind == "int" else "un nombre"
+            return None, tr("a whole number") if kind == "int" else tr("a number")
         if not opts[0] <= v <= opts[1]:
-            return None, f"entre {opts[0]:g} et {opts[1]:g}"
+            return None, tr("between {low} and {high}").format(low=f"{opts[0]:g}", high=f"{opts[1]:g}")
     elif kind in ("choice", "picmip"):
         if text not in opts:
-            return None, "une de : " + ", ".join(opts)
+            return None, tr("one of: {choices}").format(choices=", ".join(opts))
     elif kind == "fov":
         try:
             v = float(text)
         except ValueError:
-            return None, "un nombre"
+            return None, tr("a number")
         if v != 0 and not 65 <= v <= 120:
-            return None, "0, ou entre 65 et 120"
+            return None, tr("0, or between 65 and 120")
     return text, None
 
 

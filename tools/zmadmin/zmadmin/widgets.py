@@ -4,6 +4,8 @@ import os
 import re
 import textwrap
 
+from .i18n import tr
+
 ENTER, ESC, TAB, BTAB, BACKSPACE, CTRL_S, CTRL_C = "ENTER", "ESC", "TAB", "BTAB", "BACKSPACE", "CTRL_S", "CTRL_C"
 OK_MARK = "OK" if os.name == "nt" else "✓"
 BAD_MARK = "X" if os.name == "nt" else "✗"
@@ -279,9 +281,9 @@ class MessageDialog(Dialog):
         self.top = max(0, min(self.top, len(self.lines) - rows))
         for i, line in enumerate(self.lines[self.top:self.top + rows]):
             put(win, 1 + i, 2, line, width=dw - 4)
-        x = self.button(win, dh - 1, 2, "[ Fermer ]", curses.A_BOLD, lambda: True)
-        more = " Haut/Bas, molette : défiler " if len(self.lines) > rows else ""
-        put(win, dh - 1, x, f"{more} Entrée/Échap : fermer ", color(C_INFO))
+        x = self.button(win, dh - 1, 2, tr("[ Close ]"), curses.A_BOLD, lambda: True)
+        hint = tr(" Up/Down, wheel: scroll  Enter/Esc: close ") if len(self.lines) > rows else tr(" Enter/Esc: close ")
+        put(win, dh - 1, x, hint, color(C_INFO))
 
     def key(self, k):
         if k in (curses.KEY_UP, curses.KEY_PPAGE):
@@ -294,7 +296,7 @@ class MessageDialog(Dialog):
 
 
 class ConfirmDialog(Dialog):
-    """Lines, an optional checkbox, [ Oui ] [ Non ]. on_yes(checked)."""
+    """Lines, an optional checkbox, [ Yes ] [ No ]. on_yes(checked)."""
 
     def __init__(self, title, lines, on_yes, checkbox=None, checked=False):
         super().__init__()
@@ -304,7 +306,7 @@ class ConfirmDialog(Dialog):
         self.on_yes = on_yes
         self.checkbox = checkbox
         self.checked = checked
-        self.focus = 0              # 0 Oui, 1 Non, 2 checkbox
+        self.focus = 0              # 0 Yes, 1 No, 2 checkbox
 
     def size(self, h, w):
         extra = 2 if self.checkbox else 0
@@ -321,9 +323,9 @@ class ConfirmDialog(Dialog):
             mark = "[x]" if self.checked else "[ ]"
             self.button(win, y - 2, 2, f"{mark} {self.checkbox}", curses.A_REVERSE if self.focus == 2 else 0,
                         self.toggle)
-        self.button(win, y, 2, "[ Oui ]", curses.A_REVERSE if self.focus == 0 else 0, self.yes)
-        self.button(win, y, 11, "[ Non ]", curses.A_REVERSE if self.focus == 1 else 0, lambda: True)
-        put(win, y, 20, "o/n, Tab, Espace : cocher" if self.checkbox else "o/n, Tab", color(C_INFO))
+        x = self.button(win, y, 2, tr("[ Yes ]"), curses.A_REVERSE if self.focus == 0 else 0, self.yes)
+        x = self.button(win, y, x + 1, tr("[ No ]"), curses.A_REVERSE if self.focus == 1 else 0, lambda: True)
+        put(win, y, x + 1, tr("y/n, Tab, Space: tick") if self.checkbox else tr("y/n, Tab"), color(C_INFO))
 
     def yes(self):
         self.on_yes(self.checked)
@@ -396,8 +398,8 @@ class FormDialog(Dialog):
             y += 2
         put(win, dh - 2, 2, self.error, color(C_ERR), width=dw - 4)
         x = self.button(win, dh - 1, 2, "[ OK ]", curses.A_BOLD, self.submit)
-        x = self.button(win, dh - 1, x, "[ Annuler ]", curses.A_BOLD, lambda: True)
-        put(win, dh - 1, x, " Entrée : valider  Tab : champ  Échap : annuler ", color(C_INFO))
+        x = self.button(win, dh - 1, x, tr("[ Cancel ]"), curses.A_BOLD, lambda: True)
+        put(win, dh - 1, x, tr(" Enter: confirm  Tab: field  Esc: cancel "), color(C_INFO))
         if focus_pos:
             self.edits[self.focus].draw(win, focus_pos[0], focus_pos[1], dw - label_w - 5)
 
@@ -454,9 +456,9 @@ class ChoiceDialog(Dialog):
         desc = self.items[self.sel][2] if self.items else ""
         for i, line in enumerate(wrap(desc, dw - 4)[:2]):
             put(win, dh - 4 + i, 2, line, color(C_DIM), width=dw - 4)
-        x = self.button(win, dh - 1, 2, "[ Choisir ]", curses.A_BOLD, lambda: self.pick(self.sel))
-        x = self.button(win, dh - 1, x, "[ Annuler ]", curses.A_BOLD, lambda: True)
-        put(win, dh - 1, x, " Entrée, double-clic : choisir  Échap : annuler ", color(C_INFO))
+        x = self.button(win, dh - 1, 2, tr("[ Choose ]"), curses.A_BOLD, lambda: self.pick(self.sel))
+        x = self.button(win, dh - 1, x, tr("[ Cancel ]"), curses.A_BOLD, lambda: True)
+        put(win, dh - 1, x, tr(" Enter, double-click: choose  Esc: cancel "), color(C_INFO))
 
     def select(self, n):
         self.sel = n
@@ -510,9 +512,9 @@ class ChecklistDialog(Dialog):
             mark = "[x]" if value in self.ticked else "[ ]"
             put(win, y + i, 2, f" {mark} {label} ".ljust(dw - 4), curses.A_REVERSE if n == self.sel else 0)
             self.zone(y + i, 2, dw - 4, lambda n=n: self.tick(n))
-        x = self.button(win, dh - 1, 2, "[ Valider ]", curses.A_BOLD, self.submit)
-        x = self.button(win, dh - 1, x, "[ Annuler ]", curses.A_BOLD, lambda: True)
-        put(win, dh - 1, x, " Espace, clic : cocher  Entrée : valider ", color(C_INFO))
+        x = self.button(win, dh - 1, 2, tr("[ Confirm ]"), curses.A_BOLD, self.submit)
+        x = self.button(win, dh - 1, x, tr("[ Cancel ]"), curses.A_BOLD, lambda: True)
+        put(win, dh - 1, x, tr(" Space, click: tick  Enter: confirm "), color(C_INFO))
 
     def tick(self, n):
         self.sel = n

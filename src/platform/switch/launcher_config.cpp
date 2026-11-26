@@ -19,16 +19,16 @@ const LauncherMap kLauncherMaps[] = {
     {"zombietron", "Dead Ops Arcade", nullptr, nullptr, nullptr, nullptr},
     // ZmClient's "Mapkit : Nuketown native": MapKit's Nuketown on the world of its own BSP (tools/bo2/bo2_bsp.py)
     // and the BO1 effects on BO2's createfx spots (docs/BO2_MAPS.md, "Placed effects")
-    {"zombie_pentagon", "Nuketown (BO2, natif)", "bo2_zm_nuked_bsp", "zombie_bo2nuked", nullptr, "zombie_bo2fx"},
+    {"zombie_pentagon", "Nuketown (BO2, native)", "bo2_zm_nuked_bsp", "zombie_bo2nuked", nullptr, "zombie_bo2fx"},
     // ZmClient's "TranZit native", with Ascension's zone for the Stamin-Up machine (_mapkit.gsc mapkit_marathon_perk)
     // and the BO1 effects on BO2's createfx spots, as Nuketown
-    {"zombie_pentagon", "TranZit (BO2, natif)", "bo2_zm_transit_bsp", "zombie_bo2transit", "zombie_cosmodrome",
+    {"zombie_pentagon", "TranZit (BO2, native)", "bo2_zm_transit_bsp", "zombie_bo2transit", "zombie_cosmodrome",
      "zombie_bo2fx"},
     // ZmClient's "Mob of the Dead native": the island's world (tools/bo2/bo2_bsp.py) and its BO1 effects
-    {"zombie_pentagon", "Mob of the Dead (BO2, natif)", "bo2_zm_prison_bsp", "zombie_bo2prison", nullptr,
+    {"zombie_pentagon", "Mob of the Dead (BO2, native)", "bo2_zm_prison_bsp", "zombie_bo2prison", nullptr,
      "zombie_bo2fx"},
     // ZmClient's "Buried native", with Ascension's zone for its Stamin-Up machine and its BO1 effects, as TranZit
-    {"zombie_pentagon", "Buried (BO2, natif)", "bo2_zm_buried_bsp", "zombie_bo2buried", "zombie_cosmodrome",
+    {"zombie_pentagon", "Buried (BO2, native)", "bo2_zm_buried_bsp", "zombie_bo2buried", "zombie_cosmodrome",
      "zombie_bo2fx"},
 };
 const int kLauncherMapCount = int(sizeof(kLauncherMaps) / sizeof(kLauncherMaps[0]));
@@ -62,17 +62,17 @@ std::string Launcher_MapFile(int map, int i)
 const int kLauncherStartPoints[] = {0, 1000, 2500, 5000, 10000, 25000, 50000, 100000};
 const int kLauncherStartPointCount = int(sizeof(kLauncherStartPoints) / sizeof(kLauncherStartPoints[0]));
 const LauncherPropDistance kLauncherPropDistances[] = {
-    {"normal", "Normale", "1"},
-    {"reduced", "Reduite", "1.5"},
-    {"short", "Courte", "2"},
+    {"normal", "Normal", "1"},
+    {"reduced", "Reduced", "1.5"},
+    {"short", "Short", "2"},
 };
 const int kLauncherPropDistanceCount = int(sizeof(kLauncherPropDistances) / sizeof(kLauncherPropDistances[0]));
 
 const LauncherUpscaler kLauncherUpscalers[] = {
-    {"off", "Non", nullptr},
+    {"off", "Off", nullptr},
     {"fsr1", "FSR 1.0", "fsr1"},
-    {"asr_quality", "ASR qualite", "asr"},
-    {"asr_balanced", "ASR equilibre", "asr_balanced"},
+    {"asr_quality", "ASR quality", "asr"},
+    {"asr_balanced", "ASR balanced", "asr_balanced"},
     {"asr_performance", "ASR performance", "asr_performance"},
 };
 const int kLauncherUpscalerCount = int(sizeof(kLauncherUpscalers) / sizeof(kLauncherUpscalers[0]));
@@ -84,11 +84,11 @@ bool Launcher_UpscalerIsAsr(int index)
 }
 
 const LauncherFsrSharpness kLauncherFsrSharpness[] = {
-    {"max", "Maximale", "0"},
-    {"strong", "Forte", "0.2"}, // AMD's default
-    {"medium", "Moyenne", "0.5"},
-    {"soft", "Douce", "1"},
-    {"low", "Faible", "2"},
+    {"max", "Maximum", "0"},
+    {"strong", "Strong", "0.2"}, // AMD's default
+    {"medium", "Medium", "0.5"},
+    {"soft", "Soft", "1"},
+    {"low", "Low", "2"},
 };
 const int kLauncherFsrSharpnessCount = int(sizeof(kLauncherFsrSharpness) / sizeof(kLauncherFsrSharpness[0]));
 
@@ -115,9 +115,9 @@ struct TexFilterInfo
 };
 
 const TexFilterInfo kTexFilters[LAUNCHER_TEXFILTER_COUNT] = {
-    {"aniso16", "Anisotrope 16x", 16, 0}, {"aniso8", "Anisotrope 8x", 8, 0},
-    {"aniso4", "Anisotrope 4x", 4, 0},    {"aniso2", "Anisotrope 2x", 2, 0},
-    {"trilinear", "Trilineaire", 1, 1},   {"bilinear", "Bilineaire", 1, 2},
+    {"aniso16", "Anisotropic 16x", 16, 0}, {"aniso8", "Anisotropic 8x", 8, 0},
+    {"aniso4", "Anisotropic 4x", 4, 0},    {"aniso2", "Anisotropic 2x", 2, 0},
+    {"trilinear", "Trilinear", 1, 1},      {"bilinear", "Bilinear", 1, 2},
 };
 
 struct PadInfo
@@ -131,22 +131,22 @@ struct PadInfo
 // Switch_ApplyPadLayout (qcommon/cmd.cpp: Y reloads, L switches weapon, d-pad down throws the special grenade).
 static_assert(BO1_PAD_COUNT == 16, "kPads lists every control");
 const PadInfo kPads[BO1_PAD_COUNT] = {
-    {"a", "A", "Sauter / valider"},
-    {"b", "B", "S'accroupir / retour"},
-    {"x", "X", "Utiliser / recharger"},
-    {"y", "Y", "Recharger"},
-    {"l", "L", "Changer d'arme"},
+    {"a", "A", "Jump / confirm"},
+    {"b", "B", "Crouch / back"},
+    {"x", "X", "Use / reload"},
+    {"y", "Y", "Reload"},
+    {"l", "L", "Switch weapon"},
     {"r", "R", "Grenade"},
-    {"zl", "ZL", "Viser"},
-    {"zr", "ZR", "Tirer"},
-    {"plus", "+", "Pause (menu du jeu)"},
-    {"minus", "-", "Tableau des scores"},
-    {"lstick", "Stick G", "Sprint"},
-    {"rstick", "Stick D", "Couteau"},
-    {"up", "Haut", "Emplacement 1"},
-    {"down", "Bas", "Grenade speciale"},
-    {"left", "Gauche", "Emplacement 3"},
-    {"right", "Droite", "Emplacement 4"},
+    {"zl", "ZL", "Aim"},
+    {"zr", "ZR", "Fire"},
+    {"plus", "+", "Pause (game menu)"},
+    {"minus", "-", "Scoreboard"},
+    {"lstick", "L stick", "Sprint"},
+    {"rstick", "R stick", "Knife"},
+    {"up", "Up", "Slot 1"},
+    {"down", "Down", "Special grenade"},
+    {"left", "Left", "Slot 3"},
+    {"right", "Right", "Slot 4"},
 };
 
 int PadIndex(const std::string &key)

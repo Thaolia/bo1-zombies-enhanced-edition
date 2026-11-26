@@ -10,6 +10,8 @@ import socket
 import threading
 import time
 
+from .i18n import tr
+
 OOB = b"\xff\xff\xff\xff"
 DEFAULT_PORT = 3074
 CLIENT_STATES = {3: "connected", 4: "loading", 5: "active"}
@@ -38,7 +40,7 @@ def parse_target(text, default_port=DEFAULT_PORT):
     if not sep:
         return text, default_port
     if not port.isdigit() or not 0 < int(port) < 65536:
-        raise ValueError(f"port invalide : {port!r}")
+        raise ValueError(tr("invalid port: {port}").format(port=repr(port)))
     return host, int(port)
 
 
@@ -75,7 +77,7 @@ def parse_status(data):
     """statusResponse: the serverinfo string, then one '<slot> <score> <ping> <state> "<name>"' line per client."""
     head = OOB + b"statusResponse\n"
     if not data.startswith(head):
-        raise ProtocolError(f"réponse inattendue : {data[:32]!r}")
+        raise ProtocolError(tr("unexpected answer: {data}").format(data=repr(data[:32])))
     lines = data[len(head):].decode("latin-1").rstrip("\x00").split("\n")
     fields = lines[0].split("\\")[1:] if lines else []
     info = {k: strip_colors(v) for k, v in zip(fields[0::2], fields[1::2])}
@@ -85,7 +87,7 @@ def parse_status(data):
             continue
         parts = line.split(" ", 4)
         if len(parts) != 5:
-            raise ProtocolError(f"ligne de joueur illisible : {line!r}")
+            raise ProtocolError(tr("unreadable player line: {line}").format(line=repr(line)))
         slot, score, ping, state, name = parts
         players.append(StatusPlayer(int(slot), int(score), int(ping), int(state), strip_colors(name.strip('"'))))
     return Status(info, players)
@@ -119,7 +121,7 @@ def query_status(addr, timeout=1.0, sock=None):
         while True:
             left = end - time.monotonic()
             if left <= 0 or not select.select([sock], [], [], left)[0]:
-                raise RconTimeout(f"pas de réponse de {addr[0]}:{addr[1]}")
+                raise RconTimeout(tr("no answer from {host}:{port}").format(host=addr[0], port=addr[1]))
             packet = _recv(sock)
             if packet is None:
                 continue
@@ -159,7 +161,7 @@ def modinfo_request(password=""):
 def parse_modinfo(data):
     head = OOB + b"modinfoResponse\n"
     if not data.startswith(head):
-        raise ProtocolError(f"réponse inattendue : {data[:32]!r}")
+        raise ProtocolError(tr("unexpected answer: {data}").format(data=repr(data[:32])))
     body = data[len(head):].decode("latin-1").rstrip("\x00\n")
     if body == "refused":
         return ModInfo(refused=True)
@@ -187,7 +189,7 @@ def query_modinfo(addr, password="", timeout=1.0):
                 data, src = packet
                 if src[1] == addr[1] and data.startswith(OOB + b"modinfoResponse"):
                     return parse_modinfo(data)
-        raise RconTimeout(f"pas de réponse de {addr[0]}:{addr[1]}")
+        raise RconTimeout(tr("no answer from {host}:{port}").format(host=addr[0], port=addr[1]))
     finally:
         sock.close()
 
@@ -247,18 +249,18 @@ class RconClient:
         """The command's console output, colour codes kept (parse_dvars needs the '^7' that ends each value).
         Raises RconTimeout or RconAuthError."""
         if not self.password:
-            raise RconAuthError("aucun mot de passe rcon")
+            raise RconAuthError(tr("no rcon password"))
         with self._lock:
             text = self._send_once(command)
             if text is None:
                 # another admin's command may have taken the server's 500 ms slot
                 text = self._send_once(command)
         if text is None:
-            raise RconTimeout(f"pas de réponse rcon de {self.addr[0]}:{self.addr[1]}")
+            raise RconTimeout(tr("no rcon answer from {host}:{port}").format(host=self.addr[0], port=self.addr[1]))
         plain = strip_colors(text).strip()
         first = plain.splitlines()[0] if plain else ""
         if first == "Invalid password.":
-            raise RconAuthError("mot de passe rcon refusé")
+            raise RconAuthError(tr("rcon password refused"))
         if first.startswith("The server must set 'rcon_password'"):
-            raise RconAuthError("le serveur n'a pas de rcon_password : rcon désactivé")
+            raise RconAuthError(tr("the server has no rcon_password: rcon disabled"))
         return text

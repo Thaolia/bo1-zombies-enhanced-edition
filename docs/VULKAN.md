@@ -330,7 +330,7 @@ optimised for mobile GPUs:
      854); whether the console drops them is not known.
    Ryujinx, Kino, 4-5 minutes each, no fault: quality 960x540 to 1280x720 and to 1920x1080, performance 960x540 to
    1280x720 and 856x480 to 1920x1080.
-   The start menu offers it: "Agrandissement" (none, FSR 1.0, ASR quality, balanced, performance) and "Sortie"
+   The start menu offers it: "Upscaling" (none, FSR 1.0, ASR quality, balanced, performance) and "Output"
    (720p, 1080p for the dock) below 720p. Next: the console's cost (item 3).
    The work, in order:
    1. (Superseded by the route above.) A GL-dialect variant of ASR's GPU glue (`include/gpu/ffxm_core_glsl.h`, `fsr2/ffxm_fsr2_callbacks_glsl.h`,
@@ -416,11 +416,11 @@ shader warming phase at start was their only remark). This step adds the Vulkan 
   scaled before the 2D" (2.1 fps). The "Kino never finishes loading" of the first runs was the test's own command
   line: without `bo1_zombies 1` there are no SP code zones and the patch zone dies on a missing rawfile; that fatal
   error then froze the game instead of reporting it, fixed on posix the same day (`docs/PORTING.md`, 2026-11-26).
-- Packaging: the OpenBSD package carries `shaders.spv` like the Linux one, and its LISEZMOI says how to turn Vulkan
+- Packaging: the OpenBSD package carries `shaders.spv` like the Linux one, and its README.txt says how to turn Vulkan
   on (`vulkan-loader`, a Mesa driver with Vulkan 1.3) and that a `_nodata` package gets `shaders.spv` from the PC
   install or from ZmClient's Installation view with OpenBSD's `glslang` (conversion unticked).
 - Never run on real OpenBSD by us: Vulkan there is "for a player to try", and GL stays the default. Asking for Vulkan
-  without a driver does not fall back on posix: the game does not start, and the LISEZMOI says to go back to OpenGL.
+  without a driver does not fall back on posix: the game does not start, and the README.txt says to go back to OpenGL.
 
 ## Totals
 | Part | Sessions |

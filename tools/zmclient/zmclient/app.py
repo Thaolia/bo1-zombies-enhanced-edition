@@ -6,6 +6,7 @@ import time
 
 from zmadmin.config import DEFAULT_PROFILE
 from zmadmin.config import Config as AdminConfig
+from zmadmin.i18n import set_language, tr
 from zmadmin.launcher import LocalServer
 from zmadmin.logtail import LogTail
 from zmadmin.profiles import write_profile_cfg
@@ -25,7 +26,6 @@ from .views import ConfigView, ExtraView, LaunchView, LogView, PlayView, Servers
 
 STOP_TIMEOUT = 15.0
 MIN_H, MIN_W = 24, 80
-MOUSE_BUTTONS_W = 21    # "[ Aide ] [ Quitter ]" at the right of the message line
 
 
 class App:
@@ -34,6 +34,7 @@ class App:
         self.mouse = mouse
         self.hits = HitMap()
         self.profile = profile
+        set_language(profile["language"])
         self.dist = dist
         self.root = dist.root if dist else None
         self.client = Client(dist) if dist else None
@@ -68,8 +69,7 @@ class App:
         self.current = 0
         if self.dist and self.setup_missing():
             self.show(6)
-            self.msg("Les fichiers du jeu manquent : choisissez votre installation de Black Ops et « Installer ».",
-                     C_WARN)
+            self.msg(tr('The game files are missing: choose your Black Ops install, then "Install".'), C_WARN)
 
     # ----------------------------------------------------------------------------------------------- helpers
     @property
@@ -83,7 +83,8 @@ class App:
         self.modals.append(dialog)
 
     def show_help(self):
-        self.open(MessageDialog(f"Aide : {self.view.title}", H.VIEW_HELP[self.view.name] + [""] + H.GLOBAL_HELP))
+        self.open(MessageDialog(tr("Help: {title}").format(title=tr(self.view.title)),
+                                H.VIEW_HELP[self.view.name] + [""] + H.global_help()))
 
     def show(self, index):
         self.current = index % len(self.views)
@@ -93,13 +94,13 @@ class App:
         try:
             self.profile.save()
         except OSError as e:
-            self.msg(f"profile.json non écrit : {e}", C_ERR)
+            self.msg(tr("profile.json not written: {error}").format(error=e), C_ERR)
 
     def setup_missing(self):
         """What the folder lacks to start the game (cached 2 s: it reads the folder), or None."""
         at, value = self.missing_cache
         if time.monotonic() - at > 2:
-            value = gamesetup.ready(self.root) if self.dist else "pas de dossier du jeu"
+            value = gamesetup.ready(self.root) if self.dist else tr("no game folder")
             self.missing_cache = (time.monotonic(), value)
         return value
 
@@ -118,7 +119,7 @@ class App:
         try:
             self.admin_config.save()
         except OSError as e:
-            self.msg(f"servers.json de ZmAdmin non écrit : {e}", C_ERR)
+            self.msg(tr("ZmAdmin's servers.json not written: {error}").format(error=e), C_ERR)
 
     def detect_server_mods(self):
         """Asks the server to join what its clients load (getmodinfo, with the player password): the answer, kept for
@@ -132,17 +133,19 @@ class App:
         try:
             mods = query_modinfo(target, p["join_password"], timeout=1.5)
         except RconTimeout:
-            self.detect_note = "mods du serveur : pas de réponse (version plus ancienne ?), choix manuels"
+            self.detect_note = tr("server mods: no answer (an older version?), manual choices")
             return None
         except OSError as e:
-            self.detect_note = f"mods du serveur : {e}, choix manuels"
+            self.detect_note = tr("server mods: {error}, manual choices").format(error=e)
             return None
         if mods.refused:
-            self.detect_note = "mods du serveur : mot de passe refusé, choix manuels"
+            self.detect_note = tr("server mods: password refused, manual choices")
             return None
         self._server_mods, self._server_mods_for = mods, self._join_key()
         world = mods.get("bo1_mod_mapkit")
-        self.detect_note = f"mods du serveur : {mods.get('fs_mods') or 'aucun'}" + (f", carte {world}" if world else "")
+        listed = mods.get("fs_mods") or tr("none")
+        self.detect_note = (tr("server mods: {mods}, map {world}").format(mods=listed, world=world) if world
+                            else tr("server mods: {mods}").format(mods=listed))
         return mods
 
     def _join_key(self):
@@ -161,33 +164,35 @@ class App:
         p = self.profile
         parts = []
         if p["horde"]:
-            parts.append(f"horde {p['horde_max']}" + (f", manche {p['horde_round']}" if p["horde_round"] > 1 else ""))
+            parts.append(tr("horde {max}, round {round}").format(max=p["horde_max"], round=p["horde_round"])
+                         if p["horde_round"] > 1 else f"horde {p['horde_max']}")
         if p["difficulty"]:
             parts.append(H.DIFFICULTY_LABELS[p["difficulty"]])
-        for key, label in (("god", "god"), ("zinfo", "zinfo"), ("noperks", "noperks"), ("quickrestart", "R relance")):
+        for key, label in (("god", "god"), ("zinfo", "zinfo"), ("noperks", "noperks"), ("quickrestart", "R restart")):
             if p[key]:
-                parts.append(label)
+                parts.append(tr(label))
         if p["start_points"]:
             parts.append(f"{p['start_points']} points")
         if p["start_perks"]:
-            parts.append(f"{len(p['start_perks'])} atout" + ("s" if len(p["start_perks"]) > 1 else ""))
+            n = len(p["start_perks"])
+            parts.append((tr("{n} perks") if n > 1 else tr("{n} perk")).format(n=n))
         if p["start_power"]:
-            parts.append("courant")
+            parts.append(tr("power"))
         if p["start_pap"]:
             parts.append("Pack-a-Punch")
         if p["far_respawn"]:
-            parts.append(f"zombies rapprochés > {p['far_respawn']}")
+            parts.append(tr("far zombies brought back > {distance}").format(distance=p["far_respawn"]))
         if p["bo2_weapons"]:
-            parts.append("armes BO2" + ("" if p["bo2_weapons"] == 1 else " seules"))
+            parts.append(tr("BO2 weapons") if p["bo2_weapons"] == 1 else tr("BO2 weapons only"))
         if p["dual_wield"]:
-            parts.append("armes doublées")
-        return ", ".join(parts) or "aucun"
+            parts.append(tr("dual wield"))
+        return ", ".join(parts) or tr("none")
 
     def command(self, player=1):
         """(argv, None) or (None, why the line cannot be built). player 2: a split screen's second window. A join
         uses the server's mods from the last detection (detect_server_mods)."""
         if not self.dist:
-            return None, "pas de dossier du jeu"
+            return None, tr("no game folder")
         p = self.profile
         if p["mode"] == "host" and self.local.running() and self.local.port:
             # the running server's port wins: that is where it listens
@@ -210,16 +215,16 @@ class App:
     # -------------------------------------------------------------------------------------------- the game
     def launch(self):
         if not self.dist:
-            self.msg("Pas de dossier du jeu : posez ZmClient à côté de BO1Zombies.", C_ERR)
+            self.msg(tr("No game folder: put ZmClient next to BO1Zombies."), C_ERR)
             return
         missing = self.setup_missing()
         if missing:
-            self.msg(f"Impossible de lancer : {missing}. Vue Installation (F7).", C_ERR)
+            self.msg(tr("Cannot launch: {missing}. Setup view (F7).").format(missing=missing), C_ERR)
             self.show(6)
             return
         for c in (self.client, self.client2):
             if c.running():
-                self.msg(f"Le jeu tourne déjà (PID {c.pid}).", C_WARN)
+                self.msg(tr("The game is already running (PID {pid}).").format(pid=c.pid), C_WARN)
                 return
         p = self.profile
         split = split_on(p)
@@ -228,8 +233,8 @@ class App:
         argv, err = self.command()
         argv2, err2 = self.command(2) if split else (None, None)
         if err or err2:
-            self.msg(f"Impossible de lancer : {err or err2}" + (f" ({self.detect_note})" if self.detect_note else ""),
-                     C_ERR)
+            text = (tr("Cannot launch: {error} ({note})") if self.detect_note else tr("Cannot launch: {error}"))
+            self.msg(text.format(error=err or err2, note=self.detect_note), C_ERR)
             return
         if p["mode"] == "host" and not self.local.running():
             try:
@@ -243,17 +248,18 @@ class App:
                     raise RuntimeError(why)
                 self.local.start(p.data, int(p["host_port"]), password)
             except (OSError, RuntimeError) as e:
-                self.msg(f"Serveur local non lancé : {e}", C_ERR)
+                self.msg(tr("Local server not started: {error}").format(error=e), C_ERR)
                 return
             self.server_was_running = True
-            self.msg(f"Serveur local lancé (PID {self.local.pid}) sur le port {p['host_port']}.", C_OK)
+            self.msg(tr("Local server started (PID {pid}) on port {port}.").format(pid=self.local.pid,
+                                                                                     port=p["host_port"]), C_OK)
         game = fs_game(p, self.root, self.server_mods)
         if split:
             # player 2 first: the window started last takes the focus, which the keyboard and mouse player needs
             try:
                 self.client2.start(argv2, game, launch_env(p))
             except (OSError, RuntimeError) as e:
-                self.msg(f"La fenêtre du joueur 2 ne démarre pas : {e}", C_ERR)
+                self.msg(tr("Player 2's window does not start: {error}").format(error=e), C_ERR)
                 return
             self.client2_was_running = True
         try:
@@ -261,18 +267,22 @@ class App:
         except (OSError, RuntimeError) as e:
             if split:
                 self.client2.kill()     # half a split screen is no use
-            self.msg(f"Le jeu ne démarre pas : {e}", C_ERR)
+            self.msg(tr("The game does not start: {error}").format(error=e), C_ERR)
             return
         self.client_was_running = True
         self.follow_log(self.client.log_path(game))
-        what = {"solo": map_label(p["map"], self.root),
-                "join": f"rejoint {p['join_host']}:{p['join_port']}"
-                        + (f" ; {self.detect_note}" if self.detect_note else ""),
-                "host": f"rejoint le serveur local ({map_label(p['map'], self.root)})"}[p["mode"]]
-        if split:
-            self.msg(f"Écran partagé lancé (PID {self.client.pid} et {self.client2.pid}) : {what}.", C_OK)
+        if p["mode"] == "solo":
+            what = map_label(p["map"], self.root)
+        elif p["mode"] == "join":
+            what = (tr("joins {host}:{port}; {note}") if self.detect_note else tr("joins {host}:{port}")).format(
+                host=p["join_host"], port=p["join_port"], note=self.detect_note)
         else:
-            self.msg(f"Jeu lancé (PID {self.client.pid}) : {what}.", C_OK)
+            what = tr("joins the local server ({map})").format(map=map_label(p["map"], self.root))
+        if split:
+            self.msg(tr("Split screen started (PID {pid} and {pid2}): {what}.").format(
+                pid=self.client.pid, pid2=self.client2.pid, what=what), C_OK)
+        else:
+            self.msg(tr("Game started (PID {pid}): {what}.").format(pid=self.client.pid, what=what), C_OK)
 
     def join(self, host, port, password):
         p = self.profile
@@ -287,35 +297,36 @@ class App:
         def ok(v):
             host = v["host"].strip()
             if not valid_host(host):
-                return "adresse : une IP ou un nom de machine"
+                return tr("address: an IP or a host name")
             try:
                 port = int(v["port"])
             except ValueError:
-                return "port : un nombre"
+                return tr("port: a number")
             if not 1 <= port <= 65535:
-                return "port : entre 1 et 65535"
+                return tr("port: between 1 and 65535")
             if v["password"] and not valid_password(v["password"]):
-                return "mot de passe : ni espace, ni guillemet, ni « ; », ni « + »"
+                return tr('password: no blank, quote, ";" or "+"')
             p["join_host"], p["join_port"], p["join_password"] = host, port, v["password"]
             self.save_profile()
             return None
-        self.open(FormDialog("Serveur à rejoindre", [
-            ("host", "Adresse", p["join_host"], "IP ou nom de la machine", False),
-            ("port", "Port", p["join_port"], "3074 par défaut", False),
-            ("password", "Mot de passe", p["join_password"], "celui des joueurs (g_password), vide s'il n'y en a pas",
+        self.open(FormDialog(tr("Server to join"), [
+            ("host", tr("Address"), p["join_host"], tr("IP or host name"), False),
+            ("port", "Port", p["join_port"], tr("3074 by default"), False),
+            ("password", tr("Password"), p["join_password"], tr("the players' one (g_password), empty if none"),
              True)], ok))
 
     def stop_client(self):
         if not self.client or not self.clients_running():
-            self.msg("Le jeu ne tourne pas.", C_INFO)
+            self.msg(tr("The game is not running."), C_INFO)
             return
 
         def kill(_):
             self.client.kill()
             self.client2.kill()
-        windows = "les deux fenêtres du jeu" if self.client.running() and self.client2.running() else "le jeu"
-        self.open(ConfirmDialog("Arrêter le jeu", [f"Fermer {windows} de force ?",
-                                                   "Une partie en cours est perdue ; config.cfg n'est pas réécrit."],
+        question = (tr("Force-close both game windows?") if self.client.running() and self.client2.running()
+                    else tr("Force-close the game?"))
+        self.open(ConfirmDialog(tr("Stop the game"), [question,
+                                                      tr("A game in progress is lost; config.cfg is not rewritten.")],
                                 kill))
 
     def follow_log(self, path):
@@ -343,13 +354,13 @@ class App:
     # ------------------------------------------------------------------------------------------ local server
     def stop_local(self, then_quit=False):
         if not self.local or not self.local.running():
-            self.msg("Le serveur local ne tourne pas.", C_INFO)
+            self.msg(tr("The local server is not running."), C_INFO)
             return
 
         def go(_):
             self.request_local_stop(then_quit)
-        self.open(ConfirmDialog("Arrêter le serveur local", ["Arrêter le serveur local ?",
-                                                             "Les joueurs sont déconnectés et la partie est perdue."],
+        self.open(ConfirmDialog(tr("Stop the local server"), [tr("Stop the local server?"),
+                                                              tr("Players are disconnected and the game is lost.")],
                                 go))
 
     def request_local_stop(self, then_quit=False):
@@ -368,14 +379,14 @@ class App:
         threading.Thread(target=send, daemon=True).start()
         self.quit_after_stop = then_quit
         self.stopping = time.monotonic() + STOP_TIMEOUT
-        self.msg("Arrêt du serveur local…", C_WARN)
+        self.msg(tr("Stopping the local server…"), C_WARN)
 
     def check_processes(self, now):
         if not self.dist:
             return
         if self.client_was_running and not self.client.running():
             self.client_was_running = False
-            self.msg("Le jeu s'est fermé.", C_INFO)
+            self.msg(tr("The game has closed."), C_INFO)
             self.missing_cache = (0.0, None)
             config_view = self.views[4]
             # the game rewrote config.cfg as it quit: show its values, unless edits are pending
@@ -383,36 +394,37 @@ class App:
                 self.gamecfg.load()
         if self.client2_was_running and not self.client2.running():
             self.client2_was_running = False
-            self.msg("La fenêtre du joueur 2 s'est fermée.", C_INFO)
+            self.msg(tr("Player 2's window has closed."), C_INFO)
         if self.stopping is not None:
             if not self.local.running():
                 self.stopping = None
                 self.server_was_running = False
-                self.msg("Serveur local arrêté.", C_OK)
+                self.msg(tr("Local server stopped."), C_OK)
                 if self.quit_after_stop:
                     self.running = False
             elif now > self.stopping:
                 self.local.kill()
-                self.msg("Le serveur ne s'arrêtait pas : arrêt forcé.", C_WARN)
+                self.msg(tr("The server would not stop: forced stop."), C_WARN)
                 self.stopping = now + 5
         elif self.server_was_running and not self.local.running():
             self.server_was_running = False
             tail = self.local.exit_text()
-            self.msg("Le serveur local s'est arrêté" + (f" : {tail[-1]}" if tail else "."), C_ERR)
+            self.msg(tr("The local server has stopped: {line}").format(line=tail[-1]) if tail
+                     else tr("The local server has stopped."), C_ERR)
 
     # ------------------------------------------------------------------------------------------------- setup
     def start_setup(self):
         p = self.profile
         if self.clients_running() or self.local.running():
-            self.msg("Fermez le jeu et le serveur local avant d'installer : ils lisent ces fichiers.", C_ERR)
+            self.msg(tr("Close the game and the local server before installing: they read these files."), C_ERR)
             return
         if not gamesetup.is_install(p["steam_install"]):
-            self.msg("Choisissez d'abord votre installation de Black Ops (« c »).", C_ERR)
+            self.msg(tr('First choose your Black Ops install ("c").'), C_ERR)
             return
         self.setup_job = gamesetup.Setup(self.root, p["steam_install"], video=p["setup_video"],
                                          convert=p["setup_convert"], spirv=p["setup_spirv"])
         self.setup_job.start()
-        self.msg("Installation lancée.", C_INFO)
+        self.msg(tr("Setup started."), C_INFO)
 
     def check_setup(self):
         job = self.setup_job
@@ -420,26 +432,29 @@ class App:
             job.reported = True
             self.missing_cache = (0.0, None)
             if job.error:
-                self.msg(f"Installation : {job.error}", C_ERR)
+                self.msg(tr("Setup: {error}").format(error=job.error), C_ERR)
             elif job.warning:
-                self.msg(f"Installation terminée, sauf Vulkan : {job.warning}", C_WARN)
+                self.msg(tr("Setup done, except Vulkan: {warning}").format(warning=job.warning), C_WARN)
             else:
-                self.msg("Installation terminée : le jeu peut démarrer (F1).", C_OK)
+                self.msg(tr("Setup done: the game can start (F1)."), C_OK)
 
     # --------------------------------------------------------------------------------------------------- draw
     def draw(self):
         scr = self.scr
+        # cheap, and the Launch view's language row takes effect at once
+        set_language(self.profile["language"])
         scr.erase()
         self.hits.clear()
         h, w = scr.getmaxyx()
         if h < MIN_H or w < MIN_W:
-            put(scr, 0, 0, f"Fenêtre trop petite ({w}x{h}) : il faut au moins {MIN_W}x{MIN_H}.")
+            put(scr, 0, 0, tr("Window too small ({w}x{h}): at least {min_w}x{min_h} needed.").format(
+                w=w, h=h, min_w=MIN_W, min_h=MIN_H))
             scr.refresh()
             return
         fill(scr, 0, color(C_TITLE))
         x = 1
         for i, v in enumerate(self.views):
-            label = f" F{i + 1} {v.title} "
+            label = f" F{i + 1} {tr(v.title)} "
             put(scr, 0, x, label, (curses.A_REVERSE | curses.A_BOLD) if i == self.current else color(C_TITLE))
             self.hits.add(0, x, len(label), lambda i=i: self.show(i))
             x += len(label)
@@ -447,17 +462,18 @@ class App:
             put(scr, 0, w - 9, "ZmClient", color(C_TITLE) | curses.A_BOLD)
         self.draw_status_line(scr, w)
         text, pair, at = self.message
-        buttons = MOUSE_BUTTONS_W if self.mouse else 0
+        labels = ((tr("[ Help ]"), self.show_help), (tr("[ Quit ]"), self.ask_quit)) if self.mouse else ()
+        buttons = sum(len(label) + 1 for label, _ in labels)
         if text and time.monotonic() - at < 12:
             put(scr, h - 2, 1, text, color(pair), width=w - 2 - buttons)
         if self.mouse:
             x = w - buttons
-            for label, action in (("[ Aide ]", self.show_help), ("[ Quitter ]", self.ask_quit)):
+            for label, action in labels:
                 put(scr, h - 2, x, label, curses.A_BOLD)
                 self.hits.add(h - 2, x, len(label), action)
                 x += len(label) + 1
         fill(scr, h - 1, color(C_TITLE))
-        put(scr, h - 1, 1, self.view.hints, color(C_TITLE), width=w - 2)
+        put(scr, h - 1, 1, tr(self.view.hints), color(C_TITLE), width=w - 2)
         cursor(False)
         try:
             self.view.draw(scr, 2, h - 4, w)
@@ -475,20 +491,20 @@ class App:
         if p["mode"] == "solo":
             parts.append((map_label(p["map"], self.root), 0))
         elif p["mode"] == "join":
-            parts.append((f"{p['join_host']}:{p['join_port']}" if p["join_host"] else "aucun serveur choisi", 0))
+            parts.append((f"{p['join_host']}:{p['join_port']}" if p["join_host"] else tr("no server chosen"), 0))
         else:
             parts.append((f"127.0.0.1:{p['host_port']}, {map_label(p['map'], self.root)}", 0))
         if self.dist:
             if self.client.running():
-                parts.append((f"● jeu en cours (PID {self.client.pid})", color(C_OK)))
+                parts.append((tr("● game running (PID {pid})").format(pid=self.client.pid), color(C_OK)))
             if self.client2.running():
-                parts.append((f"● joueur 2 (PID {self.client2.pid})", color(C_OK)))
+                parts.append((tr("● player 2 (PID {pid})").format(pid=self.client2.pid), color(C_OK)))
             if self.local.running():
-                parts.append((f"● serveur local, port {self.local.port}", color(C_OK)))
+                parts.append((tr("● local server, port {port}").format(port=self.local.port), color(C_OK)))
             if self.setup_job and not self.setup_job.finished:
-                parts.append((f"installation : {self.setup_job.phase}…", color(C_WARN)))
+                parts.append((tr("setup: {phase}…").format(phase=tr(self.setup_job.phase)), color(C_WARN)))
         else:
-            parts.append(("pas de dossier du jeu", color(C_ERR)))
+            parts.append((tr("no game folder"), color(C_ERR)))
         x = 1
         for i, (text, attr) in enumerate(parts):
             if i:
@@ -550,8 +566,8 @@ class App:
             def stop_setup(_):
                 self.setup_job.cancel()
                 self.running = False
-            self.open(ConfirmDialog("Quitter ZmClient", ["Une installation est en cours.",
-                                                         "Quitter l'annule (les fichiers déjà copiés restent)."],
+            self.open(ConfirmDialog(tr("Quit ZmClient"), [tr("A setup is in progress."),
+                                                          tr("Quitting cancels it (the files already copied stay).")],
                                     stop_setup))
             return
         if self.local and self.local.running():
@@ -560,10 +576,10 @@ class App:
                     self.request_local_stop(then_quit=True)
                 else:
                     self.running = False
-            self.open(ConfirmDialog("Quitter ZmClient", ["Quitter ZmClient ? Le jeu continue de tourner.",
-                                                         "Le serveur local aussi, sauf si la case ci-dessous est",
-                                                         "cochée. ZmClient et ZmAdmin le retrouvent ensuite."],
-                                    go, checkbox="Arrêter aussi le serveur local"))
+            self.open(ConfirmDialog(tr("Quit ZmClient"), [
+                tr("Quit ZmClient? The game keeps running."),
+                tr("So does the local server, unless the box below is ticked. ZmClient and ZmAdmin find it again "
+                   "later.")], go, checkbox=tr("Also stop the local server")))
         else:
             self.running = False
 

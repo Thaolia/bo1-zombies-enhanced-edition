@@ -7,6 +7,7 @@ import re
 from . import gamemods, launcher
 from . import help as H
 from .config import DEFAULT_PROFILE
+from .i18n import tr
 from .model import parse_dvars
 from .profiles import configure_game, local_game, profile_configured
 from .settings import APPLIED, BY_NAME, REFUSED, SETTINGS, validate
@@ -910,7 +911,8 @@ class ConsoleView(View):
 # -------------------------------------------------------------------------------------------------------------- Log
 class LogView(View):
     name, title = "log", "Log"
-    hints = "/ filtrer  Espace pause  PgPréc/PgSuiv, molette : défiler  Fin dernières lignes  ? aide"
+    # shared with ZmClient's Log view, so English here; the apps tr() the hints they draw
+    hints = "/ filter  Space pause  PgUp/PgDn, wheel: scroll  End last lines  ? help"
 
     def __init__(self, app):
         super().__init__(app)
@@ -973,9 +975,8 @@ class LogView(View):
                 self.filter = v.strip()
                 self.scroll = 0
                 return None
-            self.app.open(InputDialog("Filtrer le log", "Texte", self.filter,
-                                      "seules les lignes qui le contiennent restent (sans tenir compte de la casse)",
-                                      ok))
+            self.app.open(InputDialog(tr("Filter the log"), tr("Text"), self.filter,
+                                      tr("only the lines that contain it stay (case does not matter)"), ok))
         elif k == " ":
             self.paused = not self.paused
             if not self.paused:

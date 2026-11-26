@@ -10,7 +10,7 @@
 // calls fail and it plays solo.
 void SwitchNet_Init();
 
-// The console's IP address as text ("192.168.1.20") and true while it has one; "aucun" and false without a network
+// The console's IP address as text ("192.168.1.20") and true while it has one; "none" and false without a network
 // (Wi-Fi off, airplane mode, no access point). Asked each time: the console may join or leave a network at any time.
 bool SwitchNet_Address(char *text, size_t size);
 

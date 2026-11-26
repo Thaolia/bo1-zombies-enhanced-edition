@@ -6,6 +6,7 @@ import os
 import sys
 import time
 
+from zmadmin.i18n import set_language
 from zmadmin.launcher import EXE_NAME, IS_WINDOWS, Dist, missing_program_hint, program_dir, raise_data_limit
 from zmadmin.protocol import ProtocolError, query_modinfo
 
@@ -95,6 +96,8 @@ def main(argv=None):
     if args.dist and not dist:
         parser.error(f"{args.dist} is not a BO1Zombies folder ({EXE_NAME} and {PLAY_SCRIPT} needed)")
     profile = Profile(os.path.join(args.config or config_dir(), "profile.json"))
+    # the texts run_setup and the shared modules print follow the interface's language
+    set_language(profile["language"])
 
     if args.setup is not None:
         if not dist:

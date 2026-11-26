@@ -194,68 +194,68 @@ struct ItemInfo
 
 // Console rows (1-based, 45 of them at 1280x720).
 const ItemInfo kItems[ITEM_COUNT] = {
-    {VIEW_MAIN, 6, "Serveur", "A: rejoindre un serveur dedie (adresse, port, nom). Gauche/Droite: activer."},
-    {VIEW_MAIN, 8, "Map", "La map ou la partie commence directement, sans le menu du jeu."},
-    {VIEW_MAIN, 10, "Aim assist", "Aide a la visee a la manette sur les zombies."},
-    {VIEW_MAIN, 11, "  Ralentissement", "La visee ralentit quand le reticule passe sur un zombie."},
-    {VIEW_MAIN, 12, "  Verrouillage", "La visee suit le zombie vise."},
-    {VIEW_MAIN, 13, "  Visee auto", "En visant (ZL), le reticule saute sur le zombie le plus proche."},
-    {VIEW_MAIN, 14, "Infos speedrun", "Reglages et hash du programme et des zones: au chargement, ou aussi en jeu."},
-    {VIEW_MAIN, 15, "God mode", "Les zombies ne peuvent pas tuer le joueur (partie solo)."},
-    {VIEW_MAIN, 16, "Compteur zombies", "Zombies en vie et restants dans la manche, a cote du tableau des scores."},
-    {VIEW_MAIN, 17, "Depart", "A: points, atouts et mods de la partie solo (hit marker, PaP illimite...)."},
-    {VIEW_MAIN, 19, "Rendu", "deko3d: le plus rapide. OpenGL: l'ancien chemin, plus lent."},
-    {VIEW_MAIN, 20, "Resolution", "720p: celle de l'ecran. 540p, 480p: image moins nette, plus de FPS (en ligne)."},
-    {VIEW_MAIN, 21, "  Agrandissement", "FSR 1.0: image par image. ASR: accumule les images, plus net, plus couteux."},
-    {VIEW_MAIN, 22, "  Sortie", "Taille de l'image agrandie. 1080p: pour la TV (dock), l'ecran est en 720p."},
-    {VIEW_MAIN, 23, "  Nettete", "Accentuation de l'image agrandie par FSR 1.0. Maximale: la plus nette."},
-    {VIEW_MAIN, 24, "Limite de FPS", "30: plus stable et plus econome en batterie. 60: plus fluide."},
-    {VIEW_MAIN, 25, "Ombres", "Ombres dynamiques. Les couper fait gagner des FPS."},
-    {VIEW_MAIN, 26, "Distance des props", "Objets du decor dessines moins loin et plus simples: plus de FPS (TranZit)."},
-    {VIEW_MAIN, 27, "Filtre de texture", "Nettete des textures au loin. 16x: le plus net. Bilineaire: le plus leger."},
-    {VIEW_MAIN, 28, "Compteur FPS", "Compteur de FPS et de batterie en haut a droite."},
-    {VIEW_MAIN, 29, "Touches manette", "A: choisir le bouton de chaque action du jeu (tirer, viser, sauter...)."},
-    {VIEW_MAIN, 30, "Manettes", "A: ecran de la Switch pour connecter ou changer de manette."},
-    {VIEW_MAIN, 39, "DEMARRER", "Lance la partie avec ces reglages (aussi: bouton +)."},
-    {VIEW_SERVER, 7, "Connexion", "Activee: la partie rejoint ce serveur au lieu d'une partie solo."},
-    {VIEW_SERVER, 8, "Adresse IP", "A: l'adresse IP du PC qui fait tourner le serveur (Server.bat, Server.sh)."},
-    {VIEW_SERVER, 9, "Port", "A: le port UDP du serveur, 3074 par defaut."},
-    {VIEW_SERVER, 10, "Mot de passe", "A: le mot de passe joueur du serveur (g_password), vide s'il n'en a pas."},
-    {VIEW_SERVER, 11, "Nom du joueur", "A: votre nom sur le serveur (lettres, chiffres, _ - .), vide: celui du jeu."},
-    {VIEW_SERVER, 12, "Mods auto", "Oui: au demarrage, demande au serveur ses mods et sa carte, et les charge."},
-    {VIEW_SERVER, 13, "Armes BO2", "Oui: vos armes Black Ops II (mods/bo2weapons), si le serveur ne dit rien."},
-    {VIEW_SERVER, 14, "Armes doublees", "Oui: charge les armes doublees (mods/dualwield), si le serveur ne dit rien."},
-    {VIEW_SERVER, 16, "Recherche auto", "Oui: cherche les serveurs du reseau local a l'ouverture de cet ecran."},
-    {VIEW_SERVER, 17, "Chercher maintenant", "A: cherche les serveurs du reseau local (une seconde)."},
-#define NET_FOUND(row) {VIEW_SERVER, row, nullptr, "A: rejoindre ce serveur (adresse et port remplis, connexion activee)."}
+    {VIEW_MAIN, 6, "Server", "A: join a dedicated server (address, port, name). Left/Right: on or off."},
+    {VIEW_MAIN, 8, "Map", "The map the game starts on directly, without the game's menu."},
+    {VIEW_MAIN, 10, "Aim assist", "Controller aim assist on zombies."},
+    {VIEW_MAIN, 11, "  Slowdown", "Aiming slows down while the crosshair is over a zombie."},
+    {VIEW_MAIN, 12, "  Lock-on", "Aiming follows the zombie you aim at."},
+    {VIEW_MAIN, 13, "  Auto aim", "When aiming (ZL), the crosshair snaps to the nearest zombie."},
+    {VIEW_MAIN, 14, "Speedrun info", "Settings and hashes of the program and zones: while loading, or in game too."},
+    {VIEW_MAIN, 15, "God mode", "Zombies cannot kill the player (solo game)."},
+    {VIEW_MAIN, 16, "Zombie counter", "Zombies alive and left in the round, beside the scoreboard."},
+    {VIEW_MAIN, 17, "Start kit", "A: points, perks and mods of a solo game (hit marker, unlimited PaP...)."},
+    {VIEW_MAIN, 19, "Renderer", "deko3d: the fastest. OpenGL: the older path, slower."},
+    {VIEW_MAIN, 20, "Resolution", "720p: the screen's own. 540p, 480p: softer image, more FPS (online)."},
+    {VIEW_MAIN, 21, "  Upscaling", "FSR 1.0: frame by frame. ASR: accumulates frames, sharper, costlier."},
+    {VIEW_MAIN, 22, "  Output", "Size of the upscaled image. 1080p: for the TV (dock); the screen is 720p."},
+    {VIEW_MAIN, 23, "  Sharpness", "Sharpening of the image FSR 1.0 upscales. Maximum: the sharpest."},
+    {VIEW_MAIN, 24, "FPS limit", "30: steadier and easier on the battery. 60: smoother."},
+    {VIEW_MAIN, 25, "Shadows", "Dynamic shadows. Turning them off gains FPS."},
+    {VIEW_MAIN, 26, "Prop distance", "Scenery objects drawn less far and simpler: more FPS (TranZit)."},
+    {VIEW_MAIN, 27, "Texture filter", "Sharpness of distant textures. 16x: the sharpest. Bilinear: the lightest."},
+    {VIEW_MAIN, 28, "FPS counter", "FPS and battery counter in the top right corner."},
+    {VIEW_MAIN, 29, "Button mapping", "A: choose the button of each game action (fire, aim, jump...)."},
+    {VIEW_MAIN, 30, "Controllers", "A: the Switch's screen to connect or change controllers."},
+    {VIEW_MAIN, 39, "START", "Starts the game with these settings (also: + button)."},
+    {VIEW_SERVER, 7, "Connection", "On: the game joins this server instead of a solo game."},
+    {VIEW_SERVER, 8, "IP address", "A: the IP address of the PC that runs the server (Server.bat, Server.sh)."},
+    {VIEW_SERVER, 9, "Port", "A: the server's UDP port, 3074 by default."},
+    {VIEW_SERVER, 10, "Password", "A: the server's player password (g_password), empty if it has none."},
+    {VIEW_SERVER, 11, "Player name", "A: your name on the server (letters, digits, _ - .), empty: the game's."},
+    {VIEW_SERVER, 12, "Auto mods", "Yes: on start, asks the server for its mods and map, and loads them."},
+    {VIEW_SERVER, 13, "BO2 weapons", "Yes: your Black Ops II weapons (mods/bo2weapons), if the server says nothing."},
+    {VIEW_SERVER, 14, "Dual wield", "Yes: the dual-wield weapons (mods/dualwield), if the server says nothing."},
+    {VIEW_SERVER, 16, "Auto search", "Yes: searches the local network for servers when this screen opens."},
+    {VIEW_SERVER, 17, "Search now", "A: searches the local network for servers (one second)."},
+#define NET_FOUND(row) {VIEW_SERVER, row, nullptr, "A: join this server (address and port filled in, connection on)."}
     NET_FOUND(18), NET_FOUND(19), NET_FOUND(20), NET_FOUND(21), NET_FOUND(22), NET_FOUND(23),
 #undef NET_FOUND
-    {VIEW_SERVER, 24, "RETOUR", "Revient au menu (aussi: bouton B)."},
-#define PAD_LINE(row) {VIEW_PAD, row, nullptr, "Gauche/Droite: choisir le bouton. L'action qui l'avait prend l'ancien."}
+    {VIEW_SERVER, 24, "BACK", "Back to the menu (also: B button)."},
+#define PAD_LINE(row) {VIEW_PAD, row, nullptr, "Left/Right: choose the button. The action that had it takes the old one."}
     PAD_LINE(6),  PAD_LINE(7),  PAD_LINE(8),  PAD_LINE(9),  PAD_LINE(10), PAD_LINE(11), PAD_LINE(12), PAD_LINE(13),
     PAD_LINE(14), PAD_LINE(15), PAD_LINE(16), PAD_LINE(17), PAD_LINE(18), PAD_LINE(19), PAD_LINE(20), PAD_LINE(21),
 #undef PAD_LINE
-    {VIEW_PAD, 23, "Reinitialiser", "A: remet les touches du jeu d'origine."},
-    {VIEW_PAD, 25, "RETOUR", "Revient au menu (aussi: bouton B)."},
-    {VIEW_KIT, 6, "Points de depart", "Gauche/Droite: les points a l'arrivee sur la map, au lieu des 500 du jeu."},
-    {VIEW_KIT, 7, "Courant", "Oui: courant mis des l'arrivee sur la map (portes, atouts, Pack-a-Punch)."},
-    {VIEW_KIT, 8, "Pack-a-Punch", "Oui: un Pack-a-Punch toujours allume au point de depart des joueurs."},
-#define KIT_PERK(row) {VIEW_KIT, row, nullptr, "Gauche/Droite ou A: atout gratuit a l'arrivee, si la map a sa machine."}
+    {VIEW_PAD, 23, "Reset", "A: puts back the game's original buttons."},
+    {VIEW_PAD, 25, "BACK", "Back to the menu (also: B button)."},
+    {VIEW_KIT, 6, "Start points", "Left/Right: the points on arrival on the map, instead of the game's 500."},
+    {VIEW_KIT, 7, "Power", "Yes: the map's power is on from the start (doors, perks, Pack-a-Punch)."},
+    {VIEW_KIT, 8, "Pack-a-Punch", "Yes: a Pack-a-Punch, always on, at the players' start point."},
+#define KIT_PERK(row) {VIEW_KIT, row, nullptr, "Left/Right or A: a free perk on arrival, if the map has its machine."}
     KIT_PERK(9), KIT_PERK(10), KIT_PERK(11), KIT_PERK(12), KIT_PERK(13), KIT_PERK(14), KIT_PERK(15), KIT_PERK(16),
 #undef KIT_PERK
-    {VIEW_KIT, 17, "Zombies eloignes", "Gauche/Droite: un zombie plus loin que ca de tous et non vu est remplace."},
-    {VIEW_KIT, 18, "Armes doublees", "Oui: le Pack-a-Punch double Ray Gun et Thundergun (et PPSh) (mods/dualwield)."},
-    {VIEW_KIT, 19, "Hit marker", "Oui: un X au centre de l'ecran a chaque zombie touche (mods/hitmarker)."},
-    {VIEW_KIT, 20, "Pack-a-Punch illimite", "Oui: repack sans fin, prix et degats doubles chaque fois (mods/unlimitedpap)."},
-    {VIEW_KIT, 21, "Apparition zombies", "Gauche/Droite: zombies qui sortent plus vite, pauses courtes (mods/spawnrate)."},
-    {VIEW_KIT, 22, "  Sprint aux barricades", "Oui: chaque zombie court jusqu'a sa barricade, puis reprend sa vitesse."},
-    {VIEW_KIT, 23, "RETOUR", "Revient au menu (aussi: bouton B)."},
+    {VIEW_KIT, 17, "Far zombies", "Left/Right: a zombie this far from everyone and unseen is replaced."},
+    {VIEW_KIT, 18, "Dual wield", "Yes: Pack-a-Punch gives two Ray Guns, Thunderguns, PPSh (mods/dualwield)."},
+    {VIEW_KIT, 19, "Hit marker", "Yes: an X in the middle of the screen on each zombie hit (mods/hitmarker)."},
+    {VIEW_KIT, 20, "Unlimited Pack-a-Punch", "Yes: endless repacks, price and damage doubled each time (mods/unlimitedpap)."},
+    {VIEW_KIT, 21, "Zombie spawn rate", "Left/Right: zombies come out faster, short breaks (mods/spawnrate)."},
+    {VIEW_KIT, 22, "  Sprint to barriers", "Yes: each zombie runs to its barrier, then goes back to its own speed."},
+    {VIEW_KIT, 23, "BACK", "Back to the menu (also: B button)."},
 };
 static_assert(ITEM_KIT_PERK_LAST - ITEM_KIT_PERK_FIRST + 1 == 8, "one kit line per kLauncherPerks entry");
 static_assert(sizeof(kItems) / sizeof(kItems[0]) == ITEM_COUNT, "one kItems line per Item");
 const int kGraphicsHeaderRow = 18;
-const int kControllerFirstRow = 31; // below Manettes (row 30)
-const int kControllerMaxRows = 8; // handheld + players 1-7: the rows up to DEMARRER
+const int kControllerFirstRow = 31; // below Controllers (row 30)
+const int kControllerMaxRows = 8; // handheld + players 1-7: the rows up to START
 const int kPadInfoRow = 28;
 const int kNetInfoRow = 26;
 const int kKitInfoRow = 25;
@@ -354,7 +354,7 @@ std::string JoinFitting(const std::vector<std::string> &parts)
 
 const char *YesNo(bool v)
 {
-    return v ? "Oui" : "Non";
+    return v ? "Yes" : "No";
 }
 
 std::string ValueText(const LauncherSettings &s, int item)
@@ -363,12 +363,12 @@ std::string ValueText(const LauncherSettings &s, int item)
     {
     case ITEM_SERVER:
         if (!s.join)
-            return "Desactive (partie solo)";
-        return s.serverHost.empty() ? "Active, adresse a saisir" : "Active: " + Launcher_ServerAddress(s);
+            return "Off (solo game)";
+        return s.serverHost.empty() ? "On, address to enter" : "On: " + Launcher_ServerAddress(s);
     case ITEM_MAP:
         return kLauncherMaps[s.map].label;
     case ITEM_AIMASSIST:
-        return s.aimAssist ? "Active" : "Desactive";
+        return s.aimAssist ? "On" : "Off";
     case ITEM_AIM_SLOWDOWN:
         return YesNo(s.aimSlowdown);
     case ITEM_AIM_LOCKON:
@@ -386,31 +386,31 @@ std::string ValueText(const LauncherSettings &s, int item)
             perks += (s.startPerks >> i) & 1;
         std::vector<std::string> parts;
         if (!s.startPoints && !perks && !s.startPower && !s.startPap && !s.farRespawn)
-            parts.push_back("Celui du jeu");
+            parts.push_back("The game's");
         else
         {
             parts.push_back(s.startPoints ? std::to_string(s.startPoints) + " points" : "500 points");
             if (perks)
-                parts.push_back(std::to_string(perks) + (perks > 1 ? " atouts" : " atout"));
+                parts.push_back(std::to_string(perks) + (perks > 1 ? " perks" : " perk"));
             if (s.startPower)
-                parts.push_back("courant");
+                parts.push_back("power");
             if (s.startPap)
                 parts.push_back("Pack-a-Punch");
             if (s.farRespawn > 0)
-                parts.push_back("rapproches");
+                parts.push_back("far respawn");
         }
         if (s.dualWield && s.dualWieldInstalled)
-            parts.push_back("armes doublees");
+            parts.push_back("dual wield");
         if (s.hitmarker)
             parts.push_back("hit marker");
         if (s.unlimitedPap && s.unlimitedPapInstalled)
-            parts.push_back("PaP illimite");
+            parts.push_back("unlimited PaP");
         if (s.spawnRate > 0)
             parts.push_back("zombies x" + std::to_string(s.spawnRate));
         return JoinFitting(parts);
     }
     case ITEM_KIT_POINTS:
-        return s.startPoints ? std::to_string(s.startPoints) : "Ceux du jeu (500)";
+        return s.startPoints ? std::to_string(s.startPoints) : "The game's (500)";
     case ITEM_BACKEND:
         return s.backend == LAUNCHER_BACKEND_DEKO3D ? "deko3d" : "OpenGL";
     case ITEM_KIT_POWER:
@@ -418,11 +418,11 @@ std::string ValueText(const LauncherSettings &s, int item)
     case ITEM_KIT_PAP:
         return YesNo(s.startPap);
     case ITEM_KIT_FAR:
-        return s.farRespawn > 0 ? "Au-dela de " + std::to_string(s.farRespawn) : std::string("Non");
+        return s.farRespawn > 0 ? "Beyond " + std::to_string(s.farRespawn) : std::string("No");
     case ITEM_RESOLUTION:
         return s.height == 480 ? "480p" : s.height == 540 ? "540p" : "720p";
     case ITEM_FSR:
-        return s.height < 720 ? kLauncherUpscalers[s.upscaler].label : "Inutile en 720p";
+        return s.height < 720 ? kLauncherUpscalers[s.upscaler].label : "Not needed at 720p";
     case ITEM_UPSCALE_OUTPUT:
         return s.output == 1080 ? "1080p (dock)" : "720p";
     case ITEM_FSR_SHARPNESS:
@@ -438,44 +438,44 @@ std::string ValueText(const LauncherSettings &s, int item)
     case ITEM_FPSCOUNTER:
         return YesNo(s.fpsCounter);
     case ITEM_RUNINFO:
-        return s.runInfo == 0 ? "Non" : s.runInfo == 1 ? "Au chargement" : "Chargement + en jeu";
+        return s.runInfo == 0 ? "No" : s.runInfo == 1 ? "While loading" : "Loading + in game";
     case ITEM_NET_ENABLE:
-        return s.join ? "Activee" : "Desactivee";
+        return s.join ? "On" : "Off";
     case ITEM_NET_LANAUTO:
         return YesNo(s.lanAuto);
     case ITEM_NET_DETECT:
         return YesNo(s.joinDetectMods);
     case ITEM_NET_BO2W:
-        return s.bo2WeaponsInstalled ? YesNo(s.joinBo2Weapons) : "absentes de la carte SD";
+        return s.bo2WeaponsInstalled ? YesNo(s.joinBo2Weapons) : "not on the SD card";
     case ITEM_NET_DUAL:
-        return s.dualWieldInstalled ? YesNo(s.joinDualWield) : "absentes de la carte SD";
+        return s.dualWieldInstalled ? YesNo(s.joinDualWield) : "not on the SD card";
     case ITEM_KIT_DUAL:
-        return s.dualWieldInstalled ? YesNo(s.dualWield) : "absentes de la carte SD";
+        return s.dualWieldInstalled ? YesNo(s.dualWield) : "not on the SD card";
     case ITEM_KIT_HIT:
         return YesNo(s.hitmarker);
     case ITEM_KIT_UPAP:
-        return s.unlimitedPapInstalled ? YesNo(s.unlimitedPap) : "script absent de la carte SD";
+        return s.unlimitedPapInstalled ? YesNo(s.unlimitedPap) : "script not on the SD card";
     case ITEM_KIT_SPAWN:
-        return s.spawnRate > 0 ? std::to_string(s.spawnRate) + " fois plus vite" : std::string("Celle du jeu");
+        return s.spawnRate > 0 ? std::to_string(s.spawnRate) + " times faster" : std::string("The game's");
     case ITEM_KIT_RUSH:
         return YesNo(s.spawnRush);
     case ITEM_NET_SCAN:
         if (!s_searched)
-            return "pas encore lancee";
-        return s_found.empty() ? "aucun serveur trouve"
-                               : std::to_string(s_found.size()) + (s_found.size() > 1 ? " serveurs trouves" : " serveur trouve");
+            return "not run yet";
+        return s_found.empty() ? "no server found"
+                               : std::to_string(s_found.size()) + (s_found.size() > 1 ? " servers found" : " server found");
     case ITEM_NET_HOST:
-        return s.serverHost.empty() ? "(a saisir)" : s.serverHost;
+        return s.serverHost.empty() ? "(to enter)" : s.serverHost;
     case ITEM_NET_PORT:
         return std::to_string(s.serverPort);
     case ITEM_NET_PASS:
-        return s.serverPassword.empty() ? "(aucun)" : std::string(s.serverPassword.size(), '*');
+        return s.serverPassword.empty() ? "(none)" : std::string(s.serverPassword.size(), '*');
     case ITEM_NET_NAME:
-        return s.playerName.empty() ? "(celui du jeu)" : s.playerName;
+        return s.playerName.empty() ? "(the game's)" : s.playerName;
     case ITEM_PAD:
-        return Bo1_PadRemapIsIdentity(s.pad) ? "Celles du jeu" : "Personnalisees";
+        return Bo1_PadRemapIsIdentity(s.pad) ? "The game's" : "Custom";
     case ITEM_PAD_RESET:
-        return Bo1_PadRemapIsIdentity(s.pad) ? "deja les touches du jeu" : "touches du jeu d'origine";
+        return Bo1_PadRemapIsIdentity(s.pad) ? "already the game's buttons" : "the game's original buttons";
     default:
         if (PadControlItem(item))
             return Launcher_PadButtonLabel(s.pad.source[item - ITEM_PAD_FIRST]);
@@ -637,18 +637,18 @@ int Step(const LauncherSettings &s, View view, int item, int dir)
 const char *StyleName(u32 style)
 {
     if (style & HidNpadStyleTag_NpadHandheld)
-        return "Joy-Con attaches a la console";
+        return "Joy-Con attached to the console";
     if (style & HidNpadStyleTag_NpadFullKey)
-        return "Manette Pro";
+        return "Pro Controller";
     if (style & HidNpadStyleTag_NpadJoyDual)
-        return "Paire de Joy-Con";
+        return "Pair of Joy-Con";
     if (style & HidNpadStyleTag_NpadJoyLeft)
-        return "Joy-Con gauche seul";
+        return "Left Joy-Con alone";
     if (style & HidNpadStyleTag_NpadJoyRight)
-        return "Joy-Con droit seul";
+        return "Right Joy-Con alone";
     if (style & HidNpadStyleTag_NpadGc)
-        return "Manette GameCube";
-    return "Autre manette";
+        return "GameCube controller";
+    return "Other controller";
 }
 
 // One line per connected controller, "" when none: the menu redraws when it changes.
@@ -665,9 +665,9 @@ std::string ControllerList()
             continue;
         char line[96];
         if (id == HidNpadIdType_Handheld)
-            std::snprintf(line, sizeof(line), "Portable : %s\n", StyleName(style));
+            std::snprintf(line, sizeof(line), "Handheld: %s\n", StyleName(style));
         else
-            std::snprintf(line, sizeof(line), "Joueur %d : %s\n", int(id) + 1, StyleName(style));
+            std::snprintf(line, sizeof(line), "Player %d: %s\n", int(id) + 1, StyleName(style));
         list += line;
     }
     return list;
@@ -713,28 +713,28 @@ bool AskText(int item, std::string *text)
         // Digits, with '.' on the key beside 0.
         swkbdConfigSetType(&kbd, SwkbdType_NumPad);
         swkbdConfigSetLeftOptionalSymbolKey(&kbd, ".");
-        swkbdConfigSetHeaderText(&kbd, "Adresse IP du serveur");
+        swkbdConfigSetHeaderText(&kbd, "Server IP address");
         swkbdConfigSetGuideText(&kbd, "192.168.1.20");
         swkbdConfigSetStringLenMax(&kbd, 63);
     }
     else if (item == ITEM_NET_PORT)
     {
         swkbdConfigSetType(&kbd, SwkbdType_NumPad);
-        swkbdConfigSetHeaderText(&kbd, "Port du serveur");
+        swkbdConfigSetHeaderText(&kbd, "Server port");
         swkbdConfigSetGuideText(&kbd, "3074");
         swkbdConfigSetStringLenMax(&kbd, 5);
     }
     else if (item == ITEM_NET_PASS)
     {
         swkbdConfigSetKeySetDisableBitmask(&kbd, SwkbdKeyDisableBitmask_Space);
-        swkbdConfigSetHeaderText(&kbd, "Mot de passe du serveur");
-        swkbdConfigSetGuideText(&kbd, "vide: aucun");
+        swkbdConfigSetHeaderText(&kbd, "Server password");
+        swkbdConfigSetGuideText(&kbd, "empty: none");
         swkbdConfigSetStringLenMax(&kbd, 31);
     }
     else
     {
         swkbdConfigSetKeySetDisableBitmask(&kbd, SwkbdKeyDisableBitmask_Space);
-        swkbdConfigSetHeaderText(&kbd, "Nom du joueur");
+        swkbdConfigSetHeaderText(&kbd, "Player name");
         swkbdConfigSetStringLenMax(&kbd, 15);
     }
     swkbdConfigSetInitialText(&kbd, text->c_str());
@@ -761,24 +761,24 @@ std::string EditTyped(LauncherSettings *s, int item)
     if (item == ITEM_NET_HOST)
     {
         if (!typed.empty() && !Launcher_ValidServerHost(typed))
-            return "Adresse refusee: chiffres et points seulement, par exemple 192.168.1.20.";
+            return "Address refused: digits and dots only, for example 192.168.1.20.";
         s->serverHost = typed;
     }
     else if (item == ITEM_NET_PORT)
     {
         if (!Launcher_ParsePort(typed, &s->serverPort))
-            return "Port refuse: un nombre de 1 a 65535.";
+            return "Port refused: a number from 1 to 65535.";
     }
     else if (item == ITEM_NET_PASS)
     {
         if (!typed.empty() && !Launcher_ValidPassword(typed))
-            return "Mot de passe refuse: 31 caracteres au plus, sans espace, guillemet, ; ni +.";
+            return "Password refused: 31 characters at most, no space, quote, ; or +.";
         s->serverPassword = typed;
     }
     else
     {
         if (!typed.empty() && !Launcher_ValidPlayerName(typed))
-            return "Nom refuse: 1 a 15 lettres, chiffres, _ - . sans espace.";
+            return "Name refused: 1 to 15 letters, digits, _ - . and no space.";
         s->playerName = typed;
     }
     return "";
@@ -801,7 +801,7 @@ struct Screen
     const char *buildStamp;
     int battery;
     std::string controllers;
-    std::string network; // the console's address, or "aucun"
+    std::string network; // the console's address, or "none"
     bool networkUp;
     std::string status; // why the last Start or keyboard entry was refused, until the next change
 };
@@ -833,7 +833,7 @@ void DrawItem(const LauncherSettings &s, View view, int item, int selected)
     }
     std::printf("%s%s %-24s", color, isSelected ? ">" : " ", ItemLabel(item));
     if (item == ITEM_CONTROLLERS)
-        std::printf("[A] ecran des manettes%s", kColorNormal);
+        std::printf("[A] controller screen%s", kColorNormal);
     else if (item == ITEM_SERVER || item == ITEM_PAD || item == ITEM_PAD_RESET || item == ITEM_KIT || TypedItem(item) ||
              item == ITEM_NET_SCAN)
         std::printf("[A] %s%s", Clip(ValueText(s, item), kValueWidth).c_str(), kColorNormal);
@@ -843,7 +843,7 @@ void DrawItem(const LauncherSettings &s, View view, int item, int selected)
         const int control = item - ITEM_PAD_FIRST;
         std::printf("<  %-7s >", ValueText(s, item).c_str());
         if (s.pad.source[control] != control)
-            std::printf("   %s(jeu: %s)", kColorDisabled, Launcher_PadButtonLabel(control));
+            std::printf("   %s(game: %s)", kColorDisabled, Launcher_PadButtonLabel(control));
         std::printf("%s", kColorNormal);
     }
     else
@@ -854,15 +854,15 @@ void Draw(const LauncherSettings &s, View view, int selected, const Screen &scre
 {
     std::printf("\x1b[2J");
     At(2, 3);
-    const char *title = view == VIEW_MAIN     ? "LANCEUR"
-                        : view == VIEW_SERVER ? "CONNEXION AU SERVEUR"
-                        : view == VIEW_KIT    ? "DEPART (POINTS ET ATOUTS)"
-                                              : "TOUCHES DE LA MANETTE";
+    const char *title = view == VIEW_MAIN     ? "LAUNCHER"
+                        : view == VIEW_SERVER ? "JOIN A SERVER"
+                        : view == VIEW_KIT    ? "START KIT (POINTS AND PERKS)"
+                                              : "BUTTON MAPPING";
     std::printf("%sBLACK OPS ZOMBIES - %s%s", kColorTitle, title, kColorNormal);
     if (screen.battery >= 0)
     {
         At(2, 64);
-        std::printf("Batterie %3d%%", screen.battery);
+        std::printf("Battery %3d%%", screen.battery);
     }
     At(3, 3);
     std::printf("%sbuild %s%s", kColorDisabled, screen.buildStamp, kColorNormal);
@@ -876,11 +876,11 @@ void Draw(const LauncherSettings &s, View view, int selected, const Screen &scre
     if (view == VIEW_MAIN)
     {
         At(kGraphicsHeaderRow, 3);
-        std::printf("%sGraphismes%s", kColorTitle, kColorNormal);
+        std::printf("%sGraphics%s", kColorTitle, kColorNormal);
         if (screen.controllers.empty())
         {
             At(kControllerFirstRow, 7);
-            std::printf("%sAucune manette detectee%s", kColorWarn, kColorNormal);
+            std::printf("%sNo controller detected%s", kColorWarn, kColorNormal);
         }
         else
         {
@@ -898,52 +898,52 @@ void Draw(const LauncherSettings &s, View view, int selected, const Screen &scre
     else if (view == VIEW_PAD)
     {
         At(kPadInfoRow, 3);
-        std::printf("%sA gauche l'action du jeu, a droite le bouton de la Switch qui la fait.%s", kColorTitle,
+        std::printf("%sOn the left the game's action, on the right the Switch button for it.%s", kColorTitle,
                     kColorNormal);
         At(kPadInfoRow + 1, 5);
-        std::printf("Les menus du jeu suivent aussi: valider = Sauter, retour = S'accroupir.");
+        std::printf("The game's menus follow it too: confirm = Jump, back = Crouch.");
         At(kPadInfoRow + 2, 5);
-        std::printf("Ce lanceur garde les boutons de la console: une erreur se corrige ici.");
+        std::printf("This launcher keeps the console's buttons: a mistake is fixed here.");
         At(kPadInfoRow + 3, 5);
-        std::printf("Les sticks (deplacement, camera) ne changent pas.");
+        std::printf("The sticks (movement, camera) do not change.");
     }
     else if (view == VIEW_KIT)
     {
         At(kKitInfoRow, 3);
-        std::printf("%sDonnes a chaque partie solo, a l'arrivee sur la map (mod admin).%s", kColorTitle, kColorNormal);
+        std::printf("%sGiven in every solo game, on arrival on the map (admin mod).%s", kColorTitle, kColorNormal);
         At(kKitInfoRow + 1, 5);
-        std::printf("Un atout n'est donne que si la map a sa machine:");
+        std::printf("A perk is given only if the map has its machine:");
         At(kKitInfoRow + 2, 5);
-        std::printf("Kino et Five n'ont que Juggernog, Quick Revive, Speed Cola et Double Tap.");
+        std::printf("Kino and Five only have Juggernog, Quick Revive, Speed Cola and Double Tap.");
         At(kKitInfoRow + 3, 5);
-        std::printf("Sur un serveur, c'est le serveur qui decide.");
+        std::printf("On a server, the server decides.");
     }
     else
     {
         At(kNetInfoRow, 3);
-        std::printf("%sReseau de la console%s", kColorTitle, kColorNormal);
+        std::printf("%sConsole network%s", kColorTitle, kColorNormal);
         At(kNetInfoRow + 1, 5);
         if (screen.networkUp)
-            std::printf("Connectee, adresse IP %s", screen.network.c_str());
+            std::printf("Connected, IP address %s", screen.network.c_str());
         else
-            std::printf("%sAucun reseau: activez le Wi-Fi (mode avion coupe).%s", kColorWarn, kColorNormal);
+            std::printf("%sNo network: turn Wi-Fi on (airplane mode off).%s", kColorWarn, kColorNormal);
         At(kNetInfoRow + 3, 3);
-        std::printf("%sAu demarrage%s", kColorTitle, kColorNormal);
+        std::printf("%sOn start%s", kColorTitle, kColorNormal);
         At(kNetInfoRow + 4, 5);
         if (!s.join)
-            std::printf("Partie solo sur %s (connexion desactivee).", kLauncherMaps[s.map].label);
+            std::printf("Solo game on %s (connection off).", kLauncherMaps[s.map].label);
         else if (s.serverHost.empty())
-            std::printf("%sAdresse du serveur a saisir.%s", kColorWarn, kColorNormal);
+            std::printf("%sServer address to enter.%s", kColorWarn, kColorNormal);
         else
         {
-            std::printf("Le menu du jeu s'ouvre puis rejoint %s.", Launcher_ServerAddress(s).c_str());
+            std::printf("The game's menu opens, then joins %s.", Launcher_ServerAddress(s).c_str());
             At(kNetInfoRow + 5, 5);
-            std::printf("Il reessaie tout seul si le serveur n'est pas encore lance ou redemarre.");
+            std::printf("It retries by itself if the server is not up yet or restarts.");
         }
         At(kNetInfoRow + 7, 3);
-        std::printf("%sLe serveur choisit la map, ses mods et le god mode.%s", kColorDisabled, kColorNormal);
+        std::printf("%sThe server picks the map, its mods and god mode.%s", kColorDisabled, kColorNormal);
         At(kNetInfoRow + 8, 3);
-        std::printf("%sMods auto: le jeu charge les memes mods et la meme carte importee que lui.%s", kColorDisabled,
+        std::printf("%sAuto mods: the game loads the same mods and imported map as the server.%s", kColorDisabled,
                     kColorNormal);
     }
 
@@ -953,10 +953,10 @@ void Draw(const LauncherSettings &s, View view, int selected, const Screen &scre
     {
         At(kAsrWarnRow, 3);
         if (s.output == 1080)
-            std::printf("%sASR vers 1080p: ne tiendra pas 30 fps, meme en dock. Preferer 720p.%s", kColorWarn,
+            std::printf("%sASR to 1080p: will not hold 30 fps, even docked. Prefer 720p.%s", kColorWarn,
                         kColorNormal);
         else
-            std::printf("%sASR: 30 fps avec le GPU a 768 MHz (dock). En portable: 20 fps ou moins.%s", kColorWarn,
+            std::printf("%sASR: 30 fps with the GPU at 768 MHz (dock). Handheld: 20 fps or less.%s", kColorWarn,
                         kColorNormal);
     }
     At(kHelpRow, 3);
@@ -970,15 +970,15 @@ void Draw(const LauncherSettings &s, View view, int selected, const Screen &scre
     std::printf("----------------------------------------------------------------------------");
     At(kFooterRow + 1, 3);
     if (view == VIEW_MAIN)
-        std::printf("Haut/Bas: choisir  Gauche/Droite: modifier  A: valider  +: jouer  -: quitter");
+        std::printf("Up/Down: select  Left/Right: change  A: confirm  +: play  -: quit");
     else if (view == VIEW_KIT)
-        std::printf("Haut/Bas: choisir  Gauche/Droite: modifier  B: retour  +: jouer  -: quitter");
+        std::printf("Up/Down: select  Left/Right: change  A: confirm  B: back  +: play  -: quit");
     else if (view == VIEW_PAD)
-        std::printf("Haut/Bas: choisir  Gauche/Droite: bouton  B: retour  +: jouer  -: quitter");
+        std::printf("Up/Down: select  Left/Right: button  A: confirm  B: back  +: play  -: quit");
     else
-        std::printf("Haut/Bas: choisir  A: modifier  B: retour  +: jouer  -: quitter");
+        std::printf("Up/Down: select  A: change  B: back  +: play  -: quit");
     At(kFooterRow + 2, 3);
-    std::printf("%sReglages: sdmc:/switch/bo1zm/menu.cfg   (fichier skip_menu: sans menu)%s", kColorDisabled,
+    std::printf("%sSettings: sdmc:/switch/bo1zm/menu.cfg   (skip_menu file: no menu)%s", kColorDisabled,
                 kColorNormal);
     consoleUpdate(nullptr);
 }
@@ -1011,9 +1011,9 @@ struct Repeat
 std::string StartRefusal(const LauncherSettings &s, bool networkUp)
 {
     if (s.join && s.serverHost.empty())
-        return "Entrez l'adresse du serveur (Serveur, A) ou desactivez la connexion.";
+        return "Enter the server's address (Server, A) or turn the connection off.";
     if (s.join && !networkUp)
-        return "Pas de reseau: activez le Wi-Fi (mode avion coupe) ou jouez en solo.";
+        return "No network: turn Wi-Fi on (airplane mode off) or play solo.";
     return "";
 }
 // Start's question to the server (getmodinfo, lan_browser.h): what its clients load. Fills serverModsKnown and
@@ -1034,7 +1034,7 @@ std::string DetectServerMods(LauncherSettings *s)
     if (info.refused)
     {
         Log("server mods: %s refused the password", Launcher_ServerAddress(*s).c_str());
-        return "Mot de passe refuse par le serveur (Mot de passe, A).";
+        return "Password refused by the server (Password, A).";
     }
     s->serverModsKnown = true;
     s->serverModArgs = LanBrowser_ModInfoArgs(info);
@@ -1045,7 +1045,7 @@ std::string DetectServerMods(LauncherSettings *s)
         if (stat(("sdmc:/switch/bo1zm/" + file).c_str(), &st) != 0)
         {
             Log("server mods: %s is not on the SD card", file.c_str());
-            return "Le serveur charge " + file + ", absent de la carte SD.";
+            return "Not on the SD card: " + file + " (server).";
         }
     }
     return "";
@@ -1096,14 +1096,14 @@ LauncherResult Launcher_Run(const char *buildStamp, char *line, size_t lineSize,
     // The server view's LAN search: about a second, so the screen first says it is searching. Ryujinx 1.1.1375 stops
     // on the first UDP reply (recvfrom, switch-homebrew.md): judge it on the console.
     auto searchLan = [&]() {
-        screen.status = "Recherche des serveurs du reseau local...";
+        screen.status = "Searching the local network for servers...";
         Draw(s, view, selected, screen);
         unsigned int ip = 0, mask = 0;
         s_searched = true;
         if (!SwitchNet_AddressAndMask(&ip, &mask))
         {
             s_found.clear();
-            screen.status = "Pas de reseau: activez le Wi-Fi (mode avion coupe).";
+            screen.status = "No network: turn Wi-Fi on (airplane mode off).";
             return;
         }
         s_found = LanBrowser_Scan(LanBrowser_Broadcasts(ip, mask), kLanFirstPort, kLanPortCount, 1000);
@@ -1171,7 +1171,7 @@ LauncherResult Launcher_Run(const char *buildStamp, char *line, size_t lineSize,
                 s.serverHost = f.address;
                 s.serverPort = f.port;
                 s.join = true;
-                screen.status = "Serveur choisi: " + Launcher_ServerAddress(s) + " (+ pour rejoindre).";
+                screen.status = "Server chosen: " + Launcher_ServerAddress(s) + " (+ to join).";
                 Log("LAN search: %s chosen", Launcher_ServerAddress(s).c_str());
             }
             else if (selected == ITEM_NET_BACK)
@@ -1182,7 +1182,7 @@ LauncherResult Launcher_Run(const char *buildStamp, char *line, size_t lineSize,
             else if (selected == ITEM_PAD)
             {
                 view = VIEW_PAD;
-                selected = ITEM_PAD_FIRST + int(BO1_PAD_RTRIGGER); // Tirer, the line players change first
+                selected = ITEM_PAD_FIRST + int(BO1_PAD_RTRIGGER); // Fire, the line players change first
             }
             else if (selected == ITEM_PAD_RESET)
             {
@@ -1224,7 +1224,7 @@ LauncherResult Launcher_Run(const char *buildStamp, char *line, size_t lineSize,
             screen.status = StartRefusal(s, screen.networkUp);
             if (screen.status.empty() && s.join && s.joinDetectMods)
             {
-                screen.status = "Demande des mods du serveur...";
+                screen.status = "Asking the server for its mods...";
                 Draw(s, view, selected, screen);
                 screen.status = DetectServerMods(&s);
             }
@@ -1294,10 +1294,10 @@ LauncherResult Launcher_Run(const char *buildStamp, char *line, size_t lineSize,
         if (!WriteText(kGfxConfigPath, std::string(backend) + "\n"))
             Log("could not write %s", kGfxConfigPath);
         const std::string what =
-            s.join ? "le serveur " + Launcher_ServerAddress(s) : std::string(kLauncherMaps[s.map].label);
+            s.join ? "the server " + Launcher_ServerAddress(s) : std::string(kLauncherMaps[s.map].label);
         Log("start: %s (extra \"%s\")", what.c_str(), extra.c_str());
         At(kStatusRow, 3);
-        std::printf("\x1b[2K%s%s %s...%s", kColorSelected, s.join ? "Connexion a" : "Chargement de", what.c_str(),
+        std::printf("\x1b[2K%s%s %s...%s", kColorSelected, s.join ? "Joining" : "Loading", what.c_str(),
                     kColorNormal);
         consoleUpdate(nullptr);
     }

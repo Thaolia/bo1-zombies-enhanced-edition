@@ -19,6 +19,7 @@ import subprocess
 import threading
 import time
 
+from zmadmin.i18n import tr
 from zmadmin.launcher import IS_OPENBSD, IS_WINDOWS
 
 from . import spirvpack
@@ -138,25 +139,26 @@ def spirv_state(lay):
     try:
         spv = os.stat(lay.shaders_spv).st_mtime
     except OSError:
-        return False, "absent : Vulkan indisponible (le jeu prend le rendu habituel)"
+        return False, tr("missing: no Vulkan (the game takes its usual renderer)")
     try:
         if os.stat(lay.shaders_pack).st_mtime > spv:
-            return False, "plus ancien que shaders.pack : à refaire (Installer)"
+            return False, tr("older than shaders.pack: to redo (Install)")
     except OSError:
         pass
-    return True, "présent (Vulkan)"
+    return True, tr("present (Vulkan)")
 
 
 def state(dist_root):
     """{part: (ok, text)} for localization, iwd, video, zones, pack."""
     lay = Layout(dist_root)
     out = {}
-    out["localization"] = (os.path.isfile(lay.localization), "présent" if os.path.isfile(lay.localization)
-                           else "absent")
+    out["localization"] = (os.path.isfile(lay.localization), tr("present") if os.path.isfile(lay.localization)
+                           else tr("missing"))
     iwds = glob.glob(os.path.join(lay.main, "*.iwd"))
-    out["iwd"] = (bool(iwds), f"{len(iwds)} fichiers .iwd" if iwds else "aucun .iwd")
+    out["iwd"] = (bool(iwds), tr("{n} .iwd files").format(n=len(iwds)) if iwds else tr("no .iwd"))
     videos = glob.glob(os.path.join(lay.video, "*"))
-    out["video"] = (bool(videos), f"{len(videos)} fichiers" if videos else "absentes (les cinématiques ne jouent pas)")
+    out["video"] = (bool(videos), tr("{n} files").format(n=len(videos)) if videos
+                    else tr("missing (the cinematics do not play)"))
     zones = glob.glob(os.path.join(lay.zone, "*", "*.ff"))
     marker = None
     try:
@@ -165,17 +167,17 @@ def state(dist_root):
     except (OSError, ValueError):
         pass
     if not zones:
-        out["zones"] = (False, "non converties")
+        out["zones"] = (False, tr("not converted"))
     elif marker and os.path.isfile(lay.ffconv) and marker.get("ffconv_md5") != file_md5(lay.ffconv):
-        out["zones"] = (False, f"{len(zones)} zones d'un autre ffconv : à reconvertir")
+        out["zones"] = (False, tr("{n} zones from another ffconv: to convert again").format(n=len(zones)))
     elif marker:
         when = time.strftime("%Y-%m-%d %H:%M", time.localtime(marker.get("time", 0)))
-        out["zones"] = (True, f"{len(zones)} zones converties le {when}")
+        out["zones"] = (True, tr("{n} zones converted on {when}").format(n=len(zones), when=when))
     else:
-        out["zones"] = (True, f"{len(zones)} zones (livrées avec le paquet)")
+        out["zones"] = (True, tr("{n} zones (shipped with the package)").format(n=len(zones)))
     ok = os.path.isfile(lay.shaders_pack)
-    out["pack"] = (ok, "présent" if ok else "absent (vient avec les zones)" + ("" if lay.needs_pack else
-                                                                               " ; Vulkan seulement"))
+    out["pack"] = (ok, tr("present") if ok else tr("missing (comes with the zones)") if lay.needs_pack
+                   else tr("missing (comes with the zones); Vulkan only"))
     out["spirv"] = spirv_state(lay)
     return out
 
@@ -188,9 +190,9 @@ def ready(dist_root):
     lay = Layout(dist_root)
     missing = [k for k, (ok, _) in state(dist_root).items()
                if not ok and k not in OPTIONAL and (k != "pack" or lay.needs_pack)]
-    names = {"localization": "localization.txt", "iwd": "les .iwd", "zones": "les zones converties",
+    names = {"localization": "localization.txt", "iwd": tr("the .iwd files"), "zones": tr("the converted zones"),
              "pack": "shaders.pack"}
-    return None if not missing else "manque " + ", ".join(names[k] for k in missing)
+    return None if not missing else tr("missing {parts}").format(parts=", ".join(names[k] for k in missing))
 
 
 def _windows_paths(tool, paths):
@@ -199,7 +201,7 @@ def _windows_paths(tool, paths):
         return [subprocess.run([tool, "-w", p], capture_output=True, text=True, check=True).stdout.strip()
                 for p in paths]
     except (OSError, subprocess.CalledProcessError) as e:
-        return f"{os.path.basename(tool)} : {e}"
+        return tr("{tool}: {error}").format(tool=os.path.basename(tool), error=e)
 
 
 def converter_command(lay, install, out_dir):
@@ -207,11 +209,10 @@ def converter_command(lay, install, out_dir):
     WSL's interop when it can (a WSL distribution runs .exe files itself), else under wine. OpenBSD cannot run it:
     ffconv is a 32-bit program and OpenBSD's wine runs 64-bit ones only."""
     if IS_OPENBSD:
-        return ("pas de conversion sur OpenBSD (ffconv est un programme Windows 32 bits) : convertissez sur un PC "
-                "Windows ou Linux (ZmClient, vue Installation), copiez zone/ et shaders.pack ici, puis décochez la "
-                "conversion (z)")
+        return tr("no conversion on OpenBSD (ffconv is a 32-bit Windows program): convert on a Windows or Linux "
+                  "PC (ZmClient, Setup view), copy zone/ and shaders.pack here, then untick the conversion (z)")
     if not os.path.isfile(lay.ffconv):
-        return f"pas de {FFCONV_NAME} dans le dossier : ce paquet ne sait pas convertir les zones"
+        return tr("no {ffconv} in the folder: this package cannot convert the zones").format(ffconv=FFCONV_NAME)
     if IS_WINDOWS:
         return [lay.ffconv, "--verify", "--game", install, "--out", out_dir]
     wslpath = shutil.which("wslpath")
@@ -220,8 +221,8 @@ def converter_command(lay, install, out_dir):
     else:
         wine, winepath = shutil.which("wine"), shutil.which("winepath")
         if not wine or not winepath:
-            return ("ffconv est un programme Windows : installez wine, ou convertissez sur un PC Windows (ZmClient, "
-                    "vue Installation) et copiez zone/ et shaders.pack ici")
+            return tr("ffconv is a Windows program: install wine, or convert on a Windows PC (ZmClient, Setup "
+                      "view) and copy zone/ and shaders.pack here")
         runner, tool = [wine], winepath
     win = _windows_paths(tool, [install, out_dir])
     if isinstance(win, str):
@@ -267,7 +268,8 @@ class Setup(threading.Thread):
         self.video = video
         self.convert = convert
         self.spirv = spirv
-        self.phase = "préparation"
+        # shown through tr(); the Setup view also compares it to these English values
+        self.phase = "preparing"
         self.done_bytes = self.total_bytes = 0
         self.zone_at = self.zone_count = 0
         self.shader_at = self.shader_count = 0
@@ -309,26 +311,29 @@ class Setup(threading.Thread):
         except OSError as e:
             self.error = str(e)
         if self.error:
-            self.note(f"échec : {self.error}")
+            self.note(tr("failed: {error}").format(error=self.error))
         self.ended = time.monotonic()
         self.finished = True
 
     def _run(self):
         lay = self.lay
         if not is_install(self.install):
-            self.error = f"{self.install} n'est pas une installation de Black Ops (zone/, main/*.iwd, localization.txt)"
+            self.error = tr("{path} is not a Black Ops install (zone/, main/*.iwd, localization.txt)").format(
+                path=self.install)
             return
         if os.path.normcase(os.path.abspath(self.install)) == os.path.normcase(os.path.abspath(lay.root)):
-            self.error = "le dossier du jeu et celui du paquet sont le même"
+            self.error = tr("the game's folder and the package's are the same")
             return
         os.makedirs(lay.main, exist_ok=True)
-        self.note(f"--- installation depuis {self.install} ({time.strftime('%Y-%m-%d %H:%M:%S')}) ---")
+        self.note(tr("--- setup from {path} ({time}) ---").format(path=self.install,
+                                                                 time=time.strftime("%Y-%m-%d %H:%M:%S")))
         plan = _plan_copies(self.install, lay, self.video)
         self.total_bytes = sum(p[2] for p in plan)
         need = self.total_bytes + (ZONES_BYTES if self.convert else 0)
         free = shutil.disk_usage(lay.root).free
         if free < need:
-            self.error = f"pas assez de place : {need >> 20} Mo nécessaires, {free >> 20} Mo libres"
+            self.error = tr("not enough room: {need} MB needed, {free} MB free").format(need=need >> 20,
+                                                                                        free=free >> 20)
             return
         if self.convert:
             # before the long copy: a package that cannot convert should say so at once
@@ -336,11 +341,12 @@ class Setup(threading.Thread):
             if isinstance(probe, str):
                 self.error = probe
                 return
-        self.phase = "copie"
-        self.note(f"{len(plan)} fichiers à copier ({self.total_bytes >> 20} Mo), les autres sont à jour")
+        self.phase = "copying"
+        self.note(tr("{n} files to copy ({size} MB), the others are up to date").format(
+            n=len(plan), size=self.total_bytes >> 20))
         for src, dst, size in plan:
             if self.cancelled:
-                self.error = "annulé"
+                self.error = tr("cancelled")
                 return
             os.makedirs(os.path.dirname(dst), exist_ok=True)
             tmp = dst + ".zmclient-part"
@@ -355,42 +361,42 @@ class Setup(threading.Thread):
                         break
             if self.cancelled:
                 os.remove(tmp)
-                self.error = "annulé"
+                self.error = tr("cancelled")
                 return
             shutil.copystat(src, tmp)
             os.replace(tmp, dst)
-            self.note(f"copié {os.path.relpath(dst, lay.root)}")
+            self.note(tr("copied {path}").format(path=os.path.relpath(dst, lay.root)))
         if self.convert:
             self._convert()
             if self.error:
                 return
         if self.spirv and not spirv_state(lay)[0]:
             self._compile_spirv()
-        self.phase = "terminé"
+        self.phase = "done"
 
     def _compile_spirv(self):
         """shaders.spv from shaders.pack. A missing glslang or a failure leaves the rest installed: `warning`."""
         lay = self.lay
         if not os.path.isfile(lay.shaders_pack):
-            self.warning = "pas de shaders.pack (convertir les zones le fait) : Vulkan indisponible"
+            self.warning = tr("no shaders.pack (converting the zones makes it): no Vulkan")
             self.note(self.warning)
             return
         glslang = spirvpack.find_glslang(lay.root)
         if not glslang:
-            self.warning = ("pas de glslang : Vulkan indisponible (Linux : installez glslang-tools, OpenBSD : "
-                            "doas pkg_add glslang, puis Installer à nouveau)")
+            self.warning = tr("no glslang: no Vulkan (Linux: install glslang-tools, OpenBSD: doas pkg_add "
+                              "glslang, then Install again)")
             self.note(self.warning)
             return
         # shaders.spv is ~3.6 times shaders.pack (478 MB from 133 MB), plus a copy while it replaces the old one
         need = 8 * os.path.getsize(lay.shaders_pack)
         free = shutil.disk_usage(lay.root).free
         if free < need:
-            self.warning = (f"pas assez de place pour shaders.spv ({need >> 20} Mo, {free >> 20} libres) : "
-                            "Vulkan indisponible")
+            self.warning = tr("not enough room for shaders.spv ({need} MB, {free} free): no Vulkan").format(
+                need=need >> 20, free=free >> 20)
             self.note(self.warning)
             return
-        self.phase = "shaders Vulkan"
-        self.note(f"shaders.spv : {glslang}, {os.cpu_count() or 1} à la fois")
+        self.phase = "Vulkan shaders"
+        self.note(tr("shaders.spv: {glslang}, {n} at a time").format(glslang=glslang, n=os.cpu_count() or 1))
 
         def progress(at, total):
             self.shader_at, self.shader_count = at, total
@@ -398,22 +404,24 @@ class Setup(threading.Thread):
             result = spirvpack.build(lay.shaders_pack, lay.shaders_spv, glslang, progress=progress,
                                      cancelled=lambda: self.cancelled)
         except (spirvpack.PackError, OSError) as e:
-            self.warning = f"shaders.spv non compilé ({e}) : Vulkan indisponible"
+            self.warning = tr("shaders.spv not compiled ({error}): no Vulkan").format(error=e)
             self.note(self.warning)
             return
         if result is None:
-            self.error = "annulé"
+            self.error = tr("cancelled")
             return
         good, size, failures = result
-        self.note(f"shaders.spv : {good} shaders, {size >> 20} Mo, {len(failures)} refusés")
+        self.note(tr("shaders.spv: {good} shaders, {size} MB, {refused} refused").format(
+            good=good, size=size >> 20, refused=len(failures)))
         for h, stage, err in failures[:20]:
-            self.note(f"  {h:016x}.{spirvpack.STAGES[stage]} : {err}")
+            self.note(tr("  {shader}: {error}").format(shader=f"{h:016x}.{spirvpack.STAGES[stage]}", error=err))
         if failures:
-            self.warning = f"{len(failures)} shaders refusés par glslang : des objets manqueront sous Vulkan"
+            self.warning = tr("{n} shaders refused by glslang: some objects will be missing under Vulkan").format(
+                n=len(failures))
 
     def _convert(self):
         lay = self.lay
-        self.phase = "conversion des zones"
+        self.phase = "converting zones"
         new = os.path.join(lay.root, "zone.zmclient-new")
         shutil.rmtree(new, ignore_errors=True)
         os.makedirs(new)
@@ -421,7 +429,7 @@ class Setup(threading.Thread):
         if isinstance(cmd, str):
             self.error = cmd
             return
-        self.note("ffconv : " + " ".join(cmd))
+        self.note(tr("ffconv: {command}").format(command=" ".join(cmd)))
         kwargs = {"creationflags": subprocess.CREATE_NO_WINDOW} if IS_WINDOWS else {}
         self._proc = subprocess.Popen(cmd, cwd=lay.root, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
                                       stderr=subprocess.STDOUT, **kwargs)
@@ -435,14 +443,15 @@ class Setup(threading.Thread):
         code = self._proc.wait()
         if self.cancelled:
             shutil.rmtree(new, ignore_errors=True)
-            self.error = "annulé"
+            self.error = tr("cancelled")
             return
         produced = glob.glob(os.path.join(new, "zone", "*", "*.ff"))
         if code != 0 or not produced:
             shutil.rmtree(new, ignore_errors=True)
-            self.error = f"ffconv a échoué (code {code}) : les zones précédentes sont gardées ; détails dans {lay.log}"
+            self.error = tr("ffconv failed (code {code}): the previous zones are kept; details in {log}").format(
+                code=code, log=lay.log)
             return
-        self.phase = "mise en place"
+        self.phase = "putting in place"
         old = os.path.join(lay.root, "zone.zmclient-old")
         shutil.rmtree(old, ignore_errors=True)
         if os.path.isdir(lay.zone):
@@ -456,4 +465,4 @@ class Setup(threading.Thread):
         with open(lay.marker, "w", encoding="utf-8") as f:
             json.dump({"ffconv_md5": file_md5(lay.ffconv), "time": time.time(), "install": self.install,
                        "zones": len(produced)}, f)
-        self.note(f"{len(produced)} zones en place")
+        self.note(tr("{n} zones in place").format(n=len(produced)))

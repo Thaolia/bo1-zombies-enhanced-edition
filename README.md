@@ -50,7 +50,7 @@ French version: `README.fr.md`. The full, detailed reference is [below](#detaile
 
 1. **Get a package.** Build one with `tools/make_dist.sh` (see [Packages](#packages) below). A GitHub release
    holds the same packages without game files.
-2. **Add your game files.** With a package that has no game files, ZmClient's *Installation* view copies them from
+2. **Add your game files.** With a package that has no game files, ZmClient's *Setup* view copies them from
    your Black Ops install and converts the zones. On the Switch, `Setup-Switch.bat` (Windows) or
    `./setup_switch.sh` (Linux) completes the SD card folder.
 3. **Play.**
@@ -60,7 +60,7 @@ French version: `README.fr.md`. The full, detailed reference is [below](#detaile
      controls and controllers. **+** starts the game.
    - **Server**: `Server.bat [map] [port]` or `./server.sh [map] [port]`, or from ZmAdmin or ZmClient with any map
      and mods (the BO2 maps too). Players join with `Play.bat net <address>:<port>`, from ZmClient, or from the
-     Switch's **Serveur** screen; ZmClient and the Switch ask the server which mods and map to load.
+     Switch's **Server** screen; ZmClient and the Switch ask the server which mods and map to load.
 
 ## Black Ops II content
 
@@ -143,7 +143,7 @@ zombies on the base maps. It is a work in progress: see `docs/PORTING.md` for th
 `docs/ARCHITECTURE.md` for how the port is layered.
 
 On the console the game starts in a text menu, where you choose:
-- a solo game, or a dedicated server to join: the **Serveur** line opens its own screen, with the connection on or
+- a solo game, or a dedicated server to join: the **Server** line opens its own screen, with the connection on or
   off, the server's IP address and port (typed with the console's keyboard), your player name, a search of the local
   network that lists its servers (on as the screen opens, or on demand), and the console's own network address
   (`docs/SERVER.md`, "Joining from a Switch");
@@ -181,7 +181,7 @@ On the console the game starts in a text menu, where you choose:
 In a game, leaving it from the pause menu (Start, then the leave game entry) closes the application cleanly and goes
 back to the homebrew menu, rather than to BO1's main menu (`bo1_quitOnDisconnect`). HOME still suspends the game as
 usual. The PC builds do the same since 2026-11-24 (Escape, then the leave game entry, closes the game); to get BO1's
-main menu back, turn off "Quitter le jeu depuis le menu pause" in ZmClient's *Config du jeu* view (F5), which writes
+main menu back, turn off "Quit game from pause menu" in ZmClient's *Game config* view (F5), which writes
 `seta bo1_quitOnDisconnect "0"` to `players/config.cfg`. A game over never closes the game.
 
 No game data is distributed. A converter run on your own PC (`tools/ffconv`) turns your Steam install's
@@ -217,10 +217,10 @@ from Linux with an OpenBSD clang/lld toolchain whose sysroot holds the official 
 toolchain's CMake file (`-DCMAKE_TOOLCHAIN_FILE=...`) and `-DSDL2_DIR=<sysroot>/usr/local/lib/cmake/SDL2`. The OS
 differences are under `#if defined(__OpenBSD__)` in `src/platform/posix` (sysctl instead of `/proc`, `funopen`,
 `getthrid`, no CPU affinity); `src/platform/openbsd/include` stands in for the glibc headers OpenBSD lacks.
-The Vulkan backend is built there too, opt-in as on Linux (`BO1_GFX_BACKEND=vulkan`, or ZmClient's "API graphique"):
+The Vulkan backend is built there too, opt-in as on Linux (`BO1_GFX_BACKEND=vulkan`, or ZmClient's "Graphics API"):
 it opens `libvulkan` at run time, so the build needs nothing more, and the player needs `vulkan-loader` and a Mesa
 driver with Vulkan 1.3. On Linux and OpenBSD, `r_mod_upscale`, `r_mod_upscaler` and `r_mod_upscaleSharpness` (FSR 1.0,
-Arm ASR, SSAA, as on win64) now exist too, so ZmClient's "Agrandissement" rows take effect there (docs/VULKAN.md, step
+Arm ASR, SSAA, as on win64) now exist too, so ZmClient's "Upscaling" rows take effect there (docs/VULKAN.md, step
 8).
 
 A dedicated zombies server (work in progress, branch `server`) is the same program started with `+set bo1_server 1`
@@ -244,7 +244,8 @@ with the solo mods of `tools/mod-launcher.hta` (horde, nightmare, mapkit, noperk
 and LAN servers with their live status), or starts the folder's server and joins it, alone or in a split screen of two windows (keyboard and mouse plus a
 controller, or two controllers); it also edits
 `players/config.cfg`, adds free dvars, and installs the game files from the player's own Black Ops (copy, then zone
-conversion with the shipped `ffconv.exe`). See `tools/zmclient/README.md`.
+conversion with the shipped `ffconv.exe`). Its interface is in English; the first row of its Launch view (F4),
+"Language", switches it to French. See `tools/zmclient/README.md`.
 
 Black Ops II zombies maps (experimental, branch `bo2`): `tools/bo2` extracts a map from the player's own Black Ops II
 (with a world and collision dumper added to OpenAssetTools, GPL v3, built separately) and writes it as a MapKit layout
@@ -263,7 +264,7 @@ the vault's deposit boxes and the farmhouse's weapon locker, kept between games.
 Nuketown also runs as a native BO1 map (experimental, branch `bspnuked`): `tools/bo2/bo2_bsp.py` writes its world,
 props, collision and BO2's baked light into a BO1 BSP, and `+set bo1_bspworld maps/zombie_bo2nuked.d3dbsp` plays
 MapKit's Nuketown gameplay on it (the self-test passes 106 of 106 checks; models are not lit yet). `make_dist.sh --bo2`
-packages it and ZmClient's Solo view offers it as "Mapkit : Nuketown native (Black Ops II, monde BSP)".
+packages it and ZmClient's Solo view offers it as "Mapkit: Nuketown native (Black Ops II, BSP world)".
 
 #### Packages
 
@@ -278,13 +279,14 @@ folders and archives in `build/dist`, one per platform:
 | `BO1Zombies_openbsd/` | the OpenBSD/amd64 client and dedicated server, `BO1Zombies-8.0` (the release) and `BO1Zombies-current`, `play.sh` and `server.sh` (POSIX sh: they pick the running system's program and raise the data size limit), `shaders.pack` and `shaders.spv`; only when asked (`tools/make_dist.sh openbsd`) | `.tar.gz` |
 
 Each also holds the converted zones, the install's `main/*.iwd` and `localization.txt` (and `main/video` on PC), a
-`LISEZMOI.txt` and a `VERSION.txt` (commit, date, NRO link time). With `--no-game-data` the packages go to
-`BO1Zombies_<platform>_nodata/` and hold no file of the game: the player installs the windows and linux ones with
-ZmClient's Installation view, from their own Black Ops. The switch one holds the `.nro`, `mods/` and the tools that
-complete its SD card folder from the player's own install (`tools/switch_setup`): `Setup-Switch.bat ["<install>"]` on
-Windows, `./setup_switch.sh <install>` on Linux. They copy `localization.txt` and `main/*.iwd`, convert the zones with
-`ffconv` (through wine or WSL on Linux), and compile `shaders.dksh` with `uam` and `make_dksh_pack` (a Nuitka `.exe`
-on Windows, `python3` on Linux; `tools/uam/build.sh` builds both uams, `tools/switch_setup/build.sh` the `.exe`).
+`README.txt` (and its French copy, `LISEZMOI.txt`) and a `VERSION.txt` (commit, date, NRO link time). With
+`--no-game-data` the packages go to `BO1Zombies_<platform>_nodata/` and hold no file of the game: the player installs
+the windows and linux ones with ZmClient's Setup view, from their own Black Ops. The switch one holds the `.nro`,
+`mods/` and the tools that complete its SD card folder from the player's own install (`tools/switch_setup`):
+`Setup-Switch.bat ["<install>"]` on Windows, `./setup_switch.sh <install>` on Linux. They copy `localization.txt` and
+`main/*.iwd`, convert the zones with `ffconv` (through wine or WSL on Linux), and compile `shaders.dksh` with `uam` and
+`make_dksh_pack` (a Nuitka `.exe` on Windows, `python3` on Linux; `tools/uam/build.sh` builds both uams,
+`tools/switch_setup/build.sh` the `.exe`).
 
     tools/make_dist.sh                       # windows, linux and switch
     tools/make_dist.sh switch linux          # some
@@ -300,7 +302,7 @@ programs build with the cross toolchain of [cross-compiler-openbsd](https://gith
 (`--openbsd-cross <prefix>` or `OPENBSD_CROSS`: its `install.sh` prefix, with the `8.0` and `current` sysroots and
 their `sdl2` package). Its `zmclient` and `zmadmin` are zipapps run by OpenBSD's Python (`pkg_add python%3`). There
 is no ffconv for OpenBSD: the `_nodata` OpenBSD package takes the game files of a Windows or Linux install made with
-ZmClient (its `LISEZMOI.txt` lists them). The packages
+ZmClient (its `README.txt` lists them). The packages
 hold your own game files: keep them for your own devices, never publish them (the `_nodata` ones hold none).
 
 `switch-tools\uam.exe` in the Windows package is deko3d's offline shader compiler, which devkitPro ships for Linux

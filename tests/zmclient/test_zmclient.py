@@ -5,12 +5,14 @@
 The mod flags are compared with the JS they copy (tools/horde_flags.js, tools/nightmare_flags.js) and with
 tools/mod-launcher.hta's own args(), run under node (hta_args.js); those tests are skipped without node.
 """
+import ast
 import itertools
 import json
 import os
 import shutil
 import socket
 import stat
+import string
 import subprocess
 import sys
 import tempfile
@@ -29,6 +31,7 @@ from zmclient.cli import main as cli_main  # noqa: E402
 from zmclient.client import Client  # noqa: E402
 from zmclient.gamecfg import BY_NAME, GameConfig, validate  # noqa: E402
 from zmclient.modflags import horde_flags, nightmare_flags  # noqa: E402
+from zmadmin import i18n  # noqa: E402
 from zmadmin.launcher import Dist, EXE_NAME  # noqa: E402
 
 NODE = shutil.which("node")
@@ -191,7 +194,7 @@ class CommandLine(unittest.TestCase):
         self.assertNotIn("r_mode", line)
         self.assertNotIn("r_customMode", line)
         p["window"], p["window_size"] = "fullscreen", "big"
-        self.assertIn("résolution : LARGEURxHAUTEUR, ex. 1280x720", P.problems(p, "/g"))
+        self.assertIn("resolution: WIDTHxHEIGHT, e.g. 1280x720", P.problems(p, "/g"))
 
     def test_shader_warming(self):
         # always given, so an old config.cfg's archived 1 never freezes the first frame unless the player wants it
@@ -209,7 +212,7 @@ class CommandLine(unittest.TestCase):
         with self.assertRaises(ValueError):
             P.build_command(p, "x", "/g")
         p["extra"] = []
-        with self.assertRaisesRegex(ValueError, "«"):
+        with self.assertRaisesRegex(ValueError, "holds a \"\\+\""):
             P.build_command(p, "x", "/a+b")
         p["mode"] = "join"
         with self.assertRaises(ValueError):
@@ -228,7 +231,7 @@ class CommandLine(unittest.TestCase):
                     json.dump({"name": name, "base": base, "edits": []}, f)
             maps = [m for m in P.solo_maps(tmp) if m[3]]
             self.assertEqual([m[3] for m in maps], ["aldric_sanatorium", "bo2_zm_nuked", "other"])
-            self.assertEqual(maps[1][1], "Mapkit : Nuketown (Black Ops II)")
+            self.assertEqual(maps[1][1], "Mapkit: Nuketown (Black Ops II)")
             p = P.Profile()
             p["map"] = "mapkit:bo2_zm_nuked"
             line = " ".join(P.build_command(p, "x", tmp))
@@ -250,7 +253,7 @@ class CommandLine(unittest.TestCase):
             self.assertTrue(any("zombie_bo2fx.ff" in w for w in P.problems(p, tmp)))
             os.makedirs(os.path.join(tmp, "usermaps", "zombie_bo2fx"))
             open(os.path.join(tmp, "usermaps", "zombie_bo2fx", "zombie_bo2fx.ff"), "w").close()
-            self.assertIn("Mapkit : Nuketown native (Black Ops II, monde BSP)",
+            self.assertIn("Mapkit: Nuketown native (Black Ops II, BSP world)",
                           [m[1] for m in P.solo_maps(tmp) if m[3] == "bo2_zm_nuked_bsp"])
             line = " ".join(P.build_command(p, "x", tmp))
             self.assertIn("+set bo1_mod_mapkit bo2_zm_nuked_bsp ", line)
@@ -265,7 +268,7 @@ class CommandLine(unittest.TestCase):
             open(os.path.join(tmp, "usermaps", "zombie_bo2transit", "zombie_bo2transit.ff"), "w").close()
             open(os.path.join(tmp, "main", "maps", "zombie_bo2transit.d3dbsp"), "w").close()
             P.mapkit_layouts.cache_clear()
-            self.assertIn("Mapkit : TranZit native (Black Ops II, monde BSP)",
+            self.assertIn("Mapkit: TranZit native (Black Ops II, BSP world)",
                           [m[1] for m in P.solo_maps(tmp) if m[3] == "bo2_zm_transit_bsp"])
             p["map"] = "mapkit:bo2_zm_transit_bsp"
             line = " ".join(P.build_command(p, "x", tmp))
@@ -278,7 +281,7 @@ class CommandLine(unittest.TestCase):
             open(os.path.join(tmp, "usermaps", "zombie_bo2prison", "zombie_bo2prison.ff"), "w").close()
             open(os.path.join(tmp, "main", "maps", "zombie_bo2prison.d3dbsp"), "w").close()
             P.mapkit_layouts.cache_clear()
-            self.assertIn("Mapkit : Mob of the Dead native (Black Ops II, monde BSP)",
+            self.assertIn("Mapkit: Mob of the Dead native (Black Ops II, BSP world)",
                           [m[1] for m in P.solo_maps(tmp) if m[3] == "bo2_zm_prison_bsp"])
             p["map"] = "mapkit:bo2_zm_prison_bsp"
             line = " ".join(P.build_command(p, "x", tmp))
@@ -291,7 +294,7 @@ class CommandLine(unittest.TestCase):
             open(os.path.join(tmp, "usermaps", "zombie_bo2buried", "zombie_bo2buried.ff"), "w").close()
             open(os.path.join(tmp, "main", "maps", "zombie_bo2buried.d3dbsp"), "w").close()
             P.mapkit_layouts.cache_clear()
-            self.assertIn("Mapkit : Buried native (Black Ops II, monde BSP)",
+            self.assertIn("Mapkit: Buried native (Black Ops II, BSP world)",
                           [m[1] for m in P.solo_maps(tmp) if m[3] == "bo2_zm_buried_bsp"])
             p["map"] = "mapkit:bo2_zm_buried_bsp"
             line = " ".join(P.build_command(p, "x", tmp))
@@ -448,10 +451,10 @@ class CommandLine(unittest.TestCase):
             p = P.Profile()
             P.build_command(p, "x", tmp)
             p["map"] = "zombie_coast"
-            with self.assertRaisesRegex(ValueError, "pas installée"):
+            with self.assertRaisesRegex(ValueError, "not installed"):
                 P.build_command(p, "x", tmp)
             p["mode"] = "host"      # its map is the Solo view's
-            with self.assertRaisesRegex(ValueError, "pas installée"):
+            with self.assertRaisesRegex(ValueError, "not installed"):
                 P.build_command(p, "x", tmp)
             p["mode"] = "join"
             p["join_host"] = "10.0.0.1"
@@ -516,7 +519,7 @@ class CommandLine(unittest.TestCase):
         from zmclient import views as V
         p["fsr"] = "ssaa_2x"
         self.assertIn("+set r_mod_upscale ssaa_2x", " ".join(P.build_command(p, "x", "/g")))
-        self.assertEqual(V.LaunchView.upscale_disabled(p), "le suréchantillonnage n'en a pas besoin")
+        self.assertEqual(V.LaunchView.upscale_disabled(p), "supersampling does not need it")
         p["fsr"] = "native"
         self.assertIsNone(V.LaunchView.upscale_disabled(p))
         p["fsr"] = "quality"
@@ -670,7 +673,7 @@ class SplitScreen(unittest.TestCase):
                                  ("0", "1", "0", "0"), case)
                 self.assertEqual(d["fs_b"], "/g", case)
                 self.assertEqual(d["fs_h"], "/g" if player == 1 else os.path.join("/g", "split2"), case)
-                self.assertEqual(d["name"], "Alpha" if player == 1 else "Joueur2", case)
+                self.assertEqual(d["name"], "Alpha" if player == 1 else "Player2", case)
                 self.assertEqual(d["cl_autoConnect"], "127.0.0.1:3080" if mode == "host" else "10.0.0.5:3074", case)
                 self.assertEqual(d.get("snd_menu_master"), None if player == 1 else "0", case)
                 self.assertNotIn("r_customMode", d, case)
@@ -683,7 +686,7 @@ class SplitScreen(unittest.TestCase):
         d = self.sets(P.build_command(p, "x", "/g", player=2))
         self.assertEqual((d["name"], d["snd_menu_master"]), ("Bravo", "1"))
         p["name2"] = "has space"
-        with self.assertRaisesRegex(ValueError, "joueur 2"):
+        with self.assertRaisesRegex(ValueError, "player 2"):
             P.build_command(p, "x", "/g")
         p["split"] = "off"
         P.build_command(p, "x", "/g")                # player 2's name only matters with a split screen
@@ -902,10 +905,10 @@ class FreeDvarsAndResolution(unittest.TestCase):
         netlog = next(l for l in lines if "+set bo1_netlog 0" in l)
         mine = next(l for l in lines if "+set mine 1" in l)
         col = header.index("Description")
-        self.assertEqual(netlog[col:], "Envoie le log du jeu au serveur rejoint")
+        self.assertEqual(netlog[col:], "Sends the log to the joined server")
         self.assertEqual(mine[col:].strip(), "")
         # the selected line's full text under the buttons
-        self.assertTrue(any("port du serveur + 1" in l for l in lines))
+        self.assertTrue(any("server port + 1" in l for l in lines))
         # Add: the known dvars first, then the command prefilled and explained
         view.key("a")
         pick = app.modals.pop()
@@ -929,7 +932,7 @@ class FreeDvarsAndResolution(unittest.TestCase):
             self.assertNotIn("r_mode", keys)
             self.assertEqual(keys[keys.index("bo1_mod_fov") + 1], "window_size")
             res = rows[keys.index("window_size")]
-            self.assertIn("sans effet", res.value)              # borderless, the default
+            self.assertIn("no effect", res.value)              # borderless, the default
             app.profile["window"] = "fullscreen"
             res = view.rows()[keys.index("window_size")]
             self.assertEqual(res.value, "1280x720")
@@ -960,7 +963,7 @@ class ServerBrowser(unittest.TestCase):
             self.assertIsNotNone(entries[a.addr].ping)
             # B answered the broadcast: not asked again as a favourite in the same round (50 ms server limit)
             self.assertEqual(b.queries, 1)
-            self.assertEqual(entries[dead.getsockname()].error, "pas de réponse")
+            self.assertEqual(entries[dead.getsockname()].error, "no answer")
             self.assertIsInstance(resolved[("no.such.host.invalid", 3074)], str)
         finally:
             br.sock.close()
@@ -1067,7 +1070,7 @@ class GameSetup(unittest.TestCase):
         self.assertFalse(os.path.exists(os.path.join(self.dist.root, "players", "config.cfg")))
         self.assertTrue(os.path.isfile(os.path.join(self.dist.root, "shaders.pack")))   # kept for Vulkan on Windows
         again = self.run_setup(convert=False)
-        self.assertIn("0 fichiers à copier", "\n".join(again.lines))
+        self.assertIn("0 files to copy", "\n".join(again.lines))
         # a new ffconv in the package: the zones it did not make are stale
         with open(os.path.join(self.dist.root, "ffconv.exe"), "w") as fh:
             fh.write("v2")
@@ -1093,7 +1096,7 @@ class GameSetup(unittest.TestCase):
         self.assertFalse(gamesetup.state(self.dist.root)["spirv"][0])
         third = self.run_setup(video=False, convert=False)
         self.assertIsNone(third.error, third.lines)
-        self.assertIn("1 shaders refusés", third.warning)
+        self.assertIn("1 shaders refused", third.warning)
         self.assertIn("0000000000000033.frag", "\n".join(third.lines))
         self.assertTrue(gamesetup.state(self.dist.root)["spirv"][0])
 
@@ -1136,17 +1139,17 @@ class GameSetup(unittest.TestCase):
         self.run_setup()
         os.environ["FAKE_FFCONV_FAIL"] = "1"
         job = self.run_setup(video=False)
-        self.assertIn("ffconv a échoué", job.error)
+        self.assertIn("ffconv failed", job.error)
         self.assertTrue(os.path.isfile(os.path.join(self.dist.root, "zone", "common", "a.ff")))
         self.assertFalse(os.path.exists(os.path.join(self.dist.root, "zone.zmclient-new")))
 
     def test_refusals(self):
         job = gamesetup.Setup(self.dist.root, os.path.join(self.tmp.name, "nothing"))
         job.run()
-        self.assertIn("n'est pas une installation", job.error)
+        self.assertIn("is not a Black Ops install", job.error)
         job = gamesetup.Setup(self.install, self.install)
         job.run()
-        self.assertIn("le même", job.error)
+        self.assertIn("are the same", job.error)
 
     def test_converter_command(self):
         lay = gamesetup.Layout(self.dist.root)
@@ -1159,7 +1162,7 @@ class GameSetup(unittest.TestCase):
             self.assertEqual(cmd[0], lay.ffconv)
             self.assertTrue(cmd[3].startswith("\\\\") and cmd[5].endswith("\\zone.new"), cmd)
         os.remove(lay.ffconv)
-        self.assertIn("pas de ffconv.exe", self.saved(lay, self.install, out))
+        self.assertIn("no ffconv.exe", self.saved(lay, self.install, out))
 
     def test_no_converter_on_openbsd(self):
         """ffconv.exe is a 32-bit Windows program: OpenBSD's wine cannot run it, even next to the program."""
@@ -1167,7 +1170,7 @@ class GameSetup(unittest.TestCase):
         saved = gamesetup.IS_OPENBSD
         gamesetup.IS_OPENBSD = True
         try:
-            self.assertIn("pas de conversion sur OpenBSD", self.saved(lay, self.install, lay.root))
+            self.assertIn("no conversion on OpenBSD", self.saved(lay, self.install, lay.root))
         finally:
             gamesetup.IS_OPENBSD = saved
 
@@ -1210,7 +1213,7 @@ class FolderBrowser(unittest.TestCase):
         self.assertEqual([e.name for e in entries if e.install], ["Call of Duty Black Ops"])
         names = [e.name for e in dirbrowser.listing(os.path.join(self.tmp.name, "Steam"))[0]]
         self.assertEqual(names, ["..", "steamapps"])          # hidden and system folders left out
-        self.assertIn("illisible", dirbrowser.listing(os.path.join(self.tmp.name, "nope"))[1])
+        self.assertIn("unreadable", dirbrowser.listing(os.path.join(self.tmp.name, "nope"))[1])
 
     def test_parent_at_the_top(self):
         if os.name == "nt":
@@ -1297,6 +1300,81 @@ class ClientProcess(unittest.TestCase):
             # after a start, a log older than the start does not count: the game's fs_game folder comes first
             c.started, c.fs_game = time.time() + 10, "mods/horde"
             self.assertEqual(c.log_path(), os.path.join(dist.root, "mods", "horde", "console_mp.log"))
+
+
+class Language(unittest.TestCase):
+    """English in the code, French from the catalogs (zmadmin/i18n.py, zmclient/fr/, zmadmin/fr_shared.py)."""
+
+    def tearDown(self):
+        i18n.set_language("en")
+
+    def catalogs(self):
+        from zmadmin import fr_shared
+        from zmclient import fr
+        return {"zmadmin.fr_shared": fr_shared.FR, "zmclient.fr.app": fr.app.FR, "zmclient.fr.help": fr.help.FR,
+                "zmclient.fr.views": fr.views.FR}
+
+    def source_strings(self):
+        """Every string constant of ZmClient's and zmadmin's sources, implicit concatenations joined (ast does it),
+        the catalogs left out."""
+        out = set()
+        for package in (os.path.join(TOOLS, "zmclient", "zmclient"), os.path.join(TOOLS, "zmadmin", "zmadmin")):
+            for name in os.listdir(package):
+                if not name.endswith(".py") or name == "fr_shared.py":
+                    continue
+                with open(os.path.join(package, name), encoding="utf-8") as f:
+                    tree = ast.parse(f.read())
+                out.update(n.value for n in ast.walk(tree) if isinstance(n, ast.Constant) and isinstance(n.value, str))
+        return out
+
+    def test_keys_are_used_and_translate(self):
+        strings = self.source_strings()
+        for where, table in self.catalogs().items():
+            for en, fr in table.items():
+                self.assertTrue(en.strip() and fr.strip(), (where, en))
+                self.assertIn(en, strings, f"{where}: {en!r} is in no source file")
+                i18n.set_language("fr")
+                self.assertEqual(i18n.tr(en), fr, where)
+                i18n.set_language("en")
+                self.assertEqual(i18n.tr(en), en, where)
+
+    def test_placeholders_match(self):
+        def fields(text):
+            return {f for _, f, _, _ in string.Formatter().parse(text) if f is not None}
+        for where, table in self.catalogs().items():
+            for en, fr in table.items():
+                self.assertEqual(fields(en), fields(fr), (where, en))
+
+    def test_trdict_and_set_language(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            layouts = os.path.join(tmp, "mods", "mapkit", "layouts")
+            os.makedirs(layouts)
+            with open(os.path.join(layouts, "mapkit_room.json"), "w", encoding="utf-8") as f:
+                json.dump({"base": "zombie_pentagon"}, f)
+            i18n.set_language("fr")
+            self.assertEqual(P.MAPKIT_LABELS["mapkit_room"], "Mapkit room (entièrement construite)")
+            self.assertEqual(P.map_label("mapkit:mapkit_room", tmp), "Mapkit : Mapkit room (entièrement construite)")
+            i18n.set_language("en")
+            self.assertEqual(P.MAPKIT_LABELS.get("mapkit_room"), "Mapkit room (fully built)")
+            self.assertEqual(P.map_label("mapkit:mapkit_room", tmp), "Mapkit: Mapkit room (fully built)")
+        with self.assertRaises(ValueError):
+            i18n.set_language("de")
+
+    def test_profile_language(self):
+        self.assertEqual(P.DEFAULTS["language"], "en")
+        self.assertIn(P.DEFAULTS["language"], i18n.LANGUAGES)
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "profile.json")
+            for saved, kept in (("fr", "fr"), ("de", "en"), (3, "en")):
+                with open(path, "w", encoding="utf-8") as f:
+                    json.dump({"language": saved}, f)
+                self.assertEqual(P.Profile(path)["language"], kept, saved)
+            p = P.Profile()
+            p["mode"] = "join"
+            i18n.set_language("fr")
+            self.assertIn("adresse du serveur absente ou invalide (vue Serveurs, F2)", P.problems(p))
+            i18n.set_language("en")
+            self.assertIn("server address missing or invalid (Servers view, F2)", P.problems(p))
 
 
 if __name__ == "__main__":
