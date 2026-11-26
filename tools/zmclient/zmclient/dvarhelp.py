@@ -1,143 +1,160 @@
 """What the Free dvars view knows of the dvars a player may add: a short line for its Description column and a longer
 text under the list. Each text follows the dvar's registration in src/ (its description and limits); the tests check
-that every name here is still a quoted string in src/."""
+that every name here is still a quoted string in src/. The texts are English; French comes from zmclient/fr/help.py."""
+
+from zmadmin.i18n import tr
+
+
+class _TrPairs(dict):
+    """name -> (short, long), both translated when read."""
+
+    def __getitem__(self, key):
+        short, long = super().__getitem__(key)
+        return tr(short), tr(long)
+
+    def get(self, key, default=None):
+        return self[key] if key in self else default
+
+    def values(self):
+        return [self[k] for k in self]
+
+    def items(self):
+        return [(k, self[k]) for k in self]
+
 
 # name: (short, long). Names as the engine registers them; lookups ignore case, as the engine does.
-KNOWN = {
+KNOWN = _TrPairs({
     "bo1_netlog": (
-        "Envoie le log du jeu au serveur rejoint",
-        "1 (défaut) : le jeu envoie son console log au serveur qu'il rejoint (port du serveur + 1), qui l'écrit dans "
-        "ses logs/. 0 : rien n'est envoyé."),
+        "Sends the log to the joined server",
+        "1 (default): the game sends its console log to the server it joins (server port + 1), which writes it in its "
+        "logs/. 0: nothing is sent."),
     "bo1_logserver": (
-        "Serveur qui reçoit le log (host[:port])",
-        "L'adresse host[:port] du port de jeu du serveur à qui envoyer le log (il le reçoit sur port + 1). Vide : le "
-        "serveur de cl_autoConnect."),
+        "Server receiving the log (host[:port])",
+        "The host[:port] address of the game port of the server to send the log to (it receives it on port + 1). "
+        "Empty: the cl_autoConnect server."),
     "r_shaderWarming": (
-        "Préchauffe les shaders au chargement (long)",
-        "1 : au premier rendu d'une map, le jeu dessine une fois chaque passe éclairée pour que le pilote compile ses "
-        "shaders d'avance (moins de saccades ensuite). L'image se fige longtemps à ce moment (2 minutes et plus sur un "
-        "portable). 0 par défaut ; la vue Lancement a cette option (« Préchauffage des shaders ») et la donne à chaque "
-        "lancement."),
+        "Prewarms the shaders while loading (long)",
+        "1: on a map's first render, the game draws each lit pass once so the driver compiles its shaders ahead "
+        "(fewer stutters afterwards). The image freezes for a long time at that moment (2 minutes or more on a "
+        "laptop). 0 by default; the Launch view has this option (\"Shader warming\") and gives it at every "
+        "launch."),
     "bo1_frameperf": (
-        "Profileur : log des images plus lentes que N ms",
-        "« set bo1_frameperf 200 » : le jeu écrit une ligne BO1_FRAMEHITCH pour chaque image de plus de 200 ms et une "
-        "ligne BO1_FRAMEPERF de statistiques (fps, percentiles) toutes les 5 s, dans console_mp.log. Lu seulement sur "
-        "la ligne de commande."),
+        "Profiler: logs frames slower than N ms",
+        "\"set bo1_frameperf 200\": the game writes a BO1_FRAMEHITCH line for each frame over 200 ms and a "
+        "BO1_FRAMEPERF statistics line (fps, percentiles) every 5 s, in console_mp.log. Only read on the command "
+        "line."),
     "bo1_fpscounter": (
-        "Compteur FPS du portage (haut droite)",
-        "1 : compteur d'images par seconde (et niveau de batterie) en haut à droite. La vue Lancement a aussi cette "
-        "option."),
+        "The port's FPS counter (top right)",
+        "1: frames-per-second counter (and battery level) at the top right. The Launch view also has this option."),
     "bo1_runinfo": (
-        "Réglages + hash du programme (speedrun)",
-        "1 : les réglages de la partie et le hash du programme et des zones sur l'écran de chargement ; 2 : aussi "
-        "pendant la partie ; 0 : rien. La vue Lancement a aussi cette option."),
+        "Settings + program hash (speedrun)",
+        "1: the game's settings and the hash of the program and zones on the loading screen; 2: also during the "
+        "game; 0: nothing. The Launch view also has this option."),
     "bo1_mod_fov": (
-        "Champ de vision pour tous les modes",
-        "0 : celui du jeu ; 65 à 120 : plus large. Gardé dans players/bo1_shared.cfg (la vue Config du jeu a aussi ce "
-        "réglage)."),
+        "Field of view for every mode",
+        "0: the game's; 65 to 120: wider. Kept in players/bo1_shared.cfg (the Game config view also has this "
+        "setting)."),
     "bo1_quitOnDisconnect": (
-        "Quitter le jeu depuis le menu pause",
-        "1 (défaut, toutes les plateformes) : la commande disconnect (« Quitter » du menu pause) ferme le jeu au lieu "
-        "de revenir au menu. La vue Config du jeu a aussi ce réglage."),
+        "Quit the game from the pause menu",
+        "1 (default, every platform): the disconnect command (\"Quit\" in the pause menu) closes the game instead of "
+        "going back to the menu. The Game config view also has this setting."),
     "bo1_autoquit": (
-        "Quitter tout seul après N ms",
-        "Le jeu se ferme N millisecondes après son démarrage (0 : jamais). Pour des tests chronométrés."),
+        "Quit by itself after N ms",
+        "The game closes N milliseconds after it starts (0: never). For timed tests."),
     "bo1_dvardump": (
-        "Liste tous les dvars en quittant (bo1_autoquit)",
-        "1 : quand bo1_autoquit ferme le jeu, il écrit chaque dvar (type, drapeaux, valeur par défaut et actuelle) "
-        "dans console_mp.log."),
+        "Lists every dvar on quitting (bo1_autoquit)",
+        "1: when bo1_autoquit closes the game, it writes every dvar (type, flags, default and current value) to "
+        "console_mp.log."),
     "bo1_audio": (
-        "Log de chaque son joué (mesure)",
-        "1 : chaque demande de son (alias, entité, position, résultat) est écrite dans le log. Mesure seulement, "
-        "verbeux."),
+        "Logs each sound played (debug)",
+        "1: every sound request (alias, entity, position, result) is written to the log. Measurement only, "
+        "verbose."),
     "bo1_aimassist": (
-        "Aide à la visée à la manette",
-        "1 : ralentissement et accroche de la visée à la manette (absents du jeu PC d'origine). La vue Lancement a "
-        "aussi cette option."),
+        "Controller aim assist",
+        "1: aim slowdown and lock-on with the controller (absent from the original PC game). The Launch view also "
+        "has this option."),
     "bo1_mod_lazymodels": (
-        "Charge les décors des zones ajoutées à la demande",
-        "1 (défaut) : les modèles (décor) d'une zone de bo1_mod_zones ne sont reliés que quand quelque chose s'en "
-        "sert : chargement plus court des maps importées."),
+        "Loads the added zones' scenery on demand",
+        "1 (default): the models (scenery) of a bo1_mod_zones zone are only linked when something uses them: "
+        "shorter loading of imported maps."),
     "bo1_mod_ailod": (
-        "Zombies lointains animés moins souvent",
-        "1 : un zombie loin de tous les joueurs met à jour son animation de course toutes les 0,2 s au lieu de chaque "
-        "image (moins de CPU avec beaucoup de zombies)."),
+        "Far zombies animated less often",
+        "1: a zombie far from every player updates its running animation every 0.2 s instead of every frame (less "
+        "CPU with many zombies)."),
     "bo1_mod_maxactors": (
-        "Places d'IA (32 d'origine, 1024 au plus)",
-        "Le nombre de zombies que la partie peut avoir en même temps (32 dans le jeu d'origine, jusqu'à 1024). Lu au "
-        "démarrage d'une map ; la horde le règle elle-même."),
+        "AI slots (32 originally, 1024 at most)",
+        "The number of zombies the game can have at the same time (32 in the original game, up to 1024). Read when "
+        "a map starts; the horde sets it itself."),
     "bo1_mod_tabinfo": (
-        "Zombies en vie / restants avec le tableau Tab",
-        "1 : le nombre de zombies en vie et restants dans la manche s'affiche à côté du tableau des scores (mods/zinfo "
-        "le met)."),
+        "Zombies alive / left with the Tab scoreboard",
+        "1: the number of zombies alive and left in the round shows next to the scoreboard (mods/zinfo sets it)."),
     "bo1_mod_pcore": (
-        "CPU hybrides : threads sur les cœurs P",
-        "1 : thread du serveur sur les cœurs performance et priorité au-dessus de la normale ; 2 : aussi les threads "
-        "du client. Sans effet sur un CPU non hybride."),
+        "Hybrid CPUs: threads on the P-cores",
+        "1: server thread on the performance cores and above-normal priority; 2: the client's threads too. No "
+        "effect on a non-hybrid CPU."),
     "bo1_mod_priority": (
-        "Priorité du processus (0, 1, 2)",
-        "1 : priorité au-dessus de la normale (processus et thread principal) ; 2 : priorité haute ; 0 : celle du "
-        "lancement (défaut d'un client)."),
+        "Process priority (0, 1, 2)",
+        "1: above-normal priority (process and main thread); 2: high priority; 0: the one it was launched with (a "
+        "client's default)."),
     "r_mod_sceneModels": (
-        "Modèles dessinés par image (1024 d'origine)",
-        "Le plafond de modèles dessinés par image (1024 d'origine, jusqu'à 4096) : plus de décor au loin sur les "
-        "maps importées. La vue Lancement a aussi ce réglage."),
+        "Models drawn per frame (1024 originally)",
+        "The cap on models drawn per frame (1024 originally, up to 4096): more distant scenery on imported maps. "
+        "The Launch view also has this setting."),
     "r_mod_modelLightingEntries": (
-        "Éclairage des modèles : entrées réservées",
-        "Le nombre d'entrées d'éclairage dynamique des modèles réservées au démarrage (0 : celui du jeu, jusqu'à "
-        "5120). ZmClient le monte déjà avec les modèles par image."),
+        "Model lighting: reserved entries",
+        "The number of dynamic model lighting entries reserved at start-up (0: the game's, up to 5120). ZmClient "
+        "already raises it with the models per frame."),
     "r_mod_skinCacheMB": (
-        "Cache des modèles animés, en Mo (8 d'origine)",
-        "La taille en Mo de chaque cache de sommets des modèles animés (8 d'origine, jusqu'à 256) : utile avec "
-        "beaucoup de zombies à l'écran."),
+        "Animated model cache, in MB (8 originally)",
+        "The size in MB of each animated model vertex cache (8 originally, up to 256): useful with many zombies on "
+        "screen."),
     "r_mod_fxElems": (
-        "Éléments d'effets à la fois (2048 d'origine)",
-        "Le nombre d'éléments d'effets (particules) vivants en même temps (2048 d'origine, jusqu'à 4096), lu au "
-        "chargement de la map."),
+        "Effect elements at once (2048 originally)",
+        "The number of effect elements (particles) alive at the same time (2048 originally, up to 4096), read when "
+        "the map loads."),
     "r_mod_gfxEnts": (
-        "Modèles spéciaux par image (256 d'origine)",
-        "Les zombies, corps et l'arme en main dessinés par image (256 d'origine, jusqu'à 2048) : à monter avec une "
-        "grosse horde."),
+        "Special models per frame (256 originally)",
+        "The zombies, bodies and the weapon in hand drawn per frame (256 originally, up to 2048): raise it with a "
+        "big horde."),
     "r_mod_drawStats": (
-        "Log des draw calls toutes les N images",
-        "Toutes les N images, le jeu écrit ses draw calls par technique et type de surface (lignes drawstats:) ; "
-        "0 : jamais. Mesure seulement."),
+        "Logs the draw calls every N frames",
+        "Every N frames, the game writes its draw calls by technique and surface type (drawstats: lines); 0: never. "
+        "Measurement only."),
     "r_mod_scsShare": (
-        "Partage des constantes de shader identiques",
-        "1 : les modèles aux constantes de shader identiques partagent un des 128 emplacements de l'image (0 "
-        "d'origine)."),
+        "Shares identical shader constants",
+        "1: models with identical shader constants share one of the frame's 128 slots (0 originally)."),
     "cl_allowWanConnect": (
-        "Autorise les serveurs hors du réseau local",
-        "1 : connect et cl_autoConnect acceptent aussi une adresse hors du réseau local (Internet). 0 par défaut."),
+        "Allows servers outside the local network",
+        "1: connect and cl_autoConnect also accept an address outside the local network (internet). 0 by default."),
     "cl_autoConnect": (
-        "Serveur rejoint dès le menu (et après coupure)",
-        "L'adresse host[:port] d'un serveur que le jeu rejoint dès que le menu est prêt, et de nouveau chaque fois "
-        "qu'il revient au menu. La vue Serveurs le fait déjà."),
+        "Server joined from the menu (and after a drop)",
+        "The host[:port] address of a server the game joins as soon as the menu is ready, and again each time it "
+        "goes back to the menu. The Servers view already does it."),
     "com_maxfps": (
-        "FPS maximum (0 : sans limite)",
-        "Limite d'images par seconde (85 par défaut, 0 : sans limite, 1000 au plus). La vue Config du jeu a aussi ce "
-        "réglage."),
+        "Maximum FPS (0: no limit)",
+        "Frames-per-second limit (85 by default, 0: no limit, 1000 at most). The Game config view also has this "
+        "setting."),
     "r_fog": (
-        "Brouillard (0 : désactivé)",
-        "0 : pas de brouillard (on voit plus loin, l'ambiance change). Défaut 1."),
+        "Fog (0: off)",
+        "0: no fog (you see farther, the atmosphere changes). Default 1."),
     "r_vsync": (
-        "Synchronisation verticale",
-        "1 : pas de déchirure d'image, FPS limités à la fréquence de l'écran. La vue Config du jeu a aussi ce réglage."),
+        "Vertical sync",
+        "1: no screen tearing, FPS capped at the screen's refresh rate. The Game config view also has this setting."),
     "developer": (
-        "Mode développeur (messages en plus)",
-        "1 ou 2 : active les systèmes de développement (plus de messages et de vérifications dans le log)."),
+        "Developer mode (extra messages)",
+        "1 or 2: turns on the development systems (more messages and checks in the log)."),
     "logfile": (
-        "Écriture du console_mp.log",
-        "0 : pas de fichier de log ; 1 : écriture en arrière-plan (défaut) ; 2 : chaque ligne écrite tout de suite "
-        "(plus lent, mais rien de perdu si le jeu plante)."),
+        "Writing of console_mp.log",
+        "0: no log file; 1: written in the background (default); 2: each line written at once (slower, but nothing "
+        "lost if the game crashes)."),
     "cg_fov": (
-        "Champ de vision du jeu (65 d'origine)",
-        "L'angle de vue en degrés (65 par défaut). bo1_mod_fov le règle pour tous les modes."),
+        "Game field of view (65 originally)",
+        "The view angle in degrees (65 by default). bo1_mod_fov sets it for every mode."),
     "r_borderlessRect": (
-        "Sans bordure : part de l'écran occupée",
-        "Avec Sans bordure : « x,y,l,h » en fractions de l'écran (ex. 0,0,0.5,1 : moitié gauche) ; vide : tout "
-        "l'écran. L'écran partagé le règle lui-même."),
-}
+        "Borderless: part of the screen used",
+        "With Borderless: \"x,y,w,h\" in fractions of the screen (e.g. 0,0,0.5,1: left half); empty: the whole "
+        "screen. Split screen sets it itself."),
+})
 
 _BY_LOWER = {name.lower(): name for name in KNOWN}
 _SET_WORDS = ("set", "seta", "sets", "setu")
@@ -154,6 +171,6 @@ def dvar_of(text):
 
 
 def describe(text):
-    """(short, long) for a free command line's dvar, or ("", "") when unknown."""
+    """(short, long) for a free command line's dvar, in the interface language, or ("", "") when unknown."""
     name = _BY_LOWER.get(dvar_of(text).lower())
     return KNOWN[name] if name else ("", "")

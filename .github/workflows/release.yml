@@ -5,7 +5,7 @@
 # The packages hold NO file of the game (CLAUDE.md: never upload game data). They are tools/make_dist.sh's
 # --no-game-data packages, made by the same script as on a PC: Windows and Linux are installed from the player's own
 # Black Ops with ZmClient (Installation view); the Switch one is the .nro and mods/ with the tools that complete it from
-# the player's own Black Ops (Setup-Switch.bat / setup_switch.sh: ffconv, uam, make_dksh_pack; its LISEZMOI.txt);
+# the player's own Black Ops (Setup-Switch.bat / setup_switch.sh: ffconv, uam, make_dksh_pack; its README.txt);
 # the OpenBSD one (a .tar.gz: OpenBSD's base system has tar, not unzip) holds a program for the release and one for
 # -current, and takes its game files from a Windows or Linux install made with ZmClient.
 #
@@ -420,9 +420,9 @@ jobs:
               packages carry (Khronos' 16.6.0 release, licence in `glslang-LICENSE.txt`).
             - Switch: the `.nro`, `mods/` and the tools that complete the SD card folder from your install:
               `Setup-Switch.bat` on Windows, `./setup_switch.sh <install>` on Linux (wine for ffconv, python3);
-              then copy `switch/` to the SD card's root. See `BO1Zombies_switch_nodata/LISEZMOI.txt`.
+              then copy `switch/` to the SD card's root. See `BO1Zombies_switch_nodata/README.txt`.
             - OpenBSD/amd64 (`.tar.gz`): `BO1Zombies-8.0` for the release, `BO1Zombies-current` for -current;
               `./play.sh` picks the running system's. It needs `pkg_add sdl2` (and `pkg_add python%3` for
               `zmclient` and `zmadmin`), and the game files of a Windows or Linux install made with zmclient (there
               is no ffconv for OpenBSD). Not yet tried on a real OpenBSD machine. See
-              `BO1Zombies_openbsd_nodata/LISEZMOI.txt`.
+              `BO1Zombies_openbsd_nodata/README.txt`.

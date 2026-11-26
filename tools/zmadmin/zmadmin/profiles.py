@@ -8,6 +8,7 @@ explicit choice wins: choosing the game again (configure_game) drops the kept se
 import os
 
 from . import gamemods
+from .i18n import tr
 from .launcher import LocalServer, server_game
 from .settings import BY_NAME, build_server_cfg
 
@@ -76,7 +77,7 @@ def write_profile_cfg(home, settings, name, drop=()):
     except FileNotFoundError:
         text = None
     except OSError as e:
-        return f"server.cfg illisible : {e}"
+        return tr("server.cfg unreadable: {error}").format(error=e)
     if text is None and not settings:
         return None
     new = build_server_cfg(text, settings, name, drop)
@@ -87,5 +88,5 @@ def write_profile_cfg(home, settings, name, drop=()):
         with open(path, "w", encoding="latin-1", newline="\n") as f:
             f.write(new)
     except OSError as e:
-        return f"server.cfg non écrit : {e}"
+        return tr("server.cfg not written: {error}").format(error=e)
     return None

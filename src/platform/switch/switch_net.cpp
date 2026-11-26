@@ -85,7 +85,7 @@ bool SwitchNet_Address(char *text, size_t size)
     u32 ip;
     if (!CurrentIp(&ip))
     {
-        std::snprintf(text, size, "aucun");
+        std::snprintf(text, size, "none");
         return false;
     }
     FormatIp(ip, text, size);

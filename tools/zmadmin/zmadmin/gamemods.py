@@ -10,6 +10,7 @@ import json
 import os
 import time
 
+from .i18n import TrDict, tr
 from .modflags import horde_flags, nightmare_flags
 
 # (bsp, label, horde's napalm/shrieker spawner files exist: mods/horde maps/<map>.zombie_temple.ents)
@@ -28,21 +29,21 @@ BASE_MAPS = [
 ]
 MAP_LABELS = {bsp: label for bsp, label, _ in BASE_MAPS}
 # the labels tools/mod-launcher.hta gives its mapkit maps; other layouts show their file name
-MAPKIT_LABELS = {
-    "mapkit_test": "Mapkit test (Five + une salle construite)",
-    "mapkit_room": "Mapkit room (entièrement construite)",
-    "relay_station": "Relay Station (trois salles, quatre fenêtres)",
-    "sluice_works": "Sluice Works (boucle de quatre zones)",
-    "aldric_sanatorium": "Aldric Sanatorium (deux étages, power, Pack-a-Punch)",
+MAPKIT_LABELS = TrDict({
+    "mapkit_test": "Mapkit test (Five + one built room)",
+    "mapkit_room": "Mapkit room (fully built)",
+    "relay_station": "Relay Station (three rooms, four windows)",
+    "sluice_works": "Sluice Works (loop of four zones)",
+    "aldric_sanatorium": "Aldric Sanatorium (two floors, power, Pack-a-Punch)",
     # docs/BO2_MAPS.md: the player's own extraction of Black Ops II's Nuketown, which make_dist.sh --bo2 packages
     "bo2_zm_nuked": "Nuketown (Black Ops II)",
     "bo2_zm_transit": "TranZit (Black Ops II)",
     # the same Nuketown on a world of its own BSP (tools/bo2/bo2_bsp.py): BO2's props, lightmaps and sky
-    "bo2_zm_nuked_bsp": "Nuketown native (Black Ops II, monde BSP)",
-    "bo2_zm_transit_bsp": "TranZit native (Black Ops II, monde BSP)",
-    "bo2_zm_prison_bsp": "Mob of the Dead native (Black Ops II, monde BSP)",
-    "bo2_zm_buried_bsp": "Buried native (Black Ops II, monde BSP)",
-}
+    "bo2_zm_nuked_bsp": "Nuketown native (Black Ops II, BSP world)",
+    "bo2_zm_transit_bsp": "TranZit native (Black Ops II, BSP world)",
+    "bo2_zm_prison_bsp": "Mob of the Dead native (Black Ops II, BSP world)",
+    "bo2_zm_buried_bsp": "Buried native (Black Ops II, BSP world)",
+})
 # the zones a layout's assets come from beside Five's (bo1_mod_zones): TranZit's Stamin-Up machine and bottle are
 # Ascension's (_mapkit.gsc mapkit_marathon_perk)
 MAPKIT_ZONES = {"bo2_zm_transit": "zombie_cosmodrome", "bo2_zm_transit_bsp": "zombie_cosmodrome",
@@ -60,8 +61,10 @@ NIGHTMARE_MAPS = ("zombie_pentagon", "zombie_theater")
 # engine loads when fs_mods names the mod (DB_FindModZone). Choice 0 is off; 1 to 3 are the script's bo2weapons_box 0
 # to 2. A client joining a server that has them loads the same mod.ff (join_bo2_weapons), or the weapons' indices do not
 # match: the game goes back to the menu on entering, naming the missing weapon (cg_weapons.cpp).
-BO2_WEAPON_CHOICES = ((0, "non"), (1, "dans la boîte, avec celles de la map"),
-                      (2, "seules dans la boîte, + armes spéciales de la map"), (3, "seules dans la boîte"))
+# The labels are English: tr() them where they are shown.
+BO2_WEAPON_CHOICES = ((0, "no"), (1, "in the box, with the map's own"),
+                      (2, "alone in the box, + the map's special weapons"),
+                      (3, "alone in the box"))
 # mods/dualwield (mods/dualwield/README.md): dual-wield weapons after Pack-a-Punch, from the player's own copy of the
 # "Relaxing Dual Wield" mod, in mods/dualwield/mod.ff (tools/dualwield/dualwield_mod.py). The engine loads it beside
 # bo2weapons' (DB_ListModZones). A client joining a server that has them loads it too (join_dual_wield).
@@ -152,7 +155,7 @@ def solo_maps(dist_root):
         if bsp_world_files(layout, dist_root):
             continue
         label = MAPKIT_LABELS.get(layout, layout)
-        maps.append((f"mapkit:{layout}", f"Mapkit : {label}", base, layout))
+        maps.append((f"mapkit:{layout}", tr("Mapkit: {label}").format(label=label), base, layout))
     return maps
 
 

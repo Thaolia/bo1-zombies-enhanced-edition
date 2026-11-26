@@ -18,11 +18,22 @@ import unittest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "tools", "zmadmin"))
 
 from zmadmin import gamemods, launcher, protocol  # noqa: E402
+from zmadmin.i18n import set_language  # noqa: E402
 from zmadmin.link import ServerLink  # noqa: E402
 from zmadmin.logtail import LogTail  # noqa: E402
 from zmadmin.model import merge_players, parse_dvars, parse_zm_admin  # noqa: E402
 from zmadmin.settings import APPLIED, REFUSED, Form, update_server_cfg  # noqa: E402
 from zmadmin.widgets import ChecklistDialog, ConfirmDialog, HitMap, mouse_kind  # noqa: E402
+
+
+def setUpModule():
+    # ZmAdmin runs in French (cli.main sets it): its tests see the texts it shows
+    set_language("fr")
+
+
+def tearDownModule():
+    set_language("en")
+
 
 OOB = b"\xff\xff\xff\xff"
 ZM_ADMIN = ('zm_admin: start points 0, start perks "jugg", join in progress immediate, fs_mods ""\n'
@@ -136,7 +147,8 @@ class ProtocolTest(unittest.TestCase):
 
     def test_bad_password(self):
         client = protocol.RconClient(self.server.addr, "nope")
-        with self.assertRaises(protocol.RconAuthError):
+        # protocol.py's texts are English with a French table: ZmAdmin shows them in French
+        with self.assertRaisesRegex(protocol.RconAuthError, "mot de passe rcon refusé"):
             client.command("status")
         client.close()
 

@@ -22,7 +22,7 @@
 #   --archive KIND   auto | zip | tar | none     auto: zip for windows and switch, tar.gz for linux and openbsd
 #   --no-build       package what is built; fail if anything is missing or out of date
 #   --no-game-data   packages without any file of the game, in BO1Zombies_<platform>_nodata/: on windows and
-#                    linux the player installs them from their own Black Ops with ZmClient (Installation view); the
+#                    linux the player installs them from their own Black Ops with ZmClient (Setup view); the
 #                    switch one holds the .nro, mods/ and the tools that complete it from the player's own Black Ops
 #                    (Setup-Switch.bat on Windows, setup_switch.sh on Linux: ffconv, uam, make_dksh_pack)
 #   --bo2 DIR        your own Black Ops II extraction: its maps (docs/BO2_MAPS.md, "Running it": DIR/mods/mapkit/
@@ -544,33 +544,60 @@ bo2_switch_data() { # <dest>
     bo2_images "$1"
 }
 
-# The LISEZMOI.txt line of a package with the player's Black Ops II maps.
-bo2_note() {
+# A package's main doc in English (README.txt) and its French copy (LISEZMOI.txt).
+doc_file() { # <package dir> <en|fr>
+    if [ "$2" = en ]; then echo "$1/README.txt"; else echo "$1/LISEZMOI.txt"; fi
+}
+
+# One of the two texts, by language (each may hold several lines).
+say() { # <en|fr> <English> <French>
+    if [ "$1" = en ]; then printf '%s\n' "$2"; else printf '%s\n' "$3"; fi
+}
+
+# The lines of a package's doc about the player's Black Ops II maps and weapons.
+bo2_note() { # <en|fr>
     [ -n "$BO2" ] || return 0
-    if [ $BO2_MAPS = 1 ]; then
-        echo "NUKETOWN    zmclient, vue Solo : « Mapkit : Nuketown (Black Ops II) », tirée de votre propre Black Ops II."
+    if [ "$BO2_MAPS" = 1 ]; then
+        say "$1" \
+"NUKETOWN    zmclient, Solo view: \"Mapkit: Nuketown (Black Ops II)\", from your own Black Ops II." \
+"NUKETOWN    zmclient, vue Solo : « Mapkit : Nuketown (Black Ops II) », tirée de votre propre Black Ops II."
         if [ -f "$BO2/main/maps/zombie_bo2nuked.d3dbsp" ]; then
-            echo "            « Mapkit : Nuketown native (Black Ops II, monde BSP) » : la même, sur son propre monde BO1."
+            say "$1" \
+"            \"Mapkit: Nuketown native (Black Ops II, BSP world)\": the same, on its own BO1 world." \
+"            « Mapkit : Nuketown native (Black Ops II, monde BSP) » : la même, sur son propre monde BO1."
         fi
         if [ -f "$BO2/mods/mapkit/layouts/bo2_zm_transit.json" ]; then
-            echo "TRANZIT     zmclient, vue Solo : « Mapkit : TranZit (Black Ops II) », de votre propre Black Ops II."
+            say "$1" \
+"TRANZIT     zmclient, Solo view: \"Mapkit: TranZit (Black Ops II)\", from your own Black Ops II." \
+"TRANZIT     zmclient, vue Solo : « Mapkit : TranZit (Black Ops II) », de votre propre Black Ops II."
         fi
         if [ -f "$BO2/main/maps/zombie_bo2transit.d3dbsp" ]; then
-            echo "            « Mapkit : TranZit native (Black Ops II, monde BSP) » : la même, sur son propre monde BO1."
+            say "$1" \
+"            \"Mapkit: TranZit native (Black Ops II, BSP world)\": the same, on its own BO1 world." \
+"            « Mapkit : TranZit native (Black Ops II, monde BSP) » : la même, sur son propre monde BO1."
         fi
         if [ -f "$BO2/main/maps/zombie_bo2prison.d3dbsp" ]; then
-            echo "MOB OF THE  zmclient, vue Solo : « Mapkit : Mob of the Dead native (Black Ops II, monde BSP) », de votre"
-            echo "DEAD        propre Black Ops II : l'île sans l'après-vie ni l'avion, le Pack-a-Punch dans le bloc des"
-            echo "            cellules."
+            say "$1" \
+"MOB OF THE  zmclient, Solo view: \"Mapkit: Mob of the Dead native (Black Ops II, BSP world)\", from your own
+DEAD        Black Ops II: the island without the afterlife or the plane, the Pack-a-Punch in the cell block." \
+"MOB OF THE  zmclient, vue Solo : « Mapkit : Mob of the Dead native (Black Ops II, monde BSP) », de votre
+DEAD        propre Black Ops II : l'île sans l'après-vie ni l'avion, le Pack-a-Punch dans le bloc des
+            cellules."
         fi
         if [ -f "$BO2/main/maps/zombie_bo2buried.d3dbsp" ]; then
-            echo "BURIED      zmclient, vue Solo : « Mapkit : Buried native (Black Ops II, monde BSP) », de votre propre"
-            echo "            Black Ops II : la ville sans Leroy ni le manoir hanté."
+            say "$1" \
+"BURIED      zmclient, Solo view: \"Mapkit: Buried native (Black Ops II, BSP world)\", from your own
+            Black Ops II: the town without Leroy or the haunted mansion." \
+"BURIED      zmclient, vue Solo : « Mapkit : Buried native (Black Ops II, monde BSP) », de votre propre
+            Black Ops II : la ville sans Leroy ni le manoir hanté."
         fi
     fi
-    if [ $BO2_WEAPONS = 1 ]; then
-        echo "ARMES BO2   zmclient, vue Solo : « Armes de Black Ops II » (ou zmadmin au lancement du serveur), tirées"
-        echo "            de votre propre Black Ops II. Un joueur qui rejoint votre serveur doit avoir le même mod.ff."
+    if [ "$BO2_WEAPONS" = 1 ]; then
+        say "$1" \
+"BO2 WEAPONS zmclient, Solo view: \"Black Ops II weapons\" (or zmadmin when it starts the server), from your
+            own Black Ops II. A player who joins your server needs the same mod.ff." \
+"ARMES BO2   zmclient, vue Solo : « Armes de Black Ops II » (ou zmadmin au lancement du serveur), tirées
+            de votre propre Black Ops II. Un joueur qui rejoint votre serveur doit avoir le même mod.ff."
     fi
     echo
 }
@@ -590,15 +617,29 @@ check_space() { # <dest dir>: each package is about the game data's size, and as
     fi
 }
 
-# The last line of each LISEZMOI.txt: what the folder holds of the game.
-data_note() { # <devices word>
+# The last lines of a package's doc: what the folder holds of the game.
+data_note() { # <en|fr>
     if [ "$GAME_DATA" = 1 ]; then
-        echo "Ce dossier contient vos propres fichiers de jeu : gardez-le pour vos $1, ne le publiez pas."
+        say "$1" \
+"This folder holds your own game files: keep it for your own machines, do not publish it." \
+"Ce dossier contient vos propres fichiers de jeu : gardez-le pour vos machines, ne le publiez pas."
     else
-        echo "Ce dossier ne contient aucun fichier du jeu : avant de jouer, lancez zmclient, vue Installation (F7),"
-        echo "qui les copie depuis votre installation de Call of Duty: Black Ops (Steam), convertit les zones et"
-        echo "compile les shaders Vulkan (shaders.spv, avec le glslang du paquet)."
+        say "$1" \
+"This folder holds no game file: before playing, start zmclient, Setup view (F7), which copies them
+from your Call of Duty: Black Ops install (Steam), converts the zones and compiles the Vulkan shaders
+(shaders.spv, with the package's glslang)." \
+"Ce dossier ne contient aucun fichier du jeu : avant de jouer, lancez zmclient, vue Installation (F7),
+qui les copie depuis votre installation de Call of Duty: Black Ops (Steam), convertit les zones et
+compile les shaders Vulkan (shaders.spv, avec le glslang du paquet)."
     fi
+}
+
+# README.txt's and LISEZMOI.txt's closing lines: the Black Ops II note, then the game files note.
+doc_notes() { # <package dir>
+    local lang
+    for lang in en fr; do
+        { bo2_note "$lang"; data_note "$lang"; } >> "$(doc_file "$1" "$lang")"
+    done
 }
 
 write_version() { # <dest> <platform> [extra line]
@@ -700,6 +741,63 @@ start "" /D "%HERE%" "%HERE%\BO1Zombies.exe" +set fs_b "%HERE%" +set fs_h "%HERE
 exit /b 0
 EOF
     sed -i 's/$/\r/' "$d/Play.bat" "$d/Server.bat"
+    cat > "$d/README.txt" << 'EOF'
+BO1 Zombies, 64-bit port for Windows: client and dedicated server
+=================================================================
+
+CLIENT      zmclient.exe       launcher: solo game (map, mods, horde, nightmare), join a server (favourites and
+            local network servers), or start the local server and join it; config.cfg settings, free
+            dvars, and installation of the game files from your Black Ops. ?: help in every view.
+PLAY        Play.bat           opens the game's menu (Zombies, Solo, a map).
+JOIN        Play.bat net 192.168.1.20:3074 MyName
+            joins a dedicated server as soon as the menu is up, and goes back to it by itself after a drop.
+SERVER      Server.bat [map] [port]          defaults: zombie_theater 3074
+            Settings in server\main\server.cfg, log in server\main\console_mp.log.
+            Open the UDP port in the Windows firewall for players on other machines.
+TAB         while Tab is held, the zombies alive and those left in the round show on the left
+            (zinfo mod, on by default in solo and on the server; "zinfo 0" in the console hides it).
+ZOMBIES     /zm_where in the console: the position of each living zombie and its distance, nearest to
+            farthest (a zombie you hear but cannot see); also in console_mp.log.
+SPEEDRUN    at the bottom of the loading screen: the settings that change the game (mods, god mode, aim assist,
+            start kit...) and a SHA-512 hash of the program and the loaded zones; "bo1_runinfo 2" also keeps it
+            in a corner in game, 0 removes it (ZmClient: "Speedrun info"). The full hash is in
+            console_mp.log (runinfo: lines), with the SHA-512 of the program alone (sha512sum's). It tells
+            apart two runs made with different files; it proves nothing: a modified program can show
+            any hash.
+ADMIN       zmadmin.exe                      the server's admin console (players, game, settings,
+            log). From this folder it also starts servers, several at once: one profile each
+            (map, mods, port, rcon password, kept settings; F1, n to create one).
+            zmadmin.exe --start <profile> starts it as saved, without questions (--detach: no interface).
+            zmadmin.exe 192.168.1.20 -p <rcon_password> drives a remote server. ?: help in every view.
+SWITCH      switch-tools\uam.exe             deko3d's shader compiler, to build on Windows a Switch
+            package's shaders.dksh from your shaders.pack (Python 3 needed):
+            python switch-tools\make_dksh_pack.py shaders.pack shaders.dksh --uam switch-tools\uam.exe
+            Then copy shaders.dksh into switch\bo1zm\ on the SD card, beside shaders.pack.
+VULKAN      ZmClient, Launch view (F4), "Graphics API": Vulkan instead of Direct3D 9 (or
+            +set r_mod_gfxApi vulkan). It needs shaders.pack and shaders.spv beside BO1Zombies.exe; without them,
+            or without a Vulkan driver, the game goes back to Direct3D 9 and says so in main\console_mp.log
+            (r_mod_gfxApi: lines). ZmClient, Setup view (F7), makes them again from your game: ffconv
+            writes shaders.pack with the zones, glslang.exe compiles it into shaders.spv (licence:
+            glslang-LICENSE.txt). vk_pipelines.bin, written by the game, is your graphics card's cache: it is safe
+            to delete.
+WINE        if the game crashes or stays on a black screen at start under wine (wine's xaudio2 sound), write
+            nosnd in a launch.cfg file beside BO1Zombies.exe: the game then starts without sound.
+
+A launch.cfg file beside BO1Zombies.exe is added to the command line, for example:
+    +set cl_autoConnect 192.168.1.20:3074
+    +set cl_allowWanConnect 1        (for a server outside the local network)
+
+REQUIRES    Windows 10 or 11, 64-bit. Nothing else to install: the folder already holds the Visual C++ runtime
+            (msvcp140, vcruntime140, vcruntime140_1) and the two DirectX DLLs a fresh Windows lacks
+            (d3dx9_43, xinput1_3); Windows provides the rest (Direct3D 9, DirectSound, network).
+            - The graphics card's driver (NVIDIA, AMD or Intel) must be installed: with the "Microsoft Basic
+              Display Adapter", Direct3D 9 runs in software and the game crawls.
+            - The .exe files are not signed: if SmartScreen shows "Windows protected your PC",
+              click "More info", then "Run anyway".
+            - If the game does not start for want of a DLL, install Microsoft's "Visual C++ Redistributable
+              2015-2022 (x64)" and "DirectX End-User Runtime" (June 2010).
+
+EOF
     cat > "$d/LISEZMOI.txt" << 'EOF'
 BO1 Zombies, portage 64 bits pour Windows : client et serveur dédié
 ===================================================================
@@ -756,8 +854,7 @@ PRÉREQUIS   Windows 10 ou 11 en 64 bits. Rien d'autre à installer : le dossier
               et le « DirectX End-User Runtime » (juin 2010) de Microsoft.
 
 EOF
-    bo2_note >> "$d/LISEZMOI.txt"
-    data_note machines >> "$d/LISEZMOI.txt"
+    doc_notes "$d"
     write_version "$d" windows "zmadmin: $ZMADMIN_VERSION, zmclient: $ZMCLIENT_VERSION"
 }
 
@@ -827,6 +924,45 @@ cd "$HERE"
 exec ./BO1Zombies +set fs_b "$HERE" +set fs_h "$HERE/server" +set bo1_server 1 +set net_ip 0.0.0.0 +set net_port "$PORT" "$@" +devmap "$MAP"
 EOF
     chmod +x "$d/BO1Zombies" "$d/zmadmin" "$d/zmclient" "$d/play.sh" "$d/server.sh"
+    cat > "$d/README.txt" << 'EOF'
+BO1 Zombies, Linux x86-64 port: client (OpenGL 4.3) and dedicated server
+========================================================================
+
+CLIENT      ./zmclient                    launcher: solo game (map, mods, horde, nightmare), join a server
+            (favourites and local network), or start the local server and join it; config.cfg, free dvars,
+            installation of the game files (the zone conversion runs ffconv.exe under wine).
+PLAY        ./play.sh                     opens the game's menu (Zombies, Solo, a map).
+            FULLSCREEN=1 ./play.sh        full screen.
+VULKAN      optional, OpenGL stays the default renderer: zmclient, Launch view, "Graphics API" Vulkan,
+            then "Upscaling" (FSR 1.0, Arm ASR, supersampling); or BO1_GFX_BACKEND=vulkan ./play.sh.
+            It needs shaders.spv beside the program and a Vulkan 1.3 driver. Without one the game does not
+            start: go back to OpenGL.
+JOIN        ./play.sh net 192.168.1.20:3074 MyName
+            joins a dedicated server as soon as the menu is up, and goes back to it by itself after a drop.
+SERVER      ./server.sh [map] [port]      defaults: zombie_theater 3074
+            In a terminal it shows its curses console. Settings in server/main/server.cfg, log in
+            server/main/console_mp.log.
+TAB         while Tab is held, the zombies alive and those left in the round show on the left
+            (zinfo mod, on by default in solo and on the server; "zinfo 0" in the console hides it).
+ZOMBIES     /zm_where in the console: the position of each living zombie and its distance, nearest to
+            farthest (a zombie you hear but cannot see); also in console_mp.log.
+SPEEDRUN    at the bottom of the loading screen: the settings that change the game (mods, god mode, aim assist,
+            start kit...) and a SHA-512 hash of the program and the loaded zones; "bo1_runinfo 2" also keeps it
+            in a corner in game, 0 removes it (ZmClient: "Speedrun info"). The full hash is in
+            console_mp.log (runinfo: lines), with the SHA-512 of the program alone (sha512sum's). It tells
+            apart two runs made with different files; it proves nothing: a modified program can show
+            any hash.
+ADMIN       ./zmadmin                     the server's admin console (players, game, settings, log).
+            From this folder it also starts servers, several at once: one profile each (map, mods,
+            port, rcon password, kept settings; F1, n to create one).
+            ./zmadmin --start <profile> starts it as saved, without questions (--detach: no interface).
+            ./zmadmin 192.168.1.20 -p <rcon_password> drives a remote server. ?: help in every view.
+
+Requires: SDL2 and ncurses (Debian, Ubuntu: sudo apt install libsdl2-2.0-0 libncurses6) and an OpenGL 4.3 driver.
+Keep this folder on a Linux file system (ext4): from /mnt/c under WSL, a map takes minutes to load.
+The client has no sound or controller yet.
+
+EOF
     cat > "$d/LISEZMOI.txt" << 'EOF'
 BO1 Zombies, portage Linux x86-64 : client (OpenGL 4.3) et serveur dédié
 ========================================================================
@@ -866,8 +1002,7 @@ Gardez ce dossier sur un système de fichiers Linux (ext4) : depuis /mnt/c sous 
 Le client n'a pas encore de son ni de manette.
 
 EOF
-    bo2_note >> "$d/LISEZMOI.txt"
-    data_note machines >> "$d/LISEZMOI.txt"
+    doc_notes "$d"
     write_version "$d" linux "zmadmin: $ZMADMIN_VERSION, zmclient: $ZMCLIENT_VERSION"
 }
 
@@ -897,6 +1032,36 @@ package_switch() {
         cp "$UAM_LINUX" "$ROOT/tools/ffconv/gen/make_dksh_pack.py" "$d/tools/linux/"
         cp "$ROOT/build/uam/windows/uam-LICENSE.txt" "$d/tools/"
         chmod +x "$d/tools/linux/uam"
+        cat > "$d/README.txt" << 'EOF'
+BO1 Zombies, Nintendo Switch port (homebrew, Atmosphere): to complete with your game
+====================================================================================
+
+This folder holds no game file: BO1Zombies.nro, the mods (scripts) and the tools that add, from
+YOUR Call of Duty: Black Ops (PC, Steam), what it needs in switch/bo1zm/:
+  localization.txt and main/*.iwd (copied), zone/ and shaders.pack (zones converted to 64-bit by ffconv),
+  shaders.dksh (shaders.pack compiled by uam, deko3d's shader compiler).
+Your install is only read. Allow about 8 GB of disk and 10 to 15 minutes.
+
+WINDOWS     double-click Setup-Switch.bat (Steam install in its default folder), or from a command
+            line: Setup-Switch.bat "D:\Games\Call of Duty Black Ops"  (the folder of BlackOps.exe).
+LINUX       ./setup_switch.sh "/path/to/Call of Duty Black Ops"
+            ffconv is a Windows program: it runs through wine (wine and winepath), or directly under
+            WSL. shaders.dksh needs python3.
+LOG         setup_switch.log, beside the script.
+
+Then copy this directory's "switch" folder to the ROOT of the SD card (it merges with /switch):
+/switch/bo1zm/BO1Zombies.nro, with zone/, main/, mods/, shaders.pack, shaders.dksh and localization.txt.
+BO1Zombies.nro, shaders.pack and shaders.dksh go together: after a new version, run the script again.
+
+STARTING (application mode required)
+  From the HOME menu, HOLD R while starting an installed game: the Homebrew Menu opens with all the memory.
+  Choose "BO1 Zombies".
+
+GAME LOG
+  /switch/bo1zm/boot.log: send it back if something goes wrong.
+
+Once completed, this folder holds your own game files: keep it for your own devices, do not publish it.
+EOF
         cat > "$d/LISEZMOI.txt" << 'EOF'
 BO1 Zombies, portage Nintendo Switch (homebrew, Atmosphère) : à compléter avec votre jeu
 =======================================================================================
@@ -935,6 +1100,48 @@ EOF
     cp "$ZONES/shaders.pack" "$WORK/dksh/shaders.dksh" "$sd/"
     # Bring-up switches (no menu, debug dumps, applet mode) never belong in a package.
     rm -f "$sd/skip_menu" "$sd/deko3d_debug" "$sd/allow_applet"
+    cat > "$d/README.txt" << 'EOF'
+BO1 Zombies, Nintendo Switch port (homebrew, Atmosphere)
+========================================================
+
+INSTALLATION
+  Copy this directory's "switch" folder to the ROOT of the SD card (it merges with /switch):
+  /switch/bo1zm/BO1Zombies.nro, with zone/, main/, mods/, shaders.pack, shaders.dksh and localization.txt.
+  BO1Zombies.nro, shaders.pack and shaders.dksh go together: always replace all three.
+
+STARTING (application mode required)
+  From the HOME menu, HOLD R while starting an installed game: the Homebrew Menu opens with all the memory.
+  Choose "BO1 Zombies".
+
+START MENU
+  Map, aim assist, god mode, zombie counter, renderer, FPS limit, shadows, texture filter, controllers.
+  "Resolution": 720p, or 540p / 480p for more FPS; online, 540p holds 30 FPS better than 720p.
+  "Button mapping": the Switch button of each game action (fire, aim, jump...), as you like.
+  "Start kit": the points (up to 100,000) and perks given on arrival on the map in solo; a perk
+  is given only if the map has its machine.
+  + starts the game. The zombie counter (on by default) shows the zombies alive and those left
+  in the round beside the scoreboard; on a server, the server decides.
+  "Nuketown (BO2, native)" shows in the map list when this package holds your own extraction of
+  Black Ops II (make_dist.sh --bo2): the native Nuketown, on its own BO1 world.
+  "Server" opens the connection screen: turn it on, enter the IP address and port of the PC running the
+  server (Server.bat or server.sh, port 3074 by default) and your name. The console must be on Wi-Fi.
+  Local network servers show there by themselves ("Auto search") or with "Search now":
+  A on one of them fills in its address and port. "BO2 weapons" (Yes by default) loads your Black Ops II
+  weapons to join a server that has them; without them, the game crashes on such a server.
+  "Dual wield" (Start kit screen in solo, Server screen to join): when this package holds your own
+  mods/dualwield (make_dist.sh --dualwield), Pack-a-Punch dual-wields the Ray Gun and the Thundergun (and the
+  PPSh, if this mod was made with the "Relaxing Dual Wield" archive).
+  Start kit screen, also: "Hit marker" (an X on each zombie hit), "Unlimited Pack-a-Punch" (price and
+  damage doubled on each pass; its script is written from your zones into mods/unlimitedpap), "Zombie spawn
+  rate" (2 to 10 times faster, short breaks between rounds) and "Sprint to barriers".
+  "Speedrun info": the game's settings and a SHA-512 hash of the program and the loaded zones, at the bottom
+  of the loading screen (by default), or also in a corner in game; the full hash is in boot.log (runinfo:).
+
+LOG
+  /switch/bo1zm/boot.log: send it back if something goes wrong.
+
+This folder holds your own game files: keep it for your own devices, do not publish it.
+EOF
     cat > "$d/LISEZMOI.txt" << 'EOF'
 BO1 Zombies, portage Nintendo Switch (homebrew, Atmosphère)
 ===========================================================
@@ -1075,6 +1282,53 @@ exec "$PROGRAM" +set fs_b "$HERE" +set fs_h "$HERE/server" +set bo1_server 1 +se
 EOF
     for f in "${OPENBSD_FLAVORS[@]}"; do chmod +x "$d/BO1Zombies-$f"; done
     chmod +x "$d/play.sh" "$d/server.sh" "$d/zmadmin" "$d/zmclient"
+    cat > "$d/README.txt" << 'EOF'
+BO1 Zombies, OpenBSD/amd64 port: client (OpenGL 4.3) and dedicated server
+=========================================================================
+
+PROGRAMS    BO1Zombies-8.0 for OpenBSD 8.0, BO1Zombies-current for -current (a snapshot): -current changes
+            ABI between two releases. play.sh, server.sh, zmclient and zmadmin take the one for the running
+            system; BO1_OPENBSD=8.0 or BO1_OPENBSD=current forces one. After a -current upgrade, take
+            the package of a newer version if the program no longer starts.
+CLIENT      ./zmclient                    launcher: solo game (map, mods, horde, nightmare), join a server
+            (favourites and local network), or start the local server and join it; config.cfg, free dvars.
+            Its Setup view copies the files of a game install but does not convert the zones: ffconv
+            does not exist for OpenBSD (see the end of this file).
+PLAY        ./play.sh                     opens the game's menu (Zombies, Solo, a map).
+            FULLSCREEN=1 ./play.sh        full screen.
+VULKAN      optional, OpenGL stays the default renderer: zmclient, Launch view, "Graphics API" Vulkan,
+            then "Upscaling" (FSR 1.0, Arm ASR, supersampling); or BO1_GFX_BACKEND=vulkan ./play.sh.
+            It needs shaders.spv beside the program, the Vulkan loader (doas pkg_add vulkan-loader) and a Mesa
+            driver that gives Vulkan 1.3 (radv, anv). Without them the game does not start: go back to OpenGL.
+            Never tried on OpenBSD: send back main/console_mp.log (vk: and d3d9emu: lines).
+JOIN        ./play.sh net 192.168.1.20:3074 MyName
+            joins a dedicated server as soon as the menu is up, and goes back to it by itself after a drop.
+SERVER      ./server.sh [map] [port]      defaults: zombie_theater 3074
+            In a terminal it shows its curses console. Settings in server/main/server.cfg, log in
+            server/main/console_mp.log.
+TAB         while Tab is held, the zombies alive and those left in the round show on the left
+            (zinfo mod, on by default in solo and on the server; "zinfo 0" in the console hides it).
+ZOMBIES     /zm_where in the console: the position of each living zombie and its distance, nearest to
+            farthest; also in console_mp.log.
+SPEEDRUN    at the bottom of the loading screen: the settings that change the game and a SHA-512 hash of the
+            program and the loaded zones (console_mp.log, runinfo: lines); "bo1_runinfo 2" keeps it in
+            a corner in game. It tells apart two runs made with different files; it proves nothing.
+ADMIN       ./zmadmin                     the server's admin console (players, game, settings, log).
+            From this folder it also starts servers, several at once: one profile each (map, mods,
+            port, rcon password, kept settings; F1, n to create one).
+            ./zmadmin --start <profile> starts it as saved, without questions (--detach: no interface).
+            ./zmadmin 192.168.1.20 -p <rcon_password> drives a remote server. ?: help in every view.
+
+Requires: OpenBSD/amd64 with X, SDL2 (doas pkg_add sdl2), Python 3 for zmclient and zmadmin
+(doas pkg_add python%3) and a graphics card whose Mesa driver gives OpenGL 4.3 (recent amdgpu, inteldrm).
+OpenBSD counts the program's memory against the login class's datasize limit (/etc/login.conf): the
+server takes about 650 MB of it on Kino, the client much more (textures, OpenGL driver). play.sh and server.sh
+raise it to the class's maximum and warn under 3 GB (client) or 1 GB (server): a larger class is then
+needed (staff, or a class of your own; usermod -L <class> <you>). zmclient and zmadmin raise it the same way for
+the game and the servers they start.
+Played on a real OpenBSD machine with OpenGL; Vulkan not yet: send back main/console_mp.log if something goes wrong.
+
+EOF
     cat > "$d/LISEZMOI.txt" << 'EOF'
 BO1 Zombies, portage OpenBSD/amd64 : client (OpenGL 4.3) et serveur dédié
 =========================================================================
@@ -1122,10 +1376,20 @@ jeu et les serveurs qu'ils lancent.
 Joué sur une vraie machine OpenBSD avec OpenGL ; Vulkan pas encore : renvoyez main/console_mp.log en cas de problème.
 
 EOF
-    bo2_note >> "$d/LISEZMOI.txt"
+    bo2_note en >> "$d/README.txt"
+    bo2_note fr >> "$d/LISEZMOI.txt"
     if [ "$GAME_DATA" = 1 ]; then
-        data_note machines >> "$d/LISEZMOI.txt"
+        data_note en >> "$d/README.txt"
+        data_note fr >> "$d/LISEZMOI.txt"
     else
+        cat >> "$d/README.txt" << 'EOF'
+This folder holds no game file. ffconv does not exist for OpenBSD: first install
+the Windows or Linux package on a PC with your Call of Duty: Black Ops (Steam), run its installation there
+(zmclient, Setup view, F7), then copy from that folder into this one: localization.txt, shaders.pack,
+shaders.spv (for Vulkan), zone/ and main/ (its .iwd files and video/). They are then your own game files: keep
+them for your own machines, do not publish them. Without shaders.spv, zmclient's Setup view compiles it
+here with the system's glslang (doas pkg_add glslang), zone conversion unticked (z).
+EOF
         cat >> "$d/LISEZMOI.txt" << 'EOF'
 Ce dossier ne contient aucun fichier du jeu. ffconv n'existe pas pour OpenBSD : installez d'abord
 le paquet Windows ou Linux sur un PC avec votre Call of Duty: Black Ops (Steam), faites-y l'installation (zmclient,

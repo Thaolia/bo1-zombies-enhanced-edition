@@ -12,3 +12,6 @@ __version__ = "1.0.0"
 if importlib.util.find_spec("zmadmin") is None:
     sys.path.append(os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
                                  "zmadmin"))
+
+# the French tables, registered once whichever module is imported first (the views tr() at draw time)
+from . import fr  # noqa: F401,E402

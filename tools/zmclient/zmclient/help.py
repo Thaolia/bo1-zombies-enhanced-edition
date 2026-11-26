@@ -1,288 +1,304 @@
-"""The texts the views show to explain a key or a setting (French: the players' language)."""
+"""The texts the views show to explain a key or a setting (English, French through zmclient/fr/help.py)."""
 
-MODE_LABELS = {
-    "solo": "Solo (hors ligne)",
-    "join": "Rejoindre un serveur",
-    "host": "Serveur local + le rejoindre",
-}
-MODE_HELP = {
-    "solo": "Une partie seul sur ce PC, réglée dans la vue Solo (F3) : map, mods, horde, difficulté.",
-    "join": "Rejoindre un serveur dédié (LAN ou internet), choisi dans la vue Serveurs (F2). Le serveur décide de "
-            "la map, des mods et du god mode ; ZmClient lui demande ce qu'il faut charger.",
-    "host": "Démarre le serveur dédié de ce dossier (comme ZmAdmin, qui peut ensuite l'administrer) avec la partie "
-            "de la vue Solo (F3), puis le jeu, qui le rejoint dès qu'il a chargé sa map. D'autres joueurs du réseau "
-            "peuvent venir.",
-}
-WINDOW_LABELS = {"borderless": "Sans bordure (plein écran fenêtré)", "window": "Fenêtre", "fullscreen": "Plein écran"}
-TRISTATE_LABELS = {"": "réglage du jeu", "1": "oui", "0": "non"}
-SPLIT_LABELS = {"off": "non", "kbm_pad": "clavier/souris + manette", "pad_pad": "deux manettes"}
-SPLIT_HELP = {
-    "off": "un seul joueur sur ce PC",
-    "kbm_pad": "joueur 1 au clavier et à la souris, joueur 2 à la première manette",
-    "pad_pad": "joueur 1 à la première manette, joueur 2 à la deuxième",
-}
-SPLIT_LAYOUT_LABELS = {"side": "côte à côte", "stack": "l'un au-dessus de l'autre"}
-SPLIT_LAYOUT_HELP = {
-    "side": "joueur 1 à gauche, joueur 2 à droite : chacun une moitié de l'écran, en hauteur",
-    "stack": "joueur 1 en haut, joueur 2 en bas : chacun une moitié de l'écran, en largeur",
-}
-DIFFICULTY_LABELS = {0: "Normal", 1: "Nightmare", 2: "Hell"}
+from zmadmin.i18n import TrDict, tr
 
-SPAWN_RATE_HELP = {
-    0: "le rythme du jeu d'origine",
-    2: "deux fois plus vite, pauses courtes entre les manches",
-    3: "trois fois plus vite (le réglage du mod)",
-    5: "cinq fois plus vite",
-    10: "dix fois plus vite : la manche sort presque d'un coup",
-}
 
-ROW_HELP = {
-    "mode": "Comment jouer. Entrée : choisir.",
-    "map": "La map de la partie solo. Les maps « Mapkit » sont construites par le mod mapkit sur une map de base.",
-    "server": "Le serveur à rejoindre : adresse, port et mot de passe des joueurs (g_password, vide s'il n'en a "
-              "pas). La vue Serveurs (F2) liste les favoris et ceux du réseau local.",
-    "name": "Votre nom sur les serveurs (1 à 15 lettres, chiffres, « _ », « - », « . »). Vide : celui de "
-            "config.cfg.",
-    "god": "Invincible (bo1_testclient_god : le jeu remet le god mode à chaque image). Solo seulement : un serveur "
-           "décide pour ses joueurs.",
-    "zinfo": "En tenant Tab, les zombies en vie et ceux qui restent dans la manche s'affichent à gauche (mod zinfo).",
-    "noperks": "Pas de machines à atouts (mod noperks). Le Pack-a-Punch et la boîte restent.",
-    "quickrestart": "Après la fin de partie, R relance la même map avec les mêmes réglages.",
-    "hitmarker": "Un X au centre de l'écran à chaque zombie touché (mod hitmarker) : blanc au corps, orange à la "
-                 "tête, rouge pour le coup qui tue. « hitmarker 0 » dans la console le cache.",
-    "unlimited_pap": "Le Pack-a-Punch reprend une arme déjà améliorée, autant de fois qu'on veut : chaque passage "
-                     "double le prix (5 000, 10 000, 20 000...) et les dégâts (mod unlimitedpap). Les munitions de "
-                     "réserve ne doublent pas. Son script est écrit depuis vos propres zones "
-                     "(tools/unlimitedpap/make_perks.py, que les paquets lancent).",
-    "spawn_rate": "Les zombies de chaque manche apparaissent plus vite, et la pause entre deux manches passe de 12 s à "
-                  "3 s (mod spawnrate). Nombre, santé et vitesse des zombies restent ceux du jeu. "
-                  "« spawnrate_mult » dans la console change la vitesse en jeu.",
-    "spawn_rush": "Avec l'apparition plus rapide : chaque zombie court jusqu'à sa barricade, puis reprend la vitesse "
-                  "de sa manche (spawnrate_rush).",
-    "start_points": "Les points de chaque joueur à son arrivée sur la map, au lieu des 500 du jeu (mod admin, "
-                    "zm_startpoints). Solo seulement : un serveur décide pour ses joueurs.",
-    "start_power": "Le courant est mis à l'arrivée du premier joueur (mod admin, zm_startpower) : les machines, le "
-                   "Pack-a-Punch et les portes électriques marchent tout de suite. Sans effet sur une map sans courant.",
-    "start_pap": "Un Pack-a-Punch toujours allumé, posé au centre des points de départ des joueurs (mod admin, "
-                 "zm_startpap). Il fait aussi marcher celui de la map sans courant, et en donne un aux maps qui n'en ont "
-                 "pas (Nacht der Untoten).",
-    "far_respawn": "Un zombie plus loin que cette distance de tous les joueurs (unités de zm_where) et qu'aucun ne "
-                   "voit est remplacé par un autre, qui apparaît près des joueurs (mod admin, zm_farrespawn ; le jeu "
-                   "le fait sur Moon à 1500). Pas les chiens ni les boss, ni un zombie blessé.",
-    "start_perk": "Un atout donné gratuitement à l'arrivée sur la map (mod admin, zm_startperks). Seulement s'il a "
-                  "sa machine sur cette map : Kino et Five n'ont que Juggernog, Quick Revive, Speed Cola et Double "
-                  "Tap.",
-    "horde": "Mod horde : beaucoup de zombies à la fois ; la manche suivante commence quand le dernier zombie de la "
-             "manche est apparu.",
-    "horde_max": "Zombies en même temps (24 à 1024). Au-delà de 300 c'est lourd : le jeu active ses options de "
-                 "performance (comme le lanceur .hta).",
-    "horde_round": "La manche de départ (1 : normal).",
-    "horde_napalm": "Zombies napalm (de Shangri-La). Kino et Five seulement (fichiers de spawn du mod horde).",
-    "horde_sonic": "Zombies hurleurs (shriekers, de Shangri-La). Kino et Five seulement.",
-    "horde_spawn_all": "Les zombies sortent de toutes les fenêtres des zones ouvertes, pas seulement près de vous.",
-    "horde_unjam": "Un zombie coincé dans la foule traverse les autres pendant 1,5 s.",
-    "horde_clear_round": "La manche suivante n'arrive que quand tous les zombies sont morts (sinon : dès que le "
-                         "dernier est apparu, les vivants restent).",
-    "difficulty": "Nightmare : George, un astronaute, des zombies napalm et hurleurs, des chiens... dès la manche 1. "
-                  "Hell : plusieurs de chaque à la fois. Kino et Five seulement ; charge trois maps de plus (démarrage "
-                  "plus lent).",
-    "bo2_weapons": "Les armes de Black Ops II (HAMR, AN-94, DSR-50, Ray Gun Mark II...) et leur version Pack-a-Punch, "
-                   "dans la boîte (mod bo2weapons). Leur mod.ff se construit depuis votre propre Black Ops II "
-                   "(docs/BO2_WEAPONS.md) et se pose dans mods/bo2weapons/. Les armes au mur restent celles de la "
-                   "map. Un joueur qui rejoint un serveur avec ces armes doit avoir le même mod.ff (vue Jouer, mode "
-                   "Rejoindre : « Armes de Black Ops II »).",
-    "dual_wield": "Le Pack-a-Punch double le Ray Gun (deux Ray Guns) et le Thundergun (« Zeus and Hera ») (mod "
-                  "dualwield, réglages dualwield_pap et dualwield_ppsh). Leur mod.ff se construit depuis les zones de "
-                  "votre jeu, ou depuis votre copie du mod « Relaxing Dual Wield » : il double alors aussi le PPSh "
-                  "(« The Grim Reapers ») et met le PPSh-41 dans la boîte (mods/dualwield/README.md). Se cumule avec "
-                  "les armes de Black Ops II.",
-    "join_dual_wield": "À cocher pour rejoindre un serveur qui a les armes doublées (mod dualwield) : le jeu charge "
-                       "alors le même mods/dualwield/mod.ff. Sans lui, l'entrée sur ce serveur échoue en nommant "
-                       "l'arme qui manque.",
-    "join_detect_mods": "Au lancement, ZmClient demande au serveur ce qu'il charge (ses mods, ses zones, la carte "
-                        "importée et son monde BSP), avec le mot de passe joueur s'il en a un, et le jeu charge la "
-                        "même chose. Un serveur plus ancien ne répond pas, et un serveur protégé ne répond qu'au bon "
-                        "mot de passe : les deux cases ci-dessous servent alors.",
-    "join_bo2_weapons": "À cocher pour rejoindre un serveur qui a les armes de Black Ops II (mod bo2weapons) : le jeu "
-                        "charge alors le même mods/bo2weapons/mod.ff. Sans lui, l'entrée sur ce serveur échoue "
-                        "et le jeu revient au menu avec un message (arme manquante).",
-    "window": "Sans bordure : une fenêtre de la taille de l'écran (comme Play.bat). Fenêtre : la taille ci-dessous. "
-              "Plein écran : à la résolution ci-dessous.",
-    "window_size": "La résolution en Fenêtre (taille de la fenêtre) et en Plein écran (mode de l'écran ; une taille "
-                   "que l'écran ne propose pas revient à celle du jeu), LARGEURxHAUTEUR. Aussi dans Config du jeu "
-                   "(F5). Sans effet en Sans bordure.",
-    "run_info": "Les réglages qui changent une partie et un hash SHA-512 du programme et des zones chargées "
-                "(bo1_runinfo), en bas de l'écran de chargement, ou aussi dans un coin pendant la partie, pour un "
-                "stream ou un speedrun. Le hash complet est aussi écrit dans console_mp.log (ligne runinfo:).",
-    "gfx_api": "Le moteur de rendu : Direct3D 9 (Windows) ou OpenGL (Linux, OpenBSD) par défaut, ou Vulkan "
-               "(r_mod_gfxApi sous Windows, BO1_GFX_BACKEND sous Linux et OpenBSD). Au prochain lancement.",
-    "fsr": "Avec Vulkan seulement (r_mod_upscale) : le jeu rend plus petit que la fenêtre puis l'agrandit en gardant "
-           "les contours nets (FSR 1.0 ou Arm ASR, voir la ligne suivante). Le HUD reste à la taille de la fenêtre. "
-           "Plus de FPS sur un GPU limité (Intel). Au prochain lancement.",
-    "upscaler": "Comment l'image est agrandie (r_mod_upscaler) : FSR 1.0 d'AMD, image par image, ou Arm ASR, qui "
-                "accumule les images successives pour retrouver les détails fins (plus net, un peu plus coûteux, de "
-                "légères traînées possibles sur ce qui bouge). Si le GPU n'a pas ce qu'il faut pour ASR, le jeu prend "
-                "FSR 1.0 (ligne « upscale » du journal). Au prochain lancement.",
-    "fsr_sharpness": "Le renforcement des contours après l'agrandissement (r_mod_upscaleSharpness) : « forte » est le "
-                     "réglage d'AMD ; « douce » ou « faible » si l'image paraît granuleuse.",
-    "fps_counter": "Le petit compteur d'images par seconde du portage, en haut à gauche.",
-    "shader_warming": "Au premier rendu d'une map, le jeu dessine une fois chaque matériau pour que le pilote compile "
-                      "ses shaders d'avance (r_shaderWarming) : moins de saccades ensuite, mais l'image se fige "
-                      "longtemps au chargement (« shader warming » en rouge, 2 minutes et plus sur un portable). "
-                      "Désactivé par défaut ; ZmClient le donne à chaque lancement, il l'emporte sur config.cfg.",
-    "scene_models": "Les modèles que le jeu dessine par image (r_mod_sceneModels ; 1024 dans le jeu d'origine). Une map "
-                    "importée par Mapkit en a bien plus (Nuketown : 2 096 props) : à 1024 les plus lointains manquent "
-                    "(l'horloge de la tour vue de la rue). 4096 les dessine tous et agrandit d'autant la réserve "
-                    "d'éclairage des modèles. Utile surtout pour les maps importées.",
-    "aim_assist": "Aide à la visée à la manette (bo1_aimassist). Les trois réglages suivants n'agissent que si elle "
-                  "est active. « réglage du jeu » : rien n'est forcé.",
-    "aim_slowdown": "La visée ralentit sur un zombie.",
-    "aim_lockon": "La visée suit un zombie qui bouge.",
-    "aim_autoaim": "La visée saute vers un zombie en visant (ADS).",
-    "host_game": "Le serveur local joue la partie réglée dans la vue Solo (F3) : sa map (les maps de Black Ops II "
-                 "importées comprises), la horde, la difficulté, zinfo, noperks, le hit marker, le Pack-a-Punch "
-                 "illimité, la vitesse d'apparition, le kit de départ, les armes de Black Ops II et les armes "
-                 "doublées. Le jeu charge ensuite ce qu'il faut pour le rejoindre. Entrée : vue Solo.",
-    "host_port": "Le port UDP du serveur local (3074 par défaut ; le port + 1 reçoit les logs des clients). Ouvrez-"
-                 "les dans le pare-feu pour des joueurs d'autres machines.",
-    "host_password": "Le mot de passe rcon du serveur local, partagé avec ZmAdmin (son fichier servers.json) : "
-                     "ZmAdmin administre le serveur que ZmClient a lancé.",
-    "split": "Deux joueurs sur ce PC : deux fenêtres du jeu se partagent l'écran principal et rejoignent le même "
-             "serveur (mode Serveur local, ou Rejoindre). Pas en Solo : choisir « Serveur local + le rejoindre ». "
-             "La fenêtre de la manette lit sa manette même quand l'autre a le focus, ignore clavier et souris, et ne "
-             "prend jamais le focus : le clavier reste à l'autre fenêtre (après un Alt+Tab, un clic dessus le rend).",
-    "split_layout": "Comment les deux fenêtres se partagent l'écran principal.",
-    "split_sound2": "Le son de la fenêtre du joueur 2. Les deux fenêtres jouent la même partie : avec les deux, chaque "
-                    "son est entendu deux fois (non par défaut).",
-    "name2": "Le nom du joueur 2 (1 à 15 lettres, chiffres, « _ », « - », « . »). Vide : Joueur2. Sa config, son "
-             "profil et son journal sont dans le dossier split2/ du jeu.",
-}
+class _TrLines(dict):
+    """A table of help pages (lists of lines) whose lines translate when read."""
 
-BO2_WEAPON_HELP = {
-    0: "les armes de la map seulement",
-    1: "les armes de Black Ops II s'ajoutent à celles de la map (bo2weapons_box 0)",
-    2: "la boîte ne donne plus que les armes de Black Ops II, plus les armes spéciales de la map : Ray Gun, "
-       "Thundergun, Wunderwaffe, singe, Gersh... (bo2weapons_box 1)",
-    3: "la boîte ne donne plus que les armes de Black Ops II (bo2weapons_box 2)",
-}
+    def __getitem__(self, key):
+        return [tr(line) for line in super().__getitem__(key)]
 
-VIEW_HELP = {
+    def get(self, key, default=None):
+        return self[key] if key in self else default
+
+    def values(self):
+        return [self[k] for k in self]
+
+    def items(self):
+        return [(k, self[k]) for k in self]
+
+
+MODE_LABELS = TrDict({
+    "solo": "Solo (offline)",
+    "join": "Join a server",
+    "host": "Local server + join it",
+})
+MODE_HELP = TrDict({
+    "solo": "A game alone on this PC, set up in the Solo view (F3): map, mods, horde, difficulty.",
+    "join": "Join a dedicated server (LAN or internet), chosen in the Servers view (F2). The server decides the map, "
+            "the mods and god mode; ZmClient asks it what to load.",
+    "host": "Starts this folder's dedicated server (like ZmAdmin, which can then administer it) with the game of the "
+            "Solo view (F3), then the game, which joins it as soon as it has loaded its map. Other players on the "
+            "network can come.",
+})
+WINDOW_LABELS = TrDict({"borderless": "Borderless (windowed fullscreen)", "window": "Window",
+                        "fullscreen": "Fullscreen"})
+TRISTATE_LABELS = TrDict({"": "game setting", "1": "yes", "0": "no"})
+SPLIT_LABELS = TrDict({"off": "no", "kbm_pad": "keyboard/mouse + controller", "pad_pad": "two controllers"})
+SPLIT_HELP = TrDict({
+    "off": "a single player on this PC",
+    "kbm_pad": "player 1 on keyboard and mouse, player 2 on the first controller",
+    "pad_pad": "player 1 on the first controller, player 2 on the second",
+})
+SPLIT_LAYOUT_LABELS = TrDict({"side": "side by side", "stack": "one above the other"})
+SPLIT_LAYOUT_HELP = TrDict({
+    "side": "player 1 on the left, player 2 on the right: each gets half of the screen, full height",
+    "stack": "player 1 at the top, player 2 at the bottom: each gets half of the screen, full width",
+})
+DIFFICULTY_LABELS = TrDict({0: "Normal", 1: "Nightmare", 2: "Hell"})
+
+SPAWN_RATE_HELP = TrDict({
+    0: "the original game's pace",
+    2: "twice as fast, short breaks between rounds",
+    3: "three times as fast (the mod's setting)",
+    5: "five times as fast",
+    10: "ten times as fast: the round comes out almost at once",
+})
+
+ROW_HELP = TrDict({
+    "mode": "How to play. Enter: choose.",
+    "map": "The solo game's map. The \"Mapkit\" maps are built by the mapkit mod on a base map.",
+    "server": "The server to join: address, port and players' password (g_password, empty if it has none). The "
+              "Servers view (F2) lists the favourites and those of the local network.",
+    "name": "Your name on servers (1 to 15 letters, digits, \"_\", \"-\", \".\"). Empty: the one in config.cfg.",
+    "god": "Invincible (bo1_testclient_god: the game sets god mode again every frame). Solo only: a server decides "
+           "for its players.",
+    "zinfo": "While holding Tab, the zombies alive and those left in the round show on the left (zinfo mod).",
+    "noperks": "No perk machines (noperks mod). The Pack-a-Punch and the box stay.",
+    "quickrestart": "After the game ends, R restarts the same map with the same settings.",
+    "hitmarker": "An X at the centre of the screen for each zombie hit (hitmarker mod): white on the body, orange on "
+                 "the head, red for the killing blow. \"hitmarker 0\" in the console hides it.",
+    "unlimited_pap": "The Pack-a-Punch takes an already upgraded weapon again, as many times as you like: each pass "
+                     "doubles the price (5,000, 10,000, 20,000...) and the damage (unlimitedpap mod). Reserve ammo "
+                     "does not double. Its script is written from your own zones "
+                     "(tools/unlimitedpap/make_perks.py, which the packages run).",
+    "spawn_rate": "Each round's zombies appear faster, and the break between two rounds goes from 12 s to 3 s "
+                  "(spawnrate mod). The zombies' number, health and speed stay the game's. \"spawnrate_mult\" in "
+                  "the console changes the speed in game.",
+    "spawn_rush": "With faster spawning: each zombie runs to its barricade, then takes its round's speed again "
+                  "(spawnrate_rush).",
+    "start_points": "Each player's points on arriving on the map, instead of the game's 500 (admin mod, "
+                    "zm_startpoints). Solo only: a server decides for its players.",
+    "start_power": "The power is turned on when the first player arrives (admin mod, zm_startpower): the machines, "
+                   "the Pack-a-Punch and the electric doors work right away. No effect on a map without power.",
+    "start_pap": "A Pack-a-Punch always on, placed at the centre of the players' spawn points (admin mod, "
+                 "zm_startpap). It also runs the map's own one without power, and gives one to maps that have none "
+                 "(Nacht der Untoten).",
+    "far_respawn": "A zombie farther than this distance from every player (zm_where units) and seen by none is "
+                   "replaced by another one, which appears near the players (admin mod, zm_farrespawn; the game "
+                   "does it on Moon at 1500). Not dogs or bosses, nor a wounded zombie.",
+    "start_perk": "A perk given for free on arriving on the map (admin mod, zm_startperks). Only if its machine is "
+                  "on this map: Kino and Five only have Juggernog, Quick Revive, Speed Cola and Double Tap.",
+    "horde": "Horde mod: many zombies at once; the next round starts when the round's last zombie has appeared.",
+    "horde_max": "Zombies at the same time (24 to 1024). Above 300 it is heavy: the game turns on its performance "
+                 "options (like the .hta launcher).",
+    "horde_round": "The starting round (1: normal).",
+    "horde_napalm": "Napalm zombies (from Shangri-La). Kino and Five only (horde mod spawn files).",
+    "horde_sonic": "Screaming zombies (shriekers, from Shangri-La). Kino and Five only.",
+    "horde_spawn_all": "Zombies come out of every window of the open zones, not only near you.",
+    "horde_unjam": "A zombie stuck in the crowd walks through the others for 1.5 s.",
+    "horde_clear_round": "The next round only comes when every zombie is dead (otherwise: as soon as the last one "
+                         "has appeared, the living ones stay).",
+    "difficulty": "Nightmare: George, an astronaut, napalm and screaming zombies, dogs... from round 1. Hell: "
+                  "several of each at once. Kino and Five only; loads three more maps (slower start).",
+    "bo2_weapons": "The Black Ops II weapons (HAMR, AN-94, DSR-50, Ray Gun Mark II...) and their Pack-a-Punch "
+                   "version, in the box (bo2weapons mod). Their mod.ff is built from your own Black Ops II "
+                   "(docs/BO2_WEAPONS.md) and goes in mods/bo2weapons/. The wall weapons stay the map's. A player "
+                   "who joins a server with these weapons needs the same mod.ff (Play view, Join mode: \"Black Ops "
+                   "II weapons\").",
+    "dual_wield": "The Pack-a-Punch doubles the Ray Gun (two Ray Guns) and the Thundergun (\"Zeus and Hera\") "
+                  "(dualwield mod, settings dualwield_pap and dualwield_ppsh). Their mod.ff is built from your "
+                  "game's zones, or from your copy of the \"Relaxing Dual Wield\" mod: it then also doubles the PPSh "
+                  "(\"The Grim Reapers\") and puts the PPSh-41 in the box (mods/dualwield/README.md). Stacks with "
+                  "the Black Ops II weapons.",
+    "join_dual_wield": "Tick to join a server that has the dual-wield weapons (dualwield mod): the game then loads "
+                       "the same mods/dualwield/mod.ff. Without it, joining that server fails, naming the missing "
+                       "weapon.",
+    "join_detect_mods": "At launch, ZmClient asks the server what it loads (its mods, its zones, the imported map "
+                        "and its BSP world), with the players' password if it has one, and the game loads the same. "
+                        "An older server does not answer, and a protected server only answers the right password: "
+                        "the two boxes below are then used.",
+    "join_bo2_weapons": "Tick to join a server that has the Black Ops II weapons (bo2weapons mod): the game then "
+                        "loads the same mods/bo2weapons/mod.ff. Without it, joining that server fails and the game "
+                        "goes back to the menu with a message (missing weapon).",
+    "window": "Borderless: a window the size of the screen (like Play.bat). Window: the size below. Fullscreen: at "
+              "the resolution below.",
+    "window_size": "The resolution in Window (the window's size) and in Fullscreen (the screen mode; a size the "
+                   "screen does not offer falls back to the game's), WIDTHxHEIGHT. Also in Game config (F5). No "
+                   "effect in Borderless.",
+    "run_info": "The settings that change a game and a SHA-512 hash of the program and the loaded zones "
+                "(bo1_runinfo), at the bottom of the loading screen, or also in a corner during the game, for a "
+                "stream or a speedrun. The full hash is also written to console_mp.log (runinfo: line).",
+    "gfx_api": "The renderer: Direct3D 9 (Windows) or OpenGL (Linux, OpenBSD) by default, or Vulkan (r_mod_gfxApi "
+               "on Windows, BO1_GFX_BACKEND on Linux and OpenBSD). At the next launch.",
+    "fsr": "With Vulkan only (r_mod_upscale): the game renders smaller than the window, then enlarges it while "
+           "keeping edges sharp (FSR 1.0 or Arm ASR, see the next line). The HUD stays at the window's size. More "
+           "FPS on a limited GPU (Intel). At the next launch.",
+    "upscaler": "How the image is enlarged (r_mod_upscaler): AMD's FSR 1.0, frame by frame, or Arm ASR, which "
+                "accumulates successive frames to recover fine detail (sharper, a little more costly, slight trails "
+                "possible on what moves). If the GPU lacks what ASR needs, the game takes FSR 1.0 (\"upscale\" line "
+                "of the log). At the next launch.",
+    "fsr_sharpness": "Edge sharpening after enlarging (r_mod_upscaleSharpness): \"strong\" is AMD's setting; "
+                     "\"soft\" or \"low\" if the image looks grainy.",
+    "fps_counter": "The port's small frames-per-second counter, at the top left.",
+    "shader_warming": "On a map's first render, the game draws each material once so the driver compiles its "
+                      "shaders ahead (r_shaderWarming): fewer stutters afterwards, but the image freezes for a long "
+                      "time while loading (\"shader warming\" in red, 2 minutes or more on a laptop). Off by "
+                      "default; ZmClient gives it at every launch, it overrides config.cfg.",
+    "scene_models": "The models the game draws per frame (r_mod_sceneModels; 1024 in the original game). A map "
+                    "imported by Mapkit has many more (Nuketown: 2,096 props): at 1024 the farthest are missing (the "
+                    "tower clock seen from the street). 4096 draws them all and enlarges the models' lighting "
+                    "reserve as much. Useful mostly for imported maps.",
+    "aim_assist": "Controller aim assist (bo1_aimassist). The next three settings only act when it is on. \"game "
+                  "setting\": nothing is forced.",
+    "aim_slowdown": "Aim slows down on a zombie.",
+    "aim_lockon": "Aim follows a moving zombie.",
+    "aim_autoaim": "Aim snaps to a zombie when aiming down sights (ADS).",
+    "host_game": "The local server plays the game set up in the Solo view (F3): its map (imported Black Ops II maps "
+                 "included), the horde, the difficulty, zinfo, noperks, the hit marker, unlimited Pack-a-Punch, the "
+                 "spawn rate, the starting kit, the Black Ops II weapons and the dual-wield weapons. The game then "
+                 "loads what it needs to join it. Enter: Solo view.",
+    "host_port": "The local server's UDP port (3074 by default; port + 1 receives the clients' logs). Open them in "
+                 "the firewall for players on other machines.",
+    "host_password": "The local server's rcon password, shared with ZmAdmin (its servers.json file): ZmAdmin "
+                     "administers the server ZmClient started.",
+    "split": "Two players on this PC: two game windows share the main screen and join the same server (Local server "
+             "mode, or Join). Not in Solo: choose \"Local server + join it\". The controller's window reads its "
+             "controller even when the other one has focus, ignores keyboard and mouse, and never takes focus: the "
+             "keyboard stays with the other window (after an Alt+Tab, a click on it gives it back).",
+    "split_layout": "How the two windows share the main screen.",
+    "split_sound2": "Sound of player 2's window. Both windows play the same game: with both, every sound is heard "
+                    "twice (no by default).",
+    "name2": "Player 2's name (1 to 15 letters, digits, \"_\", \"-\", \".\"). Empty: Player2. Its config, profile "
+             "and log are in the game's split2/ folder.",
+})
+
+BO2_WEAPON_HELP = TrDict({
+    0: "the map's weapons only",
+    1: "the Black Ops II weapons are added to the map's (bo2weapons_box 0)",
+    2: "the box only gives Black Ops II weapons, plus the map's special weapons: Ray Gun, Thundergun, Wunderwaffe, "
+       "monkey, Gersh... (bo2weapons_box 1)",
+    3: "the box only gives Black Ops II weapons (bo2weapons_box 2)",
+})
+
+VIEW_HELP = _TrLines({
     "play": [
-        "Jouer : choisir comment jouer, puis lancer.",
-        "Haut/Bas    choisir une ligne ; Entrée, Espace ou double-clic : la modifier",
-        "L           lancer le jeu (et le serveur local en mode Serveur local ; les deux fenêtres en écran partagé)",
-        "S           arrêter le jeu lancé par ZmClient (les deux fenêtres en écran partagé)",
-        "K           arrêter le serveur local",
-        "La ligne de commande exacte est affichée en bas. Les réglages sont gardés dans profile.json (dossier de "
-        "configuration de ZmClient).",
+        "Play: choose how to play, then launch.",
+        "Up/Down     choose a line; Enter, Space or double-click: change it",
+        "L           launch the game (and the local server in Local server mode; both windows in split screen)",
+        "S           stop the game ZmClient launched (both windows in split screen)",
+        "K           stop the local server",
+        "The exact command line is shown at the bottom. The settings are kept in profile.json (ZmClient's config "
+        "folder).",
     ],
     "servers": [
-        "Serveurs : vos favoris et les serveurs du réseau local, interrogés toutes les 3 secondes (getstatus).",
-        "Entrée      rejoindre le serveur choisi (double-clic aussi)",
-        "a           ajouter un favori        e  modifier        x  retirer",
-        "f           ajouter le serveur du réseau choisi aux favoris",
-        "r           interroger maintenant",
-        "Un serveur du réseau est trouvé par broadcast sur les ports 3074 à 3083 ; un serveur sur internet doit être "
-        "ajouté à la main (son adresse et son port). Le mot de passe d'un favori est celui des joueurs (g_password), "
-        "pas le rcon.",
+        "Servers: your favourites and the local network's servers, queried every 3 seconds (getstatus).",
+        "Enter       join the chosen server (double-click too)",
+        "a           add a favourite          e  edit          x  remove",
+        "f           add the chosen network server to the favourites",
+        "r           query now",
+        "A network server is found by broadcast on ports 3074 to 3083; a server on the internet must be added by "
+        "hand (its address and port). A favourite's password is the players' one (g_password), not rcon.",
     ],
     "solo": [
-        "Solo : la partie hors ligne. Les options grisées ne s'appliquent pas à la map choisie (la raison est "
-        "affichée en bas).",
-        "Haut/Bas    choisir ; Entrée, Espace ou double-clic : modifier",
-        "Les drapeaux de mods sont ceux de tools/mod-launcher.hta (horde_flags.js, nightmare_flags.js), à "
-        "l'identique.",
+        "Solo: the offline game. Greyed options do not apply to the chosen map (the reason is shown at the bottom).",
+        "Up/Down     choose; Enter, Space or double-click: change",
+        "The mod flags are those of tools/mod-launcher.hta (horde_flags.js, nightmare_flags.js), identical.",
     ],
     "launch": [
-        "Lancement : ce que ZmClient ajoute à la ligne de commande dans tous les modes.",
-        "Haut/Bas    choisir ; Entrée, Espace ou double-clic : modifier",
-        "La ligne de commande gagne sur config.cfg pour ces réglages.",
+        "Launch: what ZmClient adds to the command line in every mode.",
+        "Up/Down     choose; Enter, Space or double-click: change",
+        "The command line wins over config.cfg for these settings.",
     ],
     "config": [
-        "Config du jeu : players/config.cfg du dossier, le fichier que le jeu écrit en quittant. ZmClient lance le "
-        "jeu avec bo1_mod_sharedconfig 1 : un seul fichier pour tous les mods.",
-        "Haut/Bas    choisir ; Entrée ou double-clic : modifier (marqué *)",
-        "Ctrl+S      sauvegarder (rien n'est écrit avant) ;  u  annuler les modifications",
-        "n           modifier un autre dvar du fichier (son nom, puis sa valeur)",
-        "b           touches : changer ou retirer une commande liée (bind)",
-        "r           relire le fichier",
-        "Le jeu réécrit config.cfg en quittant : ZmClient refuse de sauvegarder pendant qu'il tourne.",
-        "La ligne Résolution est celle de la vue Lancement (F4), pas une ligne de config.cfg : le jeu la reçoit en "
-        "ligne de commande (r_mode en Plein écran, r_customMode en Fenêtre) ; en Sans bordure il prend la taille de "
-        "l'écran. Modifiée ici, elle est enregistrée tout de suite.",
+        "Game config: the folder's players/config.cfg, the file the game writes when it quits. ZmClient launches "
+        "the game with bo1_mod_sharedconfig 1: one file for every mod.",
+        "Up/Down     choose; Enter or double-click: change (marked *)",
+        "Ctrl+S      save (nothing is written before);  u  undo the changes",
+        "n           change another dvar of the file (its name, then its value)",
+        "b           keys: change or remove a bound command (bind)",
+        "r           reread the file",
+        "The game rewrites config.cfg when it quits: ZmClient refuses to save while it runs.",
+        "The Resolution line is the Launch view's (F4), not a config.cfg line: the game gets it on the command line "
+        "(r_mode in Fullscreen, r_customMode in Window); in Borderless it takes the screen's size. Changed here, it "
+        "is saved at once.",
     ],
     "extra": [
-        "Dvars libres : des commandes ajoutées à la ligne de commande, avant la map ou la connexion.",
-        "a           ajouter une ligne : un dvar connu dans la liste (avec son explication), ou une commande libre",
-        "e           modifier          x  retirer          Espace  activer / désactiver",
-        "La colonne Description explique les dvars que ZmClient connaît (ceux du portage surtout) ; le texte complet "
-        "de la ligne choisie s'affiche sous les boutons.",
-        "Chaque ligne devient une commande « +ligne ». Pas de « + » dans une ligne : le jeu coupe sa ligne de "
-        "commande à chaque « + », et n'en lit que 63.",
+        "Free dvars: commands added to the command line, before the map or the connection.",
+        "a           add a line: a known dvar from the list (with its explanation), or a free command",
+        "e           edit          x  remove          Space  enable / disable",
+        "The Description column explains the dvars ZmClient knows (mostly the port's); the chosen line's full text "
+        "shows under the buttons.",
+        "Each line becomes a \"+line\" command. No \"+\" in a line: the game cuts its command line at each \"+\", "
+        "and only reads 63 of them.",
     ],
     "setup": [
-        "Installation : les fichiers du jeu, depuis votre installation de Call of Duty: Black Ops (Steam).",
-        "Copie localization.txt, main/*.iwd et main/video/, puis convertit les zones zombies avec le ffconv du "
-        "paquet (environ 6 minutes ; il écrit aussi shaders.pack), puis compile shaders.pack en shaders.spv pour "
-        "Vulkan avec glslang (5 à 15 minutes selon le processeur ; glslang est dans les paquets Windows et "
-        "Linux, sinon celui du système : glslang-tools sous Linux, glslang sous OpenBSD). Votre installation n'est "
-        "jamais modifiée.",
-        "c           choisir l'installation : trouvée dans les bibliothèques Steam, en parcourant les dossiers "
-        "(flèches, Entrée pour ouvrir, Retour arrière pour remonter, Espace pour choisir ; une installation est "
-        "marquée « Black Ops »), ou en tapant le chemin",
-        "v           avec ou sans les vidéos      z  avec ou sans la conversion des zones",
-        "s           avec ou sans les shaders Vulkan (refaits seulement s'ils manquent ou sont plus anciens que "
-        "shaders.pack)",
-        "i           installer          Échap  annuler une installation en cours",
-        "Un fichier déjà copié (même taille, même date) n'est pas recopié. Si ffconv échoue, les zones précédentes "
-        "restent. Sans glslang, tout le reste s'installe et le jeu garde son rendu habituel. Journal : "
+        "Setup: the game files, from your Call of Duty: Black Ops installation (Steam).",
+        "Copies localization.txt, main/*.iwd and main/video/, then converts the zombies zones with the package's "
+        "ffconv (about 6 minutes; it also writes shaders.pack), then compiles shaders.pack into shaders.spv for "
+        "Vulkan with glslang (5 to 15 minutes depending on the CPU; glslang is in the Windows and Linux packages, "
+        "otherwise the system's: glslang-tools on Linux, glslang on OpenBSD). Your installation is never modified.",
+        "c           choose the installation: found in the Steam libraries, by browsing folders (arrows, Enter to "
+        "open, Backspace to go up, Space to choose; an installation is marked \"Black Ops\"), or by typing the path",
+        "v           with or without the videos      z  with or without converting the zones",
+        "s           with or without the Vulkan shaders (redone only if missing or older than shaders.pack)",
+        "i           install          Esc  cancel an installation in progress",
+        "A file already copied (same size, same date) is not copied again. If ffconv fails, the previous zones "
+        "stay. Without glslang, everything else installs and the game keeps its usual renderer. Log: "
         "main/zmclient_setup.log.",
     ],
     "log": [
-        "Journal : le console_mp.log du jeu lancé, en direct.",
-        "/           filtrer       Espace  pause       PgPréc/PgSuiv, molette : défiler       Fin  dernières lignes",
+        "Log: the launched game's console_mp.log, live.",
+        "/           filter       Space  pause       PgUp/PgDn, wheel: scroll       End  last lines",
     ],
-}
+})
 
-GLOBAL_HELP = [
-    "F1 Jouer  F2 Serveurs  F3 Solo  F4 Lancement  F5 Config du jeu  F6 Dvars libres  F7 Installation  F8 Journal",
-    "Tab / Maj+Tab   vue suivante / précédente",
-    "?  ou F9    cette aide                q  ou F10   quitter",
-    "Souris      clic : choisir un onglet, une ligne ou un bouton ; double-clic : modifier ou exécuter la ligne ; "
-    "molette : défiler. Pour sélectionner du texte dans le terminal, tenir Maj (ou lancer zmclient --no-mouse).",
+_GLOBAL_HELP = [
+    "F1 Play  F2 Servers  F3 Solo  F4 Launch  F5 Game config  F6 Free dvars  F7 Setup  F8 Log",
+    "Tab / Shift+Tab  next / previous view",
+    "?  or F9    this help                 q  or F10   quit",
+    "Mouse       click: choose a tab, a line or a button; double-click: change or run the line; wheel: scroll. To "
+    "select text in the terminal, hold Shift (or run zmclient --no-mouse).",
 ]
 
-RUN_INFO_LABELS = {0: "non", 1: "au chargement", 2: "chargement + en jeu"}
-GFX_API_LABELS = {"default": "Direct3D 9 (Windows) / OpenGL (Linux, OpenBSD)", "vulkan": "Vulkan"}
-FSR_LABELS = {"off": "non", "ultra": "Ultra qualité (x1,3)", "quality": "Qualité (x1,5)",
-              "balanced": "Équilibré (x1,7)", "performance": "Performance (x2)",
-              "native": "Natif (anti-aliasing ASR)", "ssaa_1.5x": "Suréchantillonnage x1,5 (SSAA)",
-              "ssaa_2x": "Suréchantillonnage x2 (SSAA)"}
-FSR_HELP = {
-    "off": "Le jeu rend à la taille de la fenêtre.",
-    "ultra": "Rendu à 77 % de la fenêtre puis agrandi par FSR 1.0 : presque aucune perte.",
-    "quality": "Rendu aux deux tiers de la fenêtre (1280x720 pour 1920x1080).",
-    "balanced": "Rendu à 59 % de la fenêtre.",
-    "performance": "Rendu à la moitié de la fenêtre : le plus rapide, le plus flou.",
-    "native": "Rendu à la taille de la fenêtre, Arm ASR sert d'anti-aliasing (bords lisses, pas de gain de FPS). "
-              "Choisir une méthode Arm ASR à la ligne suivante : avec FSR 1.0, rien ne change.",
-    "ssaa_1.5x": "Rendu à 1,5 fois la fenêtre sur chaque côté (2880x1620 pour 1920x1080), puis réduit : "
-                 "bords lisses et détails fins stables, mais 2,25 fois plus de pixels à dessiner.",
-    "ssaa_2x": "Rendu au double de la fenêtre sur chaque côté (3840x2160 pour 1920x1080), puis réduit : "
-               "la meilleure image, 4 fois plus de pixels à dessiner. Pour les cartes graphiques puissantes.",
-}
-FSR_SHARPNESS_LABELS = {0.0: "maximum", 0.2: "forte (défaut AMD)", 0.5: "moyenne", 1.0: "douce", 2.0: "faible"}
-UPSCALER_LABELS = {"fsr1": "FSR 1.0", "asr_quality": "Arm ASR qualité", "asr_balanced": "Arm ASR équilibré",
-                   "asr_performance": "Arm ASR performance"}
-UPSCALER_HELP = {
-    "fsr1": "FSR 1.0 d'AMD : chaque image est agrandie seule. Le plus léger.",
-    "asr_quality": "Arm ASR (temporel) avec ses shaders les plus fins : la meilleure image.",
-    "asr_balanced": "Arm ASR avec des shaders allégés : presque la même image, un peu plus rapide.",
-    "asr_performance": "Arm ASR avec ses shaders les plus rapides : un peu moins fin.",
-}
-GFX_API_HELP = {
-    "default": "Le rendu habituel : le Direct3D 9 de Windows, OpenGL sous Linux et OpenBSD.",
-    "vulkan": "Le rendu par Vulkan (Windows 64 bits, Linux, OpenBSD). Il lui faut shaders.spv à côté du programme ; "
-              "sans lui, ou sans pilote Vulkan, le jeu revient au rendu habituel (Windows) et le dit dans "
-              "console_mp.log.",
-}
+
+def global_help():
+    """The help lines shared by every view, in the interface language."""
+    return [tr(line) for line in _GLOBAL_HELP]
+
+
+RUN_INFO_LABELS = TrDict({0: "no", 1: "while loading", 2: "loading + in game"})
+GFX_API_LABELS = TrDict({"default": "Direct3D 9 (Windows) / OpenGL (Linux, OpenBSD)", "vulkan": "Vulkan"})
+FSR_LABELS = TrDict({"off": "no", "ultra": "Ultra quality (x1.3)", "quality": "Quality (x1.5)",
+                     "balanced": "Balanced (x1.7)", "performance": "Performance (x2)",
+                     "native": "Native (ASR anti-aliasing)", "ssaa_1.5x": "Supersampling x1.5 (SSAA)",
+                     "ssaa_2x": "Supersampling x2 (SSAA)"})
+FSR_HELP = TrDict({
+    "off": "The game renders at the window's size.",
+    "ultra": "Rendered at 77% of the window, then enlarged by FSR 1.0: almost no loss.",
+    "quality": "Rendered at two thirds of the window (1280x720 for 1920x1080).",
+    "balanced": "Rendered at 59% of the window.",
+    "performance": "Rendered at half the window: the fastest, the blurriest.",
+    "native": "Rendered at the window's size, Arm ASR serves as anti-aliasing (smooth edges, no FPS gain). Choose an "
+              "Arm ASR method on the next line: with FSR 1.0, nothing changes.",
+    "ssaa_1.5x": "Rendered at 1.5 times the window on each side (2880x1620 for 1920x1080), then reduced: smooth edges "
+                 "and stable fine detail, but 2.25 times more pixels to draw.",
+    "ssaa_2x": "Rendered at twice the window on each side (3840x2160 for 1920x1080), then reduced: the best image, "
+               "4 times more pixels to draw. For powerful graphics cards.",
+})
+FSR_SHARPNESS_LABELS = TrDict({0.0: "maximum", 0.2: "strong (AMD default)", 0.5: "medium", 1.0: "soft", 2.0: "low"})
+UPSCALER_LABELS = TrDict({"fsr1": "FSR 1.0", "asr_quality": "Arm ASR quality", "asr_balanced": "Arm ASR balanced",
+                          "asr_performance": "Arm ASR performance"})
+UPSCALER_HELP = TrDict({
+    "fsr1": "AMD's FSR 1.0: each frame is enlarged on its own. The lightest.",
+    "asr_quality": "Arm ASR (temporal) with its finest shaders: the best image.",
+    "asr_balanced": "Arm ASR with lighter shaders: almost the same image, a little faster.",
+    "asr_performance": "Arm ASR with its fastest shaders: a little less fine.",
+})
+GFX_API_HELP = TrDict({
+    "default": "The usual renderer: Windows' Direct3D 9, OpenGL on Linux and OpenBSD.",
+    "vulkan": "Rendering through Vulkan (64-bit Windows, Linux, OpenBSD). It needs shaders.spv next to the program; "
+              "without it, or without a Vulkan driver, the game falls back to the usual renderer (Windows) and says "
+              "so in console_mp.log.",
+})

@@ -7,6 +7,7 @@ import time
 
 from . import help as H
 from .config import DEFAULT_PROFILE
+from .i18n import tr
 from .launcher import LocalServer
 from .link import ServerLink
 from .logtail import LogTail
@@ -406,7 +407,7 @@ class App:
                 self.hits.add(h - 2, x, len(label), action)
                 x += len(label) + 1
         fill(scr, h - 1, color(C_TITLE))
-        put(scr, h - 1, 1, self.view.hints, color(C_TITLE), width=w - 2)
+        put(scr, h - 1, 1, tr(self.view.hints), color(C_TITLE), width=w - 2)
         cursor(False)
         # the view draws last: a view with a command line leaves the cursor on it
         try:

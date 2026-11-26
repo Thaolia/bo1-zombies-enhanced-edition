@@ -24,6 +24,7 @@ import time
 
 from . import gamemods
 from .config import DEFAULT_PROFILE
+from .i18n import tr
 
 IS_WINDOWS = os.name == "nt"
 IS_OPENBSD = sys.platform.startswith("openbsd")
@@ -176,7 +177,7 @@ def port_in_use(port):
                 sock.setsockopt(socket.SOL_SOCKET, getattr(socket, "SO_EXCLUSIVEADDRUSE", -5), 1)
             sock.bind(("0.0.0.0", p))
         except OSError as e:
-            return f"le port UDP {p} est déjà pris ({e.strerror or e})"
+            return tr("UDP port {port} is already taken ({error})").format(port=p, error=e.strerror or e)
         finally:
             sock.close()
     return None
@@ -280,7 +281,7 @@ class LocalServer:
 
     def start(self, game, port, password):
         if self.running():
-            raise RuntimeError(f"le serveur local tourne déjà (PID {self.pid})")
+            raise RuntimeError(tr("the local server is already running (PID {pid})").format(pid=self.pid))
         why = port_in_use(port)
         if why:
             raise RuntimeError(why)

@@ -62,7 +62,7 @@ Version anglaise : `README.md`. La référence complète et détaillée se trouv
      Pack-a-Punch, atouts), les graphismes, les commandes et les manettes. **+** lance la partie.
    - **Serveur** : `Server.bat [carte] [port]` ou `./server.sh [carte] [port]`, ou depuis ZmAdmin ou ZmClient avec
      n'importe quelle carte et n'importe quels mods (les cartes de BO2 aussi). Les joueurs le rejoignent avec
-     `Play.bat net <adresse>:<port>`, depuis ZmClient ou depuis l'écran **Serveur** de la Switch ; ZmClient et la
+     `Play.bat net <adresse>:<port>`, depuis ZmClient ou depuis l'écran **Server** de la Switch ; ZmClient et la
      Switch demandent au serveur quels mods et quelle carte charger.
 
 ## Contenu Black Ops II
@@ -161,8 +161,8 @@ carte SD, dans `sdmc:/switch/bo1zm/`.
 Le jeu doit être lancé en mode application (title takeover : maintenir R en lançant un jeu). Le mode applet,
 c'est-à-dire l'album, ne donne qu'environ 400 Mo de RAM.
 
-Au lancement, un menu texte s'ouvre avant le jeu. On y choisit :
-- une partie solo, ou un serveur dédié à rejoindre. La ligne **Serveur** ouvre son propre écran. On y active ou non
+Au lancement, un menu texte (en anglais) s'ouvre avant le jeu. On y choisit :
+- une partie solo, ou un serveur dédié à rejoindre. La ligne **Server** ouvre son propre écran. On y active ou non
   la connexion, on y saisit l'adresse IP et le port du serveur avec le clavier de la console, et son nom de joueur.
   Une recherche sur le réseau local liste les serveurs trouvés (à l'ouverture de l'écran, ou à la demande) : A sur
   l'un d'eux remplit son adresse et son port.
@@ -171,7 +171,7 @@ Au lancement, un menu texte s'ouvre avant le jeu. On y choisit :
 - l'aim assist : activé ou non, avec ralentissement, verrouillage et visée auto ;
 - le compteur de zombies à côté du tableau des scores (mod zinfo : zombies en vie et restants dans la manche),
   activé par défaut ;
-- le **départ** : un écran pour les points (de 1 000 à 100 000, au lieu des 500 du jeu), le courant mis dès le
+- le **départ** (ligne *Start kit*) : un écran pour les points (de 1 000 à 100 000, au lieu des 500 du jeu), le courant mis dès le
   départ et les atouts donnés à l'arrivée sur la map en solo (mod admin). Un atout n'est donné que si la map a sa
   machine. Le même écran ajoute le hit marker (mod hitmarker), le Pack-a-Punch illimité (mod unlimitedpap, quand son
   script est sur la carte SD) et l'apparition plus rapide des zombies (mod spawnrate : de 2 à 10 fois, avec ou sans
@@ -188,9 +188,9 @@ Au lancement, un menu texte s'ouvre avant le jeu. On y choisit :
   l'écran de chargement (par défaut), ou aussi dans un coin en jeu ; le hash complet va dans le journal (lignes
   `runinfo:`), avec le SHA-512 du programme seul (celui de `sha512sum`). Il distingue des runs faites avec des fichiers différents ; il ne prouve rien, puisqu'un programme
   modifié peut afficher n'importe quel hash ;
-- les **touches de la manette** : un écran liste chaque action du jeu (tirer, viser, sauter, recharger, grenade,
+- les **touches de la manette** (ligne *Button mapping*) : un écran liste chaque action du jeu (tirer, viser, sauter, recharger, grenade,
   couteau, sprint…) avec le bouton de la Switch qui la fait ; gauche/droite change le bouton, et l'action qui l'avait
-  prend l'ancien, si bien qu'aucune action ne reste sans bouton. « Réinitialiser » remet les touches du jeu. Les
+  prend l'ancien, si bien qu'aucune action ne reste sans bouton. « Reset » remet les touches du jeu. Les
   menus du jeu suivent (valider = Sauter, retour = S'accroupir) ; le menu de départ, lui, garde toujours les boutons
   de la console, donc une erreur se corrige toujours là. Les sticks ne changent pas ;
 - les manettes : la liste des manettes détectées, et l'écran de la Switch pour en connecter.
@@ -313,7 +313,8 @@ le même mot de passe rcon). Dans ces deux derniers modes, l'écran partagé (vu
 pour deux joueurs sur le même PC : clavier/souris + manette, ou deux manettes ; côte à côte ou l'une au-dessus de
 l'autre. La vue Installation fait ce que fait `setup.ps1` : depuis votre Black Ops (Steam), elle
 copie `localization.txt`, les `.iwd` et les vidéos, puis convertit les zones avec le `ffconv.exe` du paquet (wine
-sous Linux). Détails : `tools/zmclient/README.md`.
+sous Linux). ZmClient s'ouvre en anglais : la première ligne de sa vue Launch (F4), « Language », le passe en
+français, et les noms de vues ci-dessus sont alors ceux qu'il affiche. Détails : `tools/zmclient/README.md`.
 
 Maps zombies de Black Ops II (expérimental, branche `bo2`) : `tools/bo2` extrait une map du Black Ops II du joueur
 (avec un exporteur de monde et de collision ajouté à OpenAssetTools, GPL v3, compilé à part) et l'écrit en layout
@@ -356,17 +357,18 @@ ZmClient la propose sous « Mapkit : Nuketown native (Black Ops II, monde BSP) �
   (`--openbsd-cross <préfixe>` ou `OPENBSD_CROSS` : le préfixe de son `install.sh`, avec les sysroots `8.0` et
   `current` et leur paquet `sdl2`). Son `zmclient` et son `zmadmin` sont des zipapps lancés par le Python d'OpenBSD
   (`pkg_add python%3`). Il n'y a pas de ffconv pour OpenBSD : le paquet OpenBSD `_nodata` prend les fichiers du jeu
-  d'une installation Windows ou Linux faite avec ZmClient (son `LISEZMOI.txt` les liste).
+  d'une installation Windows ou Linux faite avec ZmClient (son `README.txt` et son `LISEZMOI.txt` les listent).
 
 Chaque paquet contient aussi les zones converties, les `main/*.iwd` et le `localization.txt` de l'install (plus
-`main/video` sur PC), un `LISEZMOI.txt` et un `VERSION.txt` (commit, date, heure du lien du NRO). Avec
-`--no-game-data`, les paquets vont dans `BO1Zombies_<plateforme>_nodata/` sans aucun fichier du jeu : le joueur installe
-ceux de windows et linux avec la vue Installation de ZmClient, depuis son propre Black Ops. Celui de la Switch contient
-le `.nro`, `mods/` et les outils qui complètent son dossier de carte SD depuis l'installation du joueur
-(`tools/switch_setup`) : `Setup-Switch.bat ["<installation>"]` sous Windows, `./setup_switch.sh <installation>` sous
-Linux. Ils copient `localization.txt` et `main/*.iwd`, convertissent les zones avec `ffconv` (par wine ou WSL sous
-Linux) et compilent `shaders.dksh` avec `uam` et `make_dksh_pack` (un `.exe` Nuitka sous Windows, `python3` sous
-Linux ; `tools/uam/build.sh` construit les deux uam, `tools/switch_setup/build.sh` le `.exe`).
+`main/video` sur PC), un `README.txt` (en anglais), sa copie française `LISEZMOI.txt` et un `VERSION.txt` (commit, date,
+heure du lien du NRO). Avec `--no-game-data`, les paquets vont dans `BO1Zombies_<plateforme>_nodata/` sans aucun fichier
+du jeu : le joueur installe ceux de windows et linux avec la vue Installation de ZmClient, depuis son propre Black Ops.
+Celui de la Switch contient le `.nro`, `mods/` et les outils qui complètent son dossier de carte SD depuis
+l'installation du joueur (`tools/switch_setup`) : `Setup-Switch.bat ["<installation>"]` sous Windows,
+`./setup_switch.sh <installation>` sous Linux. Ils copient `localization.txt` et `main/*.iwd`, convertissent les zones
+avec `ffconv` (par wine ou WSL sous Linux) et compilent `shaders.dksh` avec `uam` et `make_dksh_pack` (un `.exe` Nuitka
+sous Windows, `python3` sous Linux ; `tools/uam/build.sh` construit les deux uam, `tools/switch_setup/build.sh` le
+`.exe`).
 
     tools/make_dist.sh                       # les trois
     tools/make_dist.sh switch linux          # une partie

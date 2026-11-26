@@ -16,6 +16,7 @@ from zmadmin.gamemods import (  # noqa: F401  (the views and tests read them her
     bsp_world_files, client_values, dual_wield_installed, installed_maps, line_values, map_installed, map_label,
     mapkit_layouts, missing_files, mod_flags, nightmare_available, resolve_map, solo_maps, specials_available,
     stack_mod, unlimited_pap_installed)
+from zmadmin.i18n import LANGUAGES, tr
 
 # the Solo view's line is the one a server gets
 solo_mod_flags = mod_flags
@@ -31,7 +32,7 @@ SPLIT_LAYOUTS = ("side", "stack")
 SPLIT_INPUTS = {"kbm_pad": ("kbm", "pad0"), "pad_pad": ("pad0", "pad1")}
 SPLIT_RECTS = {"side": ("0,0,0.5,1", "0.5,0,0.5,1"), "stack": ("0,0,1,0.5", "0,0.5,1,0.5")}
 SPLIT2_HOME = "split2"
-DEFAULT_NAME2 = "Joueur2"
+DEFAULT_NAME2 = "Player2"
 DEFAULT_PORT = 3074
 
 AIM_DVARS = (("aim_assist", "bo1_aimassist"), ("aim_slowdown", "aim_slowdown_enabled"),
@@ -57,6 +58,7 @@ FSR_SHARPNESS = (0.0, 0.2, 0.5, 1.0, 2.0)
 UPSCALERS = ("fsr1", "asr_quality", "asr_balanced", "asr_performance")
 
 DEFAULTS = {
+    "language": "en",                   # one of zmadmin.i18n.LANGUAGES: ZmClient's interface language
     "mode": "solo",
     **MOD_DEFAULTS,
     "god": False,
@@ -130,11 +132,11 @@ def check_extra(text):
     """None when one free command line is usable, else why not."""
     text = text.strip()
     if not text:
-        return "la ligne est vide"
+        return tr("the line is empty")
     if "+" in text:
-        return "pas de « + » : le jeu coupe sa ligne de commande à chaque « + »"
+        return tr('no "+": the game cuts its command line at each "+"')
     if '"' in text or "\n" in text:
-        return "pas de guillemet ni de retour à la ligne"
+        return tr("no quote or line break")
     return None
 
 
@@ -164,6 +166,8 @@ class Profile:
             value = saved.get(key)
             if value is not None and type(value) is type(default):
                 self.data[key] = value
+        if self.data["language"] not in LANGUAGES:
+            self.data["language"] = DEFAULTS["language"]
         if self.data["mode"] not in MODES:
             self.data["mode"] = DEFAULTS["mode"]
         if self.data["window"] not in WINDOW_MODES:
@@ -337,53 +341,53 @@ def problems(p, dist_root=None, server_mods=None):
     answer (protocol.ModInfo), whose files this folder must have."""
     out = []
     if p["name"] and not valid_name(p["name"]):
-        out.append("nom du joueur : 1 à 15 lettres, chiffres, « _ », « - » ou « . »")
+        out.append(tr('player name: 1 to 15 letters, digits, "_", "-" or "."'))
     if split_on(p) and p["name2"] and not valid_name(p["name2"]):
-        out.append("nom du joueur 2 : 1 à 15 lettres, chiffres, « _ », « - » ou « . »")
+        out.append(tr('player 2\'s name: 1 to 15 letters, digits, "_", "-" or "."'))
     if p["mode"] == "join":
         if not valid_host(p["join_host"]):
-            out.append("adresse du serveur absente ou invalide (vue Serveurs, F2)")
+            out.append(tr("server address missing or invalid (Servers view, F2)"))
         if not 1 <= p["join_port"] <= 65535:
-            out.append("port du serveur hors de 1-65535")
+            out.append(tr("server port outside 1-65535"))
         if p["join_password"] and not valid_password(p["join_password"]):
-            out.append("mot de passe du serveur : ni espace, ni guillemet, ni « ; », ni « + »")
+            out.append(tr('server password: no blank, quote, ";" or "+"'))
     if p["mode"] == "host" and not 1 <= p["host_port"] <= 65535:
-        out.append("port du serveur local hors de 1-65535")
+        out.append(tr("local server port outside 1-65535"))
     if p["mode"] in ("solo", "host"):
         bsp = resolve_map(p["map"], dist_root)[0]
         if not map_installed(bsp, dist_root):
-            out.append(f"{MAP_LABELS.get(bsp, bsp)} n'est pas installée (pas de zone {bsp}.ff : votre Black Ops "
-                       "n'a pas ce DLC)")
+            out.append(tr("{map} is not installed (no zone {bsp}.ff: your Black Ops lacks this DLC)").format(
+                map=MAP_LABELS.get(bsp, bsp), bsp=bsp))
     if p["mode"] in ("solo", "host"):
         layout = resolve_map(p["map"], dist_root)[1]
         missing = bsp_world_files(layout, dist_root) if layout else []
         if missing:
-            out.append(f"{MAPKIT_LABELS.get(layout, layout)} : il manque {', '.join(missing)} (votre extraction de "
-                       "Black Ops II, docs/BO2_MAPS.md)")
+            out.append(tr("{map}: {files} missing (your extraction of Black Ops II, docs/BO2_MAPS.md)").format(
+                map=MAPKIT_LABELS.get(layout, layout), files=", ".join(missing)))
     if wants_bo2_weapons(p, dist_root) and not bo2_weapons_installed(dist_root):
-        out.append("armes de Black Ops II : pas de mods/bo2weapons/mod.ff (à construire depuis votre Black Ops II, "
-                   "docs/BO2_WEAPONS.md)")
+        out.append(tr("Black Ops II weapons: no mods/bo2weapons/mod.ff (to build from your Black Ops II, "
+                      "docs/BO2_WEAPONS.md)"))
     if p["mode"] in ("join", "host"):
         missing = missing_files(server_values(p, dist_root, server_mods), dist_root)
         if p["mode"] == "host":
             missing = [m for m in missing if m.startswith("mods")]    # the map's own files: the check above
         if missing:
-            out.append(f"le serveur charge {', '.join(missing)}, absent(s) de ce dossier")
+            out.append(tr("the server loads {files}, missing from this folder").format(files=", ".join(missing)))
     if p["mode"] in ("solo", "host") and p["unlimited_pap"] and not unlimited_pap_installed(dist_root):
-        out.append("Pack-a-Punch illimité : pas de mods/unlimitedpap/maps/_zombiemode_perks.gsc (à écrire depuis vos "
-                   "zones : tools/unlimitedpap/make_perks.py)")
+        out.append(tr("unlimited Pack-a-Punch: no mods/unlimitedpap/maps/_zombiemode_perks.gsc (to write from your "
+                      "zones: tools/unlimitedpap/make_perks.py)"))
     if wants_dual_wield(p, dist_root) and not dual_wield_installed(dist_root):
-        out.append("armes doublées : pas de mods/dualwield/mod.ff (à construire depuis le mod « Relaxing Dual "
-                   "Wield », mods/dualwield/README.md)")
+        out.append(tr('dual-wield weapons: no mods/dualwield/mod.ff (to build from the "Relaxing Dual Wield" mod, '
+                      "mods/dualwield/README.md)"))
     if p["window"] in ("window", "fullscreen") and not parse_size(p["window_size"]):
-        out.append("résolution : LARGEURxHAUTEUR, ex. 1280x720")
+        out.append(tr("resolution: WIDTHxHEIGHT, e.g. 1280x720"))
     for e in p["extra"]:
         if e.get("on"):
             why = check_extra(e["text"])
             if why:
-                out.append(f"dvar libre « {e['text']} » : {why}")
+                out.append(tr('free dvar "{text}": {why}').format(text=e["text"], why=why))
     if dist_root and "+" in dist_root:
-        out.append("le chemin du dossier du jeu contient un « + » : le jeu couperait sa ligne de commande")
+        out.append(tr('the game folder\'s path holds a "+": the game would cut its command line'))
     return out
 
 
@@ -396,7 +400,7 @@ def build_command(p, exe, dist_root, launch_cfg="", player=1, server_mods=None):
     if issues:
         raise ValueError(issues[0])
     if player == 2 and not split_on(p):
-        raise ValueError("pas d'écran partagé")
+        raise ValueError(tr("no split screen"))
     home = split_home(dist_root) if player == 2 else dist_root
     argv = [exe, "+set", "bo1_zombies", "1", "+set", "fs_b", dist_root, "+set", "fs_h", home,
             "+set", "logfile", "2", "+set", "bo1_mod_sharedconfig", "1"]
@@ -457,7 +461,8 @@ def build_command(p, exe, dist_root, launch_cfg="", player=1, server_mods=None):
         argv += ["+set", "cl_allowWanConnect", "1", "+set", "cl_autoConnect", server_address(p)]
     count = sum(1 for a in argv[1:] if a.startswith("+")) + launch_cfg.count("+")
     if count > MAX_COMMAND_LINES:
-        raise ValueError(f"{count} commandes « + » : le jeu n'en lit que {MAX_COMMAND_LINES} (retirer des dvars libres)")
+        raise ValueError(tr('{count} "+" commands: the game reads only {max} (remove free dvars)').format(
+            count=count, max=MAX_COMMAND_LINES))
     return argv
 
 

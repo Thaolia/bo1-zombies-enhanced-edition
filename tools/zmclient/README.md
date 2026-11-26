@@ -8,7 +8,7 @@ A curses program (Python 3, standard library only; `windows-curses` on Windows),
   Pack-a-Punch, faster spawns, quick restart) and god
   mode. The mod flags are those of `tools/mod-launcher.hta`, rule for rule;
 - **Join a server**: a saved favourite or a server found on the LAN, with its player password (`g_password`). It
-  first asks the server what to load ("Détecter les mods du serveur", on by default: `getmodinfo`, `docs/SERVER.md`)
+  first asks the server what to load ("Detect the server's mods", on by default: `getmodinfo`, `docs/SERVER.md`)
   and loads the same mods, zones and imported map;
 - **Local server + join it**: starts the folder's dedicated server as ZmAdmin does (same state file and rcon password,
   so ZmAdmin administers it) with the Solo view's game (map, mods, start kit), then the game, which joins it once its
@@ -35,17 +35,25 @@ the local server's rcon password lives), `--no-mouse` keyboard only.
 
 | key | view | what it does |
 | --- | --- | --- |
-| F1 | Jouer | the mode, a summary, Launch / Stop the game / Stop the local server, the state of the game files, and the exact command line |
-| F2 | Serveurs | favourites and LAN servers with their live status (name, map, players, ping); add, edit, remove, join |
+| F1 | Play | the mode, a summary, Launch / Stop the game / Stop the local server, the state of the game files, and the exact command line |
+| F2 | Servers | favourites and LAN servers with their live status (name, map, players, ping); add, edit, remove, join |
 | F3 | Solo | map (base maps, Dead Ops Arcade, the package's mapkit layouts, Black Ops II's Nuketown and TranZit when `make_dist.sh --bo2` packaged them, and the native Nuketown when its zone and BSP are there (`bo1_mod_zones zombie_bo2nuked`, `bo1_bspworld`); TranZit also loads Ascension's zone for Stamin-Up), god mode, zinfo, noperks, hit marker (mods/hitmarker), unlimited Pack-a-Punch (mods/unlimitedpap, greyed without its script `mods/unlimitedpap/maps/_zombiemode_perks.gsc`, which `tools/unlimitedpap/make_perks.py` writes from your zones), zombie spawn speed (mods/spawnrate: off, 2, 3, 5 or 10 times, `spawnrate_mult`; the sprint to the barriers, `spawnrate_rush`), these three stacked on `fs_mods` after the others, quick restart, start points, power and perks (mods/admin's `zm_startpoints` / `zm_startpower` / `zm_startperks`, stacked on the line's `fs_mods`), Black Ops II's weapons (mods/bo2weapons, when `mods/bo2weapons/mod.ff` is there: in the box with the map's, alone plus the map's special weapons, or alone; `bo2weapons` stacked on `fs_mods`, `bo2weapons_box`), horde settings, difficulty; rows a map does not use are greyed with the reason |
-| F4 | Lancement | player name, window mode and size, the graphics API (the default renderer, or Vulkan: `r_mod_gfxApi vulkan` on win64, `BO1_GFX_BACKEND=vulkan` on Linux; it needs `shaders.spv`, docs/VULKAN.md) and under Vulkan the upscaling (`r_mod_upscale` off/ultra/quality/balanced/performance/native (Arm ASR as anti-aliasing at the window's size)/ssaa_1.5x/ssaa_2x (supersampling: rendered 1.5 or 2 times larger, averaged down), `r_mod_upscaler` FSR 1.0 or Arm ASR's quality/balanced/performance shaders, `r_mod_upscaleSharpness`), the split screen (mode, layout, player 2's name and sound), the port's FPS counter, shader warming (`r_shaderWarming`, off by default and always given: the game archives it, so a `config.cfg` from another install or the game's graphics menu kept a 1 that froze the first frame of each map), the models drawn per frame (1024, 2048 or 4096: `r_mod_sceneModels` with a model lighting pool to match, for maps imported by MapKit), gamepad aim assist (each "game setting" / on / off), the local server's game (the Solo view's: Entrée goes there), port and rcon password |
-| F5 | Config du jeu | a form of `players/config.cfg`: mouse, gamepad, FOV, vsync, FPS cap, gamma, MSAA, anisotropy, texture quality, shadows, depth of field, blood, subtitles, quitting from the pause menu; any other dvar; key binds. Its Résolution row is the Launch view's (below), not a `config.cfg` line |
-| F6 | Dvars libres | free command lines, each one a `+line` before the map or the connection, enabled one by one; a Description column explains the dvars ZmClient knows (`zmclient/dvarhelp.py`: `bo1_netlog`, `r_shaderWarming`, `bo1_frameperf`, ...), and Add lists them first |
-| F7 | Installation | the Black Ops install (found in Steam's libraries, picked in a folder browser, or typed), the state of each part, Install, progress. Install copies the game's files, converts the zones with the package's ffconv (which also writes `shaders.pack`) and compiles `shaders.pack` to `shaders.spv` for Vulkan (`zmclient/spirvpack.py`, shared with `tools/ffconv/gen/make_spirv_pack.py`) with the glslang the Windows and Linux packages carry (Khronos' 16.6.0 release), else the system's (`glslang-tools`); `s` leaves that step out. `shaders.spv` is compiled again only when it is missing or older than `shaders.pack`. Without glslang the rest installs and the game keeps its default renderer |
-| F8 | Journal | the running game's `console_mp.log`, live, with a filter |
+| F4 | Launch | the interface language (English, or French: see below), player name, window mode and size, the graphics API (the default renderer, or Vulkan: `r_mod_gfxApi vulkan` on win64, `BO1_GFX_BACKEND=vulkan` on Linux; it needs `shaders.spv`, docs/VULKAN.md) and under Vulkan the upscaling (`r_mod_upscale` off/ultra/quality/balanced/performance/native (Arm ASR as anti-aliasing at the window's size)/ssaa_1.5x/ssaa_2x (supersampling: rendered 1.5 or 2 times larger, averaged down), `r_mod_upscaler` FSR 1.0 or Arm ASR's quality/balanced/performance shaders, `r_mod_upscaleSharpness`), the split screen (mode, layout, player 2's name and sound), the port's FPS counter, shader warming (`r_shaderWarming`, off by default and always given: the game archives it, so a `config.cfg` from another install or the game's graphics menu kept a 1 that froze the first frame of each map), the models drawn per frame (1024, 2048 or 4096: `r_mod_sceneModels` with a model lighting pool to match, for maps imported by MapKit), gamepad aim assist (each "game setting" / on / off), the local server's game (the Solo view's: Enter goes there), port and rcon password |
+| F5 | Game config | a form of `players/config.cfg`: mouse, gamepad, FOV, vsync, FPS cap, gamma, MSAA, anisotropy, texture quality, shadows, depth of field, blood, subtitles, quitting from the pause menu; any other dvar; key binds. Its Resolution row is the Launch view's (below), not a `config.cfg` line |
+| F6 | Free dvars | free command lines, each one a `+line` before the map or the connection, enabled one by one; a Description column explains the dvars ZmClient knows (`zmclient/dvarhelp.py`: `bo1_netlog`, `r_shaderWarming`, `bo1_frameperf`, ...), and Add lists them first |
+| F7 | Setup | the Black Ops install (found in Steam's libraries, picked in a folder browser, or typed), the state of each part, Install, progress. Install copies the game's files, converts the zones with the package's ffconv (which also writes `shaders.pack`) and compiles `shaders.pack` to `shaders.spv` for Vulkan (`zmclient/spirvpack.py`, shared with `tools/ffconv/gen/make_spirv_pack.py`) with the glslang the Windows and Linux packages carry (Khronos' 16.6.0 release), else the system's (`glslang-tools`); `s` leaves that step out. `shaders.spv` is compiled again only when it is missing or older than `shaders.pack`. Without glslang the rest installs and the game keeps its default renderer |
+| F8 | Log | the running game's `console_mp.log`, live, with a filter |
 
 Mouse and keyboard work as in ZmAdmin: a click picks, a double click edits or runs, the wheel scrolls; `?` (or F9)
 explains the view, each row's help shows below the list.
+
+## Language
+ZmClient speaks English. The first row of the Launch view (F4), "Language", switches it to French (`language` in
+`profile.json`, `en` by default); it takes effect at once and only changes ZmClient, not the game. The texts in the
+code are English and go through `zmadmin/i18n.py`'s `tr()` where they are shown; the French ones live in
+`zmclient/fr/*.py` (and `zmadmin/fr_shared.py` for the widgets and texts ZmClient shares with ZmAdmin), keyed by the
+English text. ZmAdmin itself stays French (`set_language("fr")` in its `main`). A new text needs its French pair,
+or it shows in English in French mode; the tests check that every pair is used and keeps the same `{fields}`.
 
 ## The command line
 
@@ -56,7 +64,7 @@ The base is `Play.bat` / `play.sh`'s: `bo1_zombies 1`, `fs_b` and `fs_h` the fol
 set god mode: the server decides. They load what the server's clients must load (its `fs_game`, `fs_mods`,
 `bo1_mod_zones`, `bo1_mod_mapkit`, `bo1_bspworld`): the local server's game in host mode, a remote server's
 `getmodinfo` answer in Join mode. Without an answer (an older server) or on a refused password, Join loads the manual
-choices "Armes de Black Ops II" and "Armes doublées": a client without a server's `mod.ff` goes back to the menu on
+choices "Black Ops II weapons" and "Dual-wield weapons": a client without a server's `mod.ff` goes back to the menu on
 entering, with a message naming the missing weapon. A launch is refused when the package lacks a file the server
 loads. When `fs_mods` stacks `bo2weapons` or `dualwield` and the line sets no `bo1_mod_zones`, ZmClient adds
 `bo1_mod_pools 1`: the engine then takes its larger asset pools, as with `bo1_mod_zones` (Shangri-La with both mods
@@ -69,7 +77,7 @@ first.
 
 ## Split screen
 
-"Écran partagé (2 joueurs)" (Jouer and Lancement views) starts two windows of the game, each a client of the same
+"Split screen (2 players)" (Play and Launch views) starts two windows of the game, each a client of the same
 server, in the modes "Serveur local + le rejoindre" and "Rejoindre" (not Solo: its listen server takes one player):
 
 - **clavier/souris + manette**: player 1 on the keyboard and mouse, player 2 on the first controller;
@@ -92,7 +100,7 @@ first, so that the keyboard window, started last, has the focus; Stop closes bot
 The game writes `players/config.cfg` when it quits, so ZmClient refuses to save while the game runs. Edits are
 marked `*` and written with **Sauvegarder** (Ctrl+S): an existing `seta` or `bind` line is rewritten in place, a new
 one goes after the last of its kind, every other line is kept, and the file keeps its line ends. `bo1_mod_fov` is
-also written to `players/bo1_shared.cfg`, which the engine reads after `config.cfg`. "Qualité des textures" writes
+also written to `players/bo1_shared.cfg`, which the engine reads after `config.cfg`. "Texture quality" writes
 `r_picmip_manual` and the `r_picmip*` family together (`r_picmip` alone is read-only while `r_picmip_manual` is 0).
 "Quitter le jeu depuis le menu pause" is `bo1_quitOnDisconnect`, on in the engine when the file has no line for it:
 setting it to 0 brings back BO1's main menu after the pause menu's leave entry; `seta` marks the dvar archived, so
@@ -100,7 +108,7 @@ the game keeps the line when it rewrites the file.
 
 The resolution is not a `config.cfg` line: `R_SetWndParms` takes the monitor's size in borderless (ZmClient's
 default), `r_customMode` in a window and `r_mode` only in fullscreen, so a `seta r_mode` alone changed nothing in the
-two first modes. The Config view's "Résolution" row and the Launch view's are the same profile value (`window_size`),
+two first modes. The Config view's "Resolution" row and the Launch view's are the same profile value (`window_size`),
 saved at once and given on the command line, after `config.cfg`: `r_customMode` in a window, `r_mode` in fullscreen
 (a size the monitor does not offer falls back to the engine's default mode).
 
@@ -122,7 +130,7 @@ shows them as to be converted again. The install is only read. The log is `main/
 
 ffconv is a Windows program: on Linux ZmClient runs it through WSL's interop when it runs in WSL, else with `wine`
 (paths through `wslpath -w` / `winepath -w`), or asks to convert on a Windows PC and copy `zone/` and `shaders.pack`.
-An install without the DLCs has only Kino, Five and Dead Ops: ZmClient marks the other maps "non installée" (no
+An install without the DLCs has only Kino, Five and Dead Ops: ZmClient marks the other maps "not installed" (no
 `zone/*/<map>.ff`) and refuses to launch them, solo or as the local server's map. `tools/make_dist.sh --no-game-data` makes packages
 (`BO1Zombies_<platform>_nodata/`) with no game file at all, for players who install from their own copy.
 
@@ -132,7 +140,7 @@ An install without the DLCs has only Kino, Five and Dead Ops: ZmClient marks the
         # build/zmclient/linux/zmclient, build/zmclient/windows/zmclient.exe, build/zmclient/openbsd/zmclient
 
 As ZmAdmin's `build.sh`, with ZmAdmin's package compiled in (put in the zipapp for OpenBSD). On OpenBSD the
-Installation view copies the game files but converts no zones: ffconv is a 32-bit Windows program and OpenBSD's wine
+Setup view copies the game files but converts no zones: ffconv is a 32-bit Windows program and OpenBSD's wine
 runs 64-bit ones only. `tools/make_dist.sh` rebuilds it when a `.py` file of
 `tools/zmclient` or `tools/zmadmin/zmadmin`, or this `build.sh`, is newer than the binary.
 
