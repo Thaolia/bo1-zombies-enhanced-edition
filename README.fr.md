@@ -45,7 +45,7 @@ Version anglaise : `README.md`. La référence complète et détaillée se trouv
 | Windows 64 bits | jouable | le renderer D3D9 d'origine ; `Play.bat`, `zmclient.exe` |
 | Windows 32 bits | build de référence | la disposition du jeu d'origine ; `Play.bat offline` sans Steam |
 | Linux x86-64 | en cours | client OpenGL 4.3, serveur dédié et client sans affichage ; pas encore de son ni de manette |
-| OpenBSD/amd64 | fonctionne | compilé depuis Linux ; joué sur une vraie machine avec ZmClient (OpenGL) ; Vulkan compilé, pas encore essayé |
+| OpenBSD/amd64 | fonctionne | compilé depuis Linux ; joué sur une vraie machine avec ZmClient (OpenGL) ; Vulkan atteint le menu sur une Intel UHD 630 (anv) |
 | Nintendo Switch 1 | homebrew jouable | `.nro` pour Atmosphère, deko3d ou OpenGL, menu de démarrage sur la console |
 
 ## Pour commencer
@@ -243,7 +243,8 @@ Les différences d'OS sont sous `#if defined(__OpenBSD__)` dans `src/platform/po
 `funopen`, `getthrid`, pas d'affinité CPU) ; `src/platform/openbsd/include` remplace les en-têtes glibc absents
 d'OpenBSD. Le backend Vulkan y est compilé aussi, à activer comme sous Linux (`BO1_GFX_BACKEND=vulkan`, ou « API
 graphique » dans ZmClient) : il ouvre `libvulkan` au lancement, le build n'a donc besoin de rien de plus, et le joueur
-de `vulkan-loader` et d'un pilote Mesa qui donne Vulkan 1.3. Sous Linux et OpenBSD, `r_mod_upscale`, `r_mod_upscaler`
+de `vulkan-loader` et d'un pilote Mesa qui donne Vulkan 1.3 ; le jeu ajoute `/usr/X11R6/share/vulkan/icd.d`
+(xenocara), que `vulkan-loader` ne parcourt pas. Sous Linux et OpenBSD, `r_mod_upscale`, `r_mod_upscaler`
 et `r_mod_upscaleSharpness` (FSR 1.0, Arm ASR, SSAA, comme en win64) existent maintenant aussi : les lignes
 « Agrandissement » de ZmClient y font effet (docs/VULKAN.md, étape 8).
 

@@ -1299,8 +1299,10 @@ PLAY        ./play.sh                     opens the game's menu (Zombies, Solo, 
 VULKAN      optional, OpenGL stays the default renderer: zmclient, Launch view, "Graphics API" Vulkan,
             then "Upscaling" (FSR 1.0, Arm ASR, supersampling); or BO1_GFX_BACKEND=vulkan ./play.sh.
             It needs shaders.spv beside the program, the Vulkan loader (doas pkg_add vulkan-loader) and a Mesa
-            driver that gives Vulkan 1.3 (radv, anv). Without them the game does not start: go back to OpenGL.
-            Never tried on OpenBSD: send back main/console_mp.log (vk: and d3d9emu: lines).
+            driver that gives Vulkan 1.3 (radv, anv). The game finds xenocara's drivers in
+            /usr/X11R6/share/vulkan/icd.d by itself (VK_DRIVER_FILES, if set, chooses instead). Without a driver
+            the game stops with "Couldn't initialize renderer": go back to OpenGL. Runs on an Intel UHD 630 (anv,
+            -current); on other GPUs, send back main/console_mp.log (vk: and d3d9emu: lines).
 JOIN        ./play.sh net 192.168.1.20:3074 MyName
             joins a dedicated server as soon as the menu is up, and goes back to it by itself after a drop.
 SERVER      ./server.sh [map] [port]      defaults: zombie_theater 3074
@@ -1346,8 +1348,10 @@ JOUER       ./play.sh                     ouvre le menu du jeu (Zombies, Solo, u
 VULKAN      facultatif, OpenGL reste le rendu par défaut : zmclient, vue Lancement, « API graphique » Vulkan,
             puis « Agrandissement » (FSR 1.0, Arm ASR, suréchantillonnage) ; ou BO1_GFX_BACKEND=vulkan ./play.sh.
             Il faut shaders.spv à côté du programme, le chargeur Vulkan (doas pkg_add vulkan-loader) et un pilote
-            Mesa qui donne Vulkan 1.3 (radv, anv). Sans eux le jeu ne démarre pas : repassez à OpenGL. Jamais
-            essayé sur OpenBSD : renvoyez main/console_mp.log (lignes vk: et d3d9emu:).
+            Mesa qui donne Vulkan 1.3 (radv, anv). Le jeu trouve seul les pilotes de xenocara dans
+            /usr/X11R6/share/vulkan/icd.d (VK_DRIVER_FILES, s'il est défini, choisit à sa place). Sans pilote le
+            jeu s'arrête sur « Couldn't initialize renderer » : repassez à OpenGL. Marche sur une Intel UHD 630
+            (anv, -current) ; sur un autre GPU, renvoyez main/console_mp.log (lignes vk: et d3d9emu:).
 REJOINDRE   ./play.sh net 192.168.1.20:3074 MonNom
             rejoint un serveur dédié dès que le menu est prêt, et y revient tout seul après une coupure.
 SERVEUR     ./server.sh [map] [port]      par défaut : zombie_theater 3074
