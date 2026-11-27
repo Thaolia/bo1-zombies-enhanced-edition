@@ -51,7 +51,9 @@ not.
   `snd_driver_xaudio2*.cpp` see XAudio2; on posix `snd_driver_sdl2.cpp` implements the same `snd_driver.h` as a
   software mixer on an SDL2 device. The engine still owns the voice table and computes each voice's speaker map and
   send levels; the driver turns that into samples — the MS-ADPCM/PCM decode (`snd_adpcm`) and the send matrices
-  (`snd_mix`, ported from `SDXA2_UpdateVoiceSends`) are factored out pure and unit-tested. RAM and streamed voices
+  (`snd_mix`, ported from `SDXA2_UpdateVoiceSends`) are factored out pure and unit-tested. RAM voices play their asset
+  where the zone holds it, as XAudio2's source buffer: PCM16 in place, MS-ADPCM one 512-frame block at a time on the
+  audio thread, so a start decodes nothing. Streamed voices
   (music, long ambience: the engine's stream thread reads the file, the driver decodes each window into one of two
   chunks per voice, as XAudio2 queues two buffers). The buses are XAudio2's, rendered in its 480-frame quantum:
   dry to the master or novoice bus, wet to the 4-channel radverb bus, radverb into novoice (compressor), novoice into

@@ -9,8 +9,10 @@
 // starve on long frames (the libnx note in .claude/rules/switch-homebrew.md), so the pull model is deliberate. The
 // game thread mutates the voice table in the SD_* entry points; the callback reads it. One mutex guards the table,
 // held only briefly and never across an allocation or I/O: the callback allocates nothing (its scratch is
-// pre-allocated in SD_Init) and reads only RAM, and every decode/alloc happens on the game thread (at a voice start or
-// a stream window).
+// pre-allocated in SD_Init) and reads only RAM. A RAM voice plays its asset where the zone holds it, as XAudio2's
+// source buffer does: PCM16 is read in place, MS-ADPCM is decoded one 512-frame block at a time on the audio thread,
+// so a start costs no decode (a whole asset took up to 9 ms on a desktop CPU). A stream window is decoded on the game
+// thread.
 //
 // Scope (docs/PORTING.md, phase 4b). RAM voices (indices 10..73) and streamed voices (0..9: music, long ambience).
 // A streamed voice follows SD_UpdateStreamVoice of the XAudio2 driver: the engine's stream thread (snd_stream.cpp)
@@ -53,6 +55,7 @@ void __cdecl iSND_ChannelError(int voiceIndex);
 namespace
 {
 constexpr int kDeviceRate = 48000;
+constexpr int kMaxBlockFrames = 512; // an MS-ADPCM block of the zones (262 bytes a channel)
 constexpr int kDeviceChannels = 2; // the device is stereo; snd_speakerConfiguration defaults to "Stereo" (index 0),
                                    // so the engine fills each voice's pan with output_channel_count == 2 to match.
 
@@ -73,7 +76,7 @@ struct MixerVoice
     bool drained = false;  // set by the callback when a non-looping voice runs out; SD_UpdateVoice then stops it
     int inputChannels = 1;
     int outputChannels = kDeviceChannels;
-    int frameCount = 0;          // decoded source frames held in `samples`
+    int frameCount = 0;          // the RAM asset's frames
     int assetRate = kDeviceRate; // the asset's native frame rate, for the resample step
     double readPos = 0.0;        // source read cursor in frames (audio thread)
     double playedSrc = 0.0;      // cumulative source frames consumed, monotonic across loops (SamplesPlayed)
@@ -81,7 +84,15 @@ struct MixerVoice
     float dry[2 * 8] = {};       // the dry send matrix, destination-major (dest * inputChannels + src)
     float wet[2 * 4] = {};       // the wet send to the 4-channel radverb bus, same layout
     bool toMasterBus = false;    // the dry send's bus: master, else novoice (alias flags, bus 2)
-    std::vector<float> samples;  // interleaved float PCM, frameCount * inputChannels; owned by the game thread
+    // A RAM voice's asset, in the zone's memory (alive while the voice plays, as for XAudio2's source buffer).
+    const uint8_t *data = nullptr;
+    size_t dataSize = 0;
+    bool adpcm = false;
+    int blockAlign = 0;
+    int blockFrames = 0;                 // frames an MS-ADPCM block decodes to
+    int blockIndex[2] = {-1, -1};        // the blocks held in blockPcm, block n in slot n & 1
+    int blockGot[2] = {};                // frames each held block decoded to (a short final block holds fewer)
+    int16_t blockPcm[2][kMaxBlockFrames * 2];
     StreamChunk chunks[2];       // streamed voices only
     int chunkHead = 0;           // the chunk being played
     int chunkCount = 0;          // chunks queued, the one being played included (XAudio2's BuffersQueued)
@@ -116,30 +127,34 @@ snd_dsp_master_no_voice_state s_novoiceState[kDeviceChannels];
 std::vector<float> s_streamSpare[SND_MAX_STREAM_VOICES]; // game thread: the next chunk is decoded here, then swapped in
 std::vector<int16_t> s_streamPcm;                         // game thread: ADPCM decode output before the float step
 
-// Decodes a RAM asset (PCM16 or MS-ADPCM) into interleaved float in [-1, 1]. Called on the game thread at voice
-// start, into a local buffer, before the voice is made active, so the callback never races the decode.
-void DecodeAsset(const snd_asset *snd, int frames, int channels, std::vector<float> &outF)
+// The interleaved PCM16 of one frame of a RAM voice's asset, or null past the data. An MS-ADPCM block decodes on its
+// first read; blocks n and n + 1 sit in different slots, so an interpolation across a block edge decodes each once.
+const int16_t *RamFrame(MixerVoice &v, int frame)
 {
-    outF.assign(size_t(frames) * channels, 0.0f);
-    if (snd->format == SND_ASSET_FORMAT_MSADPCM)
+    if (!v.adpcm)
     {
-        // The block align is 262 bytes a channel, as iSND_CreateVoice hard-codes it (snd_driver_xaudio2.cpp:410);
-        // the asset's block_size field is not used by the engine, so it is not trusted here.
-        const int blockAlign = 262 * channels;
-        std::vector<int16_t> pcm(size_t(frames) * channels);
-        const int got = Bo1_DecodeMsAdpcm(reinterpret_cast<const uint8_t *>(snd->data), snd->data_size, channels,
-                                           blockAlign, pcm.data(), frames);
-        for (int i = 0; i < got * channels; ++i)
-            outF[i] = pcm[i] * (1.0f / 32768.0f);
+        const size_t index = size_t(frame) * v.inputChannels;
+        if ((index + v.inputChannels) * sizeof(int16_t) > v.dataSize)
+            return nullptr;
+        return reinterpret_cast<const int16_t *>(v.data) + index;
     }
-    else // PCM16 (format 0): the data is interleaved signed 16-bit already
+    const int block = frame / v.blockFrames;
+    const int slot = block & 1;
+    if (v.blockIndex[slot] != block)
     {
-        const int16_t *pcm = reinterpret_cast<const int16_t *>(snd->data);
-        const int avail = int(snd->data_size / sizeof(int16_t));
-        const int n = frames * channels < avail ? frames * channels : avail;
-        for (int i = 0; i < n; ++i)
-            outF[i] = pcm[i] * (1.0f / 32768.0f);
+        const size_t base = size_t(block) * v.blockAlign;
+        const size_t bytes = base < v.dataSize ? (v.dataSize - base < size_t(v.blockAlign) ? v.dataSize - base
+                                                                                         : size_t(v.blockAlign))
+                                               : 0;
+        v.blockGot[slot] = bytes ? Bo1_DecodeMsAdpcm(v.data + base, bytes, v.inputChannels, v.blockAlign,
+                                                     v.blockPcm[slot], v.blockFrames)
+                                 : 0;
+        v.blockIndex[slot] = block;
     }
+    const int offset = frame - block * v.blockFrames;
+    if (offset >= v.blockGot[slot])
+        return nullptr;
+    return &v.blockPcm[slot][size_t(offset) * v.inputChannels];
 }
 
 // Resamples a streamed voice across its queued chunks into `src`; returns the frames produced. A chunk played to its
@@ -199,12 +214,16 @@ int ProduceRam(MixerVoice &v, int frames, float *src)
         int i1 = i0 + 1;
         if (i1 >= v.frameCount)
             i1 = v.looping ? 0 : i0;
+        // Frame i0 is copied out before frame i1 is read: at a loop's wrap both can map to the same block slot.
+        float a[2] = {}, b[2] = {};
+        if (const int16_t *p = RamFrame(v, i0))
+            for (int c = 0; c < v.inputChannels; ++c)
+                a[c] = p[c] * (1.0f / 32768.0f);
+        if (const int16_t *p = RamFrame(v, i1))
+            for (int c = 0; c < v.inputChannels; ++c)
+                b[c] = p[c] * (1.0f / 32768.0f);
         for (int c = 0; c < v.inputChannels; ++c)
-        {
-            const float a = v.samples[size_t(i0) * v.inputChannels + c];
-            const float b = v.samples[size_t(i1) * v.inputChannels + c];
-            src[f * v.inputChannels + c] = float(a + (b - a) * frac);
-        }
+            src[f * v.inputChannels + c] = float(a[c] + (b[c] - a[c]) * frac);
         v.readPos += v.step;
         v.playedSrc += v.step;
         ++produced;
@@ -412,10 +431,7 @@ void SD_Shutdown()
     }
     std::lock_guard<std::mutex> lock(s_lock);
     for (auto &v : s_voices)
-    {
         v = MixerVoice();
-        std::vector<float>().swap(v.samples);
-    }
 }
 
 // The XAudio2 driver's, with SetEffectParameters replaced by the pending copies RenderBlock picks up.
@@ -498,20 +514,21 @@ void __cdecl SD_PreUpdate()
 void __cdecl SD_StopVoice(int voiceIndex)
 {
     {
-        std::vector<float> freed[3]; // released after the lock, so the callback never waits on a free
+        std::vector<float> freed[2]; // released after the lock, so the callback never waits on a free
         std::lock_guard<std::mutex> lock(s_lock);
         MixerVoice &v = s_voices[voiceIndex];
         v.active = false;
         v.started = false;
         v.drained = false;
-        v.samples.swap(freed[0]);
+        v.data = nullptr;
+        v.dataSize = 0;
         v.frameCount = 0;
         v.stream = false;
         v.chunkHead = 0;
         v.chunkCount = 0;
         for (int i = 0; i < 2; ++i)
         {
-            v.chunks[i].samples.swap(freed[1 + i]);
+            v.chunks[i].samples.swap(freed[i]);
             v.chunks[i].frames = 0;
         }
     }
@@ -825,15 +842,23 @@ int __cdecl SND_StartAliasRam(SndStartAliasInfo *startAliasInfo, int voiceIndex)
 
     const int channels = int(snd->channel_count);
     const int frames = int(snd->frame_count);
-
-    // Decode into a local buffer before touching the shared voice, so the callback never sees a half-filled vector.
-    std::vector<float> decoded;
-    DecodeAsset(snd, frames, channels, decoded);
+    // The block align is 262 bytes a channel, as iSND_CreateVoice hard-codes it (snd_driver_xaudio2.cpp:410); the
+    // asset's block_size field is not used by the engine, so it is not trusted here.
+    const bool adpcm = snd->format == SND_ASSET_FORMAT_MSADPCM;
+    const int blockAlign = 262 * channels;
+    const int blockFrames = adpcm ? Bo1_MsAdpcmFramesPerBlock(channels, blockAlign) : 0;
+    if (channels < 1 || channels > 2 || (adpcm && (blockFrames < 1 || blockFrames > kMaxBlockFrames)))
+        return -1; // the mixer plays mono and stereo assets only, as SD_UpdateVoice's send matrices
 
     {
         std::lock_guard<std::mutex> lock(s_lock);
         MixerVoice &v = s_voices[voiceIndex];
-        v.samples.swap(decoded);
+        v.data = reinterpret_cast<const uint8_t *>(snd->data);
+        v.dataSize = snd->data_size;
+        v.adpcm = adpcm;
+        v.blockAlign = blockAlign;
+        v.blockFrames = blockFrames;
+        v.blockIndex[0] = v.blockIndex[1] = -1;
         v.frameCount = frames;
         v.inputChannels = channels;
         v.outputChannels = kDeviceChannels;
