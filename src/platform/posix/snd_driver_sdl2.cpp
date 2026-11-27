@@ -17,8 +17,9 @@
 // reads the file into windows; the game thread acquires a window, decodes it to float into one of the voice's two
 // chunks (XAudio2 queues at most two buffers too) and gives the window back at once, since the chunk holds the
 // samples. The buses and their DSP are XAudio2's (RenderBlock): reverb, the novoice compressor, the master EQ and
-// limiter, with the parameters SD_PreUpdate computes as the XAudio2 driver does. The per-voice source DSP (occlusion
-// low-pass, futz) is not run yet. The decoders (snd_adpcm) and the send matrices (snd_mix) are unit-tested offline;
+// limiter, with the parameters SD_PreUpdate computes as the XAudio2 driver does. Each voice first runs XAudio2's source
+// effect (SDXA2SourceEffect: the occlusion low-pass and the futz radio effect), with the parameters
+// SDXA2_UpdateVoiceSends computes. The decoders (snd_adpcm) and the send matrices (snd_mix) are unit-tested offline;
 // audible correctness, 3D and the non-unity resampler are verified on hardware, not here.
 
 #include "snd_adpcm.h"
@@ -84,6 +85,8 @@ struct MixerVoice
     StreamChunk chunks[2];       // streamed voices only
     int chunkHead = 0;           // the chunk being played
     int chunkCount = 0;          // chunks queued, the one being played included (XAudio2's BuffersQueued)
+    snd_dsp_source_params fx = {};      // the source effect's parameters, zero (no filter) until the first update
+    snd_dsp_source_state fxState[2] = {}; // one a channel, cleared at each start as iSND_CreateVoice clears its XAPO
 };
 
 std::mutex s_lock;
@@ -100,6 +103,9 @@ float s_radverbBus[kBlock * 4];
 float s_planar[kBlock * 4];
 float s_rvOut[kBlock * 4];
 float s_block[kBlock * kDeviceChannels];
+float s_voicePlanar[kBlock * 2]; // one voice's quantum, planar, for its source effect
+float s_fxTempA[kBlock];
+float s_fxTempB[kBlock];
 int s_blockPos = kBlock;
 snd_rv_state s_rvState;
 snd_rv_params s_rvParams, s_rvPending;
@@ -213,6 +219,22 @@ void Uninterleave(const float *in, int channels, float *planar)
             planar[c * kBlock + f] = in[f * channels + c];
 }
 
+// SDXA2SourceEffect::Process on one voice's quantum (interleaved in `src`, `produced` frames). XAudio2 always hands the
+// effect a whole quantum, silence past a voice's end, and the engine's DSP needs a multiple of 4 frames: pad with zeros.
+void RunSourceEffect(MixerVoice &v, float *src, int produced)
+{
+    const int channels = v.inputChannels;
+    std::memset(src + size_t(produced) * channels, 0, sizeof(float) * size_t(kBlock - produced) * channels);
+    Uninterleave(src, channels, s_voicePlanar);
+    for (int c = 0; c < channels; ++c)
+        // The cast is the XAudio2 driver's: the function reads the whole snd_dsp_source_params through it.
+        SND_DspFxSourceMono(reinterpret_cast<const snd_dsp_futz_param *>(&v.fx), &v.fxState[c], kBlock,
+                            &s_voicePlanar[c * kBlock], s_fxTempA, s_fxTempB);
+    for (int f = 0; f < produced; ++f)
+        for (int c = 0; c < channels; ++c)
+            src[f * channels + c] = s_voicePlanar[c * kBlock + f];
+}
+
 // One 480-frame quantum of the XAudio2 graph (SD_Init in snd_driver_xaudio2.cpp): every voice sends dry to the master
 // or the novoice bus and wet to the 4-channel radverb bus; the radverb bus (stage 1) feeds the novoice bus through the
 // stereo output matrix (its channel 3 to the left, 1 to the right); the novoice bus (stage 2, its compressor) feeds
@@ -237,6 +259,9 @@ void RenderBlock()
             continue;
         else
             produced = ProduceRam(v, kBlock, src);
+        if (produced <= 0)
+            continue;
+        RunSourceEffect(v, src, produced);
         bo1snd::MixAccumulate(src, produced, v.inputChannels, v.dry, kDeviceChannels,
                               v.toMasterBus ? s_masterBus : s_novoiceBus);
         bo1snd::MixAccumulate(src, produced, v.inputChannels, v.wet, 4, s_radverbBus);
@@ -373,7 +398,7 @@ char __cdecl SD_Init()
         s_blockPos = kBlock;
     }
     SDL_PauseAudioDevice(s_device, 0);
-    Com_Printf(16, "snd: SDL2 software mixer on %s, %d Hz, %d ch, %d-frame buffer (RAM and streamed voices, reverb and master DSP)\n",
+    Com_Printf(16, "snd: SDL2 software mixer on %s, %d Hz, %d ch, %d-frame buffer (RAM and streamed voices, source, reverb and master DSP)\n",
                SDL_GetCurrentAudioDriver(), have.freq, have.channels, have.samples);
     return 1;
 }
@@ -560,6 +585,27 @@ void __cdecl SD_UpdateVoice(unsigned int voiceIndex)
     // not do; skip the voice rather than read the matrix or the buffer out of range.
     if (voice->pan.output_channel_count != kDeviceChannels || v.inputChannels < 1 || v.inputChannels > 2)
         return;
+    // SDXA2_UpdateVoiceSends' source effect parameters. They read the engine's voice and dvars only, but are copied
+    // under the lock like the sends, since the callback reads them.
+    snd_dsp_source_params fx;
+    fx.lpfAttenuation = float(SND_GetLpfLevel(voice));
+    fx.lpfRatio = 0.25f;
+    fx.frameRate = float(kDeviceRate);
+    fx.futz.blend = voice->futzBlend;
+    fx.futz.bpfF = snd_futz_bpf_f->current.value;
+    fx.futz.bpfQ = snd_futz_bpf_q->current.value;
+    fx.futz.lsG = snd_futz_ls_g->current.value;
+    fx.futz.lsF = snd_futz_ls_f->current.value;
+    fx.futz.lsQ = snd_futz_ls_q->current.value;
+    fx.futz.distortion = snd_futz_distortion->current.value;
+    fx.futz.pregain = snd_futz_preg->current.value;
+    fx.futz.postgain = snd_futz_postg->current.value;
+    fx.futz.squelch.tg = snd_futz_tg->current.value;
+    fx.futz.squelch.th = snd_futz_th->current.value;
+    fx.futz.preclip = snd_futz_clip_pre->current.value;
+    fx.futz.postclip = snd_futz_clip_post->current.value;
+    v.fx = fx;
+
     bo1snd::VoiceSends sends;
     bo1snd::BuildVoiceSends(voice->pan.volumes, v.inputChannels, kDeviceChannels, voice->dryLevel, voice->wetLevel,
                             voice->alias->flags, &sends);
@@ -651,6 +697,8 @@ bool CreateStreamVoice(int voiceIndex, const snd_asset *header)
         g = 0.0f;
     for (float &g : v.wet)
         g = 0.0f;
+    v.fx = snd_dsp_source_params{};
+    std::memset(v.fxState, 0, sizeof(v.fxState));
     v.active = true;
     return true;
 }
@@ -801,6 +849,8 @@ int __cdecl SND_StartAliasRam(SndStartAliasInfo *startAliasInfo, int voiceIndex)
             g = 0.0f;
         for (float &g : v.wet)
             g = 0.0f;
+        v.fx = snd_dsp_source_params{};
+        std::memset(v.fxState, 0, sizeof(v.fxState));
         v.active = true;
     }
 

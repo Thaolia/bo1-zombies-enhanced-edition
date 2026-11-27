@@ -56,8 +56,9 @@ not.
   chunks per voice, as XAudio2 queues two buffers). The buses are XAudio2's, rendered in its 480-frame quantum:
   dry to the master or novoice bus, wet to the 4-channel radverb bus, radverb into novoice (compressor), novoice into
   master (EQ, limiter), with the engine's own DSP (`snd_radverb.cpp`, `snd_dsp.cpp`) and the parameters
-  `SD_PreUpdate` reads from the map's reverb and master tables. The per-voice source DSP (occlusion low-pass, futz) is
-  deferred (`docs/PORTING.md`, phase 4b step 4).
+  `SD_PreUpdate` reads from the map's reverb and master tables. Before its sends, each voice runs XAudio2's source
+  effect (`SND_DspFxSourceMono`: the occlusion and distance low-pass, the futz radio effect), with the parameters
+  `SDXA2_UpdateVoiceSends` computes (`docs/PORTING.md`, phase 4b step 4).
 
 ## ffconv (phase 2)
 `tools/ffconv` is a 32-bit Windows tool (MinGW, `tools/ffconv/CMakePresets.json`) that turns the retail zones into
