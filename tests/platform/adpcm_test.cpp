@@ -113,6 +113,21 @@ int main(int argc, char **argv)
                     firstBad, out[firstBad], refSamples[firstBad]);
         return 1;
     }
-    std::printf("PASS: %d samples match ffmpeg exactly\n", got * channels);
+    // The SDL2 driver decodes a RAM voice one block at a time, at the block's own offset (snd_driver_sdl2.cpp,
+    // RamFrame): each block must decode to the same samples as in the whole decode.
+    const int blockFrames = Bo1_MsAdpcmFramesPerBlock(channels, blockAlign);
+    std::vector<int16_t> block(size_t(blockFrames) * channels);
+    for (size_t base = 0, frame = 0; base < adpcmSize; base += size_t(blockAlign), frame += size_t(blockFrames))
+    {
+        const size_t bytes = adpcmSize - base < size_t(blockAlign) ? adpcmSize - base : size_t(blockAlign);
+        const int n = Bo1_DecodeMsAdpcm(adpcm + base, bytes, channels, blockAlign, block.data(), blockFrames);
+        for (int i = 0; i < n * channels && frame * channels + i < size_t(got) * channels; ++i)
+            if (block[i] != out[frame * channels + i])
+            {
+                std::printf("FAIL: block at byte %zu differs from the whole decode at sample %d\n", base, i);
+                return 1;
+            }
+    }
+    std::printf("PASS: %d samples match ffmpeg exactly, block by block too\n", got * channels);
     return 0;
 }

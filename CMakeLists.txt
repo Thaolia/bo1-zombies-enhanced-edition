@@ -338,7 +338,7 @@ else()
     # - win_syscon.cpp (the Win32 console window; posix_syscon.cpp is the terminal) and win_mini_dumper.cpp (dbghelp
     #   minidumps, token privileges; posix_main.cpp keeps its started flag);
     # - XAudio2: snd_driver_sdl2.cpp implements sound/snd_driver.h with a software mixer on an SDL2 device (RAM voices;
-    #   streaming and reverb deferred). It falls back to 'nosnd' when no device opens (headless, no hardware).
+    #   RAM and streamed voices, XAudio2's buses and the engine's DSP). It falls back to 'nosnd' when no device opens (headless, no hardware).
     # The rest of win32/ and CubeMapGenLib build on the Win32 layer of src/platform/posix.
     set_source_files_properties(
         "${SRC_DIR}/win32/win_syscon.cpp"
