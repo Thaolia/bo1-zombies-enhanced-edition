@@ -1224,7 +1224,10 @@ void R_InitGraphicsApi()
     {
         if ( R_BorderlessWanted() ) // borderless: DPI aware before the adapter / monitor choice and the window
             R_BorderlessMakeDpiAware();
-        R_PreCreateWindow();
+        // zombies: retail went on with a null dx.d3d9 (crash in R_SetCustomResolution); the posix Vulkan backend
+        // without a driver makes this fail for real.
+        if ( !R_PreCreateWindow() )
+            R_FatalInitError("Couldn't initialize renderer");
         while ( 1 )
         {
             R_SetWndParms(&wndParms);

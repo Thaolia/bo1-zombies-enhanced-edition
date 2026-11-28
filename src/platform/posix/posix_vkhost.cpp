@@ -12,6 +12,11 @@
 
 #include <vector>
 
+#if defined(__OpenBSD__)
+#include <stdlib.h>
+#include <sys/stat.h>
+#endif
+
 bool __cdecl Sys_IsHeadless();
 char *__cdecl Sys_DefaultInstallPath();
 void Com_Printf(int channel, const char *fmt, ...);
@@ -28,11 +33,31 @@ void Fail(const char *what)
 {
     Com_Printf(kConsoleChannelGfx, "vk: %s: %s\n", what, SDL_GetError());
 }
+
+#if defined(__OpenBSD__)
+// OpenBSD's Mesa is part of xenocara: its driver manifests are in /usr/X11R6/share/vulkan/icd.d, which the
+// vulkan-loader package never searches (a player's loader listed only /usr/local and /usr: "Found no files", then SDL's
+// "doesn't implement VK_KHR_surface"). Add that folder unless the player chose drivers themselves.
+void AddXenocaraDrivers()
+{
+    constexpr const char *kIcdDir = "/usr/X11R6/share/vulkan/icd.d";
+    if (getenv("VK_DRIVER_FILES") || getenv("VK_ICD_FILENAMES") || getenv("VK_ADD_DRIVER_FILES"))
+        return;
+    struct stat st;
+    if (stat(kIcdDir, &st) != 0 || !S_ISDIR(st.st_mode))
+        return;
+    setenv("VK_ADD_DRIVER_FILES", kIcdDir, 1);
+    Com_Printf(kConsoleChannelGfx, "vk: Vulkan drivers also searched in %s\n", kIcdDir);
+}
+#endif
 } // namespace
 
 bool Open(std::vector<std::string> *instanceExtensions)
 {
     instanceExtensions->clear();
+#if defined(__OpenBSD__)
+    AddXenocaraDrivers();
+#endif
     // A headless run's windows never show: it has no surface to make, and renders into its textures only.
     if (Sys_IsHeadless())
         return true;

@@ -9,7 +9,7 @@ wraps: both write the same bytes). The Windows package carries Khronos' `glslang
 Status (2026-11-24): steps 1-3 and 7 done; step 5 done but for two checks (Kino's cyan glow, NVIDIA and AMD); step 6
 done on PC (Arm ASR with its reactive mask), all merged into `switch`. Open: step 4 (GL/Vulkan parity screenshots on
 Linux, never run), ASR on the Switch (step 6, item 4: on the console since 2026-11-25) and Vulkan on OpenBSD (step 8:
-built 2026-11-25, not tried on OpenBSD; `r_mod_upscale` runs FSR 1.0 and Arm ASR on Linux, seen 2026-11-26). The OpenBSD build itself (GL) ran on the user's machine on 2026-11-24
+reaches the menu on an Intel UHD 630 since the xenocara driver fix, 2026-11-26; `r_mod_upscale` runs FSR 1.0 and Arm ASR on Linux, seen 2026-11-26). The OpenBSD build itself (GL) ran on the user's machine on 2026-11-24
 (`6ae8bd5`, started from ZmClient).
 Each step updates this file, `docs/RENDERER.md` and `docs/PORTING.md` (phase 9) in the session that does it.
 
@@ -392,7 +392,7 @@ with headroom. Two modes:
   keeps its position); screenshots on win64 and Linux; frame times at 1.5x and 2x on the user's Iris Xe.
 - Estimate: 1-2 sessions for SSAA, 1 for native AA once ASR works.
 
-## Step 8 — OpenBSD (last, after ASR and SSAA) — built, not tried on OpenBSD (2026-11-25)
+## Step 8 — OpenBSD (last, after ASR and SSAA) — reaches the menu on an Intel UHD 630 (2026-11-26)
 The OpenBSD build without Vulkan ran on the user's machine on 2026-11-24 (`6ae8bd5`, GL, started from ZmClient; a
 shader warming phase at start was their only remark). This step adds the Vulkan backend to it.
 - `BO1_VULKAN` was already ON for every posix target: only the OpenBSD builds made before Vulkan lacked it. A fresh
@@ -421,6 +421,16 @@ shader warming phase at start was their only remark). This step adds the Vulkan 
   install or from ZmClient's Installation view with OpenBSD's `glslang` (conversion unticked).
 - Never run on real OpenBSD by us: Vulkan there is "for a player to try", and GL stays the default. Asking for Vulkan
   without a driver does not fall back on posix: the game does not start, and the README.txt says to go back to OpenGL.
+- First player run (2026-11-26, -current, Intel UHD 630, release `2026-11-26_v2` from `d231c68`): `vk: SDL cannot load
+  Vulkan: Installed Vulkan doesn't implement the VK_KHR_surface extension`, then a crash. `VK_LOADER_DEBUG=driver`
+  showed why: `vulkan-loader` searches `/usr/local` and `/usr` only, and xenocara's Mesa puts its manifests in
+  `/usr/X11R6/share/vulkan/icd.d`, so the loader found no driver and listed no surface extension. With
+  `VK_DRIVER_FILES` pointing at `intel_icd.x86_64.json` the game reached the menu on anv (`vk: Intel(R) UHD Graphics 630
+  (CFL GT2) (Vulkan 1.4.305), D24S8 depth-stencil, GPU timestamps`). Since then the posix host
+  (`posix_vkhost.cpp`, OpenBSD only) sets `VK_ADD_DRIVER_FILES` to that folder before SDL loads Vulkan, unless the
+  player set `VK_DRIVER_FILES`, `VK_ICD_FILENAMES` or `VK_ADD_DRIVER_FILES`. The crash was retail's: `R_InitGraphicsApi`
+  ignored `R_PreCreateWindow`'s failure and `R_SetCustomResolution` called the null `dx.d3d9`; it now stops with
+  `R_FatalInitError("Couldn't initialize renderer")`.
 
 ## Totals
 | Part | Sessions |
